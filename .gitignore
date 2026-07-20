@@ -1,0 +1,49 @@
+# Dependencies and build output
+node_modules/
+.pnpm-store/
+target/
+.next/
+.next-dev/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Runtime output
+*.log
+hs_err_pid*
+replay_pid*
+storage/
+uploads/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local AI-agent tooling (not part of the production application)
+.agents/
+.codex/
+.gemini.md
+agent/
+_templates/
+skills-lock.json
+
+# Local database cutover files may contain source/target credentials
+scripts/*.sql.local
+
+# Academic report exports are kept locally, outside the product repository
+BAO_CAO_TTTN_RIKKEI_EDUCATION_BO_SUNG_PROJECT.docx
+BAO_CAO_TTTN_RIKKEI_EDUCATION_BO_SUNG_PROJECT.pdf
+
+# Empty legacy placeholder
+test/

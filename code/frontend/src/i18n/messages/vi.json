@@ -1,0 +1,44 @@
+{
+  "navigation": {
+    "home": "Trang chủ",
+    "facilities": "Tiện ích",
+    "rooms": "Phòng",
+    "about": "Về chúng tôi",
+    "reservation": "Đặt phòng",
+    "bookings": "Đơn của tôi",
+    "favorites": "Yêu thích",
+    "login": "Đăng nhập",
+    "signup": "Đăng ký",
+    "logout": "Đăng xuất",
+    "greeting": "Xin chào",
+    "overview": "Tổng quan",
+    "users": "Người dùng",
+    "guests": "Khách lưu trú",
+    "roomTypes": "Loại phòng",
+    "settings": "Cài đặt",
+    "operations": "Vận hành",
+    "management": "Quản lý"
+  },
+  "common": {
+    "quickLinks": "Liên kết",
+    "privacy": "Chính sách bảo mật",
+    "terms": "Điều khoản sử dụng",
+    "follow": "Theo dõi",
+    "copyright": "Bản quyền",
+    "viewDetails": "Xem chi tiết",
+    "bookNow": "Đặt phòng",
+    "perHour": "mỗi giờ",
+    "capacity": "Sức chứa",
+    "guestsUnit": "khách / phòng",
+    "noDescription": "Nội dung đang được cập nhật.",
+    "noData": "Chưa có dữ liệu để hiển thị."
+  },
+  "language": {
+    "vietnamese": "Tiếng Việt",
+    "english": "Tiếng Anh",
+    "label": "Ngôn ngữ",
+    "select": "Chọn ngôn ngữ",
+    "switchToVietnamese": "Chuyển sang tiếng Việt",
+    "switchToEnglish": "Chuyển sang tiếng Anh"
+  }
+}

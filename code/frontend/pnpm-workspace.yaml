@@ -1,0 +1,11 @@
+allowBuilds:
+  '@parcel/watcher': true
+  '@sentry/cli': true
+  '@swc/core': true
+  sharp: true
+  unrs-resolver: true
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
+overrides:
+  postcss: 8.5.15

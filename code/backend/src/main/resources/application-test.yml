@@ -1,0 +1,71 @@
+spring:
+    config:
+        activate:
+            on-profile: test
+    devtools:
+        add-properties: true
+    datasource:
+        # Fast unit tests use H2's PostgreSQL compatibility mode.  The
+        # migration profile uses a real PostgreSQL Testcontainer.
+        url: jdbc:h2:mem:hotelmanagement-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+        username: sa
+        password:
+        driver-class-name: org.h2.Driver
+    jpa:
+        hibernate:
+            ddl-auto: create-drop
+        show-sql: false
+        properties:
+            hibernate:
+                format_sql: true
+    flyway:
+        enabled: false
+    sendgrid:
+        api-key: test
+        from-email: test@example.com
+        templateId: test
+        verificationLink: http://localhost:8080/auth/confirm-email
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+openapi:
+  service:
+    api-docs: backend
+    server: http://localhost:${server.port}
+    title: Backend service
+    version: 1.0.0
+app:
+    seed:
+        master-data-enabled: true
+        demo-users-enabled: true
+    refund:
+        data-encryption-key: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+        merchant-bank:
+            bank-code: NCB
+            bank-name: National Citizen Bank
+            account-number: 012345678901
+            account-holder: HOTEL TEST
+    upload:
+        storage: local
+        dir: ${java.io.tmpdir}/hotelmanagement-test-uploads
+        base-url: http://localhost:8080/uploads
+gemini:
+    api:
+        key: test
+jwt:
+    # Base64 của hai khóa 32-byte chỉ dùng cho test; không dùng lại ở dev/prod.
+    accessKey: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+    refreshKey: MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=
+vnpay:
+    refund-enabled: false
+sepay:
+    qr-bank-account: 012345678901
+    qr-bank-code: NCB
+    qr-bank-name: National Citizen Bank
+    qr-account-holder: HOTEL TEST
+    webhook-api-key:
+    webhook-secret: test-sepay-webhook-secret
+    refund-webhook-timeout-minutes: 45
+    reconciliation-enabled: false

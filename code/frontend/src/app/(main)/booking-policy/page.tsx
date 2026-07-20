@@ -1,0 +1,16 @@
+import type { Metadata } from "next";
+import InformationPage, { type InformationSection } from "@/components/guest/InformationPage";
+
+export const metadata: Metadata = { title: "Chính sách đặt phòng" };
+
+const sections: InformationSection[] = [
+  { title: { vi: "Kiểm tra phòng trống", en: "Availability search" }, body: { vi: "Kết quả tìm kiếm dựa trên hạng phòng, số lượng và thời gian lưu trú. Kết quả tại thời điểm tìm không phải xác nhận cuối cùng nếu khách chưa hoàn tất bước thanh toán được yêu cầu.", en: "Search results reflect room types, quantities, and stay times. Availability is not final until the required payment step is completed." } },
+  { title: { vi: "Đặt cọc 50% hoặc thanh toán 100%", en: "50% deposit or 100% payment" }, body: { vi: "Khi tạo QR đặt phòng, khách chọn đặt cọc 50% hoặc thanh toán toàn bộ. QR hiển thị đúng số tiền, tài khoản nhận và nội dung chuyển khoản; khách cần giữ nguyên các thông tin này.", en: "When creating the booking QR, guests choose a 50% deposit or full payment. The QR shows the exact amount, recipient account, and transfer reference, which should remain unchanged." } },
+  { title: { vi: "Xác nhận thanh toán QR", en: "QR payment confirmation" }, body: { vi: "Thanh toán trực tuyến chỉ dùng QR. Thời gian giao dịch do ngân hàng ghi nhận quyết định khoản tiền có đúng hạn hay không, kể cả khi xác nhận tới hệ thống muộn.", en: "Online payments use QR only. The bank transaction time determines whether a transfer was on time, even if confirmation reaches the system later." } },
+  { title: { vi: "Xử lý số tiền không khớp", en: "Incorrect transfer amounts" }, body: { vi: "Chuyển thiếu không hoàn tất đặt phòng và có thể làm đơn bị hủy, giải phóng giữ phòng. Chuyển thừa, chuyển hai lần hoặc giao dịch tới muộn được đưa vào hàng đợi đối soát/hoàn tiền, không tự động hồi sinh đơn đã hết hiệu lực.", en: "Underpayments do not complete the booking and may cancel it and release the hold. Overpayments, duplicate transfers, and late payments enter reconciliation/refund review and do not revive an expired booking automatically." } },
+  { title: { vi: "Duyệt đơn và gán phòng", en: "Booking approval and room assignment" }, body: { vi: "Sau khi thanh toán hợp lệ, đơn vẫn cần nhân viên xác nhận theo trạng thái vận hành. Một đơn có thể gồm nhiều hạng phòng và số lượng; phòng vật lý chỉ được gán lúc check-in đúng hạng và đủ số lượng.", en: "After valid payment, staff still confirm the booking according to operations. One booking may include multiple room types and quantities; physical rooms are assigned at check-in in the correct types and quantities." } },
+];
+
+export default function BookingPolicyPage() {
+  return <InformationPage eyebrow={{ vi: "Thông tin đặt phòng", en: "Booking information" }} title={{ vi: "Chính sách đặt phòng", en: "Booking policy" }} intro={{ vi: "Quy trình từ kiểm tra phòng trống, chọn mức thanh toán đến khi nhân viên xác nhận đơn.", en: "The process from availability search and payment choice to staff confirmation." }} sections={sections} primaryAction={{ href: "/reservation", label: { vi: "Kiểm tra phòng trống", en: "Check availability" } }} secondaryAction={{ href: "/cancellation-policy", label: { vi: "Xem chính sách hủy", en: "Read cancellation policy" } }} />;
+}

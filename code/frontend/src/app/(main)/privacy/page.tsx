@@ -1,0 +1,16 @@
+import type { Metadata } from "next";
+import InformationPage, { type InformationSection } from "@/components/guest/InformationPage";
+
+export const metadata: Metadata = { title: "Chính sách bảo mật" };
+
+const sections: InformationSection[] = [
+  { title: { vi: "Dữ liệu được thu thập", en: "Data we collect" }, body: { vi: "Hệ thống xử lý họ tên, email, số điện thoại, địa chỉ, thông tin kỳ lưu trú, hạng và số lượng phòng, yêu cầu đặc biệt, lịch sử trạng thái đơn và dữ liệu đối soát thanh toán/hoàn tiền.", en: "The system processes names, email, phone, address, stay details, room types and quantities, special requests, booking status history, and payment/refund reconciliation data." } },
+  { title: { vi: "Dữ liệu thanh toán", en: "Payment data" }, body: { vi: "Website hiển thị tài khoản nhận, số tiền và nội dung chuyển khoản. Hệ thống không yêu cầu OTP, PIN hoặc mật khẩu ngân hàng. Xác nhận từ ngân hàng được dùng để đối soát giao dịch và duy trì ledger.", en: "The website displays the recipient account, amount, and transfer reference. It never asks for an OTP, PIN, or bank password. Bank confirmations reconcile transactions and maintain the ledger." } },
+  { title: { vi: "Mục đích sử dụng", en: "How data is used" }, body: { vi: "Dữ liệu được dùng để kiểm tra phòng trống, tạo và quản lý đơn, hỗ trợ check-in/check-out, xử lý hủy và hoàn tiền, gửi thông báo và phục vụ audit vận hành.", en: "Data supports availability checks, booking management, check-in/out, cancellations and refunds, notifications, and operational audits." } },
+  { title: { vi: "Phiên khách và quyền truy cập", en: "Guest sessions and access" }, body: { vi: "Khách không đăng nhập nhận token tra cứu riêng. Quyền truy cập được giới hạn theo vai trò khách, nhân viên và quản trị viên; không chia sẻ liên kết hoặc token tra cứu cho người khác.", en: "Guests without accounts receive a private lookup token. Access is role-limited for guests, staff, and administrators; do not share lookup links or tokens." } },
+  { title: { vi: "Lưu trữ và yêu cầu dữ liệu", en: "Retention and data requests" }, body: { vi: "Thời hạn lưu dữ liệu và kênh thực hiện quyền truy cập, sửa hoặc xóa cần được khách sạn phê duyệt trước production. Trong bản hiện tại, khách liên hệ lễ tân kèm mã đơn để yêu cầu kiểm tra dữ liệu.", en: "Retention periods and formal access, correction, or deletion channels require hotel approval before production. In the current version, guests contact the front desk with a booking code for data requests." } },
+];
+
+export default function PrivacyPage() {
+  return <InformationPage eyebrow={{ vi: "Quyền riêng tư", en: "Privacy" }} title={{ vi: "Chính sách bảo mật", en: "Privacy policy" }} intro={{ vi: "Dữ liệu nào được xử lý, vì sao cần dữ liệu đó và cách giữ an toàn thông tin đặt phòng.", en: "What data is processed, why it is needed, and how booking information is protected." }} sections={sections} notice={{ vi: "Thời hạn lưu trữ và thông tin pháp nhân chính thức phải được phê duyệt trước khi triển khai production.", en: "Official retention periods and legal entity details must be approved before production." }} primaryAction={{ href: "/support", label: { vi: "Yêu cầu hỗ trợ", en: "Request support" } }} secondaryAction={{ href: "/terms", label: { vi: "Điều khoản sử dụng", en: "Terms of use" } }} />;
+}

@@ -1,0 +1,16 @@
+import type { Metadata } from "next";
+import InformationPage, { type InformationSection } from "@/components/guest/InformationPage";
+
+export const metadata: Metadata = { title: "Điều khoản sử dụng" };
+
+const sections: InformationSection[] = [
+  { title: { vi: "Phạm vi sử dụng", en: "Scope of use" }, body: { vi: "Website phục vụ tìm phòng, tạo đặt phòng trực tiếp, thanh toán QR, theo dõi đơn và gửi các yêu cầu liên quan kỳ lưu trú tại Luxury Hotel.", en: "The website supports room discovery, direct reservations, QR payments, booking tracking, and stay-related requests for Luxury Hotel." } },
+  { title: { vi: "Trách nhiệm của khách", en: "Guest responsibilities" }, body: { vi: "Khách cung cấp thông tin chính xác, giữ an toàn tài khoản/token tra cứu, kiểm tra số tiền và nội dung chuyển khoản trước khi xác nhận. Không can thiệp, giả mạo webhook hoặc thử truy cập dữ liệu không thuộc đơn của mình.", en: "Guests provide accurate details, protect account and lookup tokens, and verify transfer amount and reference before payment. Do not interfere with the service, forge webhooks, or access another guest's data." } },
+  { title: { vi: "Trạng thái và thông báo", en: "Statuses and notifications" }, body: { vi: "Trạng thái hiển thị trên website và ledger của hệ thống là nguồn theo dõi chính. Email hoặc thông báo chỉ hỗ trợ; khi có khác biệt, khách cần liên hệ lễ tân kèm mã đơn để đối soát.", en: "Website status and the system ledger are the primary tracking sources. Emails and notices are supplementary; contact the front desk with the booking code if information differs." } },
+  { title: { vi: "Sử dụng hợp lệ", en: "Acceptable use" }, body: { vi: "Không dùng website để gửi dữ liệu độc hại, thử dò tài khoản, làm gián đoạn dịch vụ hoặc tạo hàng loạt đơn/giao dịch giả. Hệ thống có thể giới hạn hoặc vô hiệu hóa phiên có dấu hiệu lạm dụng.", en: "Do not submit malicious data, probe accounts, disrupt the service, or create fraudulent bookings or transactions. The system may restrict sessions showing signs of abuse." } },
+  { title: { vi: "Giới hạn bản local/MVP", en: "Local/MVP limitations" }, body: { vi: "Nội dung này mô tả hành vi hệ thống hiện tại. Tên pháp nhân, địa chỉ, luật áp dụng, giải quyết tranh chấp và phiên bản điều khoản chính thức cần được khách sạn và bộ phận pháp lý phê duyệt trước khi production.", en: "This text describes current system behavior. Legal entity details, address, governing law, dispute resolution, and the official terms require hotel and legal approval before production." } },
+];
+
+export default function TermsPage() {
+  return <InformationPage eyebrow={{ vi: "Quy định website", en: "Website rules" }} title={{ vi: "Điều khoản sử dụng", en: "Terms of use" }} intro={{ vi: "Các nguyên tắc khi sử dụng website đặt phòng và quản lý kỳ lưu trú trực tiếp.", en: "Rules for using the direct booking and stay-management website." }} sections={sections} notice={{ vi: "Đây là bản nội dung local/MVP, chưa thay thế điều khoản pháp lý chính thức của khách sạn.", en: "This local/MVP copy does not replace the hotel's official legal terms." }} primaryAction={{ href: "/booking-policy", label: { vi: "Chính sách đặt phòng", en: "Booking policy" } }} secondaryAction={{ href: "/privacy", label: { vi: "Chính sách bảo mật", en: "Privacy policy" } }} />;
+}

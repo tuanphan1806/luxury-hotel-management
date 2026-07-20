@@ -1,0 +1,45 @@
+spring:
+  config:
+    # Chỉ profile dev đọc file .env cục bộ. Production phải dùng biến môi trường/secret manager.
+    import: "optional:file:./.env[.properties]"
+    activate:
+      on-profile: dev
+  devtools:
+    add-properties: true
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: validate
+
+# Tránh lỗi ApplicationTemp ownership trên Windows khi DevTools khởi động lại.
+# Thư mục nằm trong target nên không tạo file runtime trong source tree.
+server:
+  servlet:
+    session:
+      # DevTools bật persistent session mặc định; trên Windows điều này có thể
+      # tái dùng một ApplicationTemp thuộc phiên trước và làm app không khởi động.
+      persistent: false
+      store-dir: ${SERVER_SESSION_STORE_DIR:./target/tomcat-sessions}
+  tomcat:
+    basedir: ${SERVER_TOMCAT_BASEDIR:./target/tomcat}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+app:
+  seed:
+    master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:true}
+    demo-users-enabled: ${APP_SEED_DEMO_USERS_ENABLED:true}
+  auth-cookie:
+    secure: false
+  # Next.js backend_proxy chạy cùng máy trong dev; chỉ tin forwarded headers từ localhost.
+  security:
+    trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:true}
+    trusted-proxies: ${TRUSTED_PROXIES:127.0.0.1,::1}
+
+jwt:
+  expiryMinutes: ${JWT_EXPIRY_MINUTES:15}
+  expiryDay: ${JWT_EXPIRY_DAY:14}

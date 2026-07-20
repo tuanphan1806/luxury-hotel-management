@@ -1,0 +1,103 @@
+services:
+  - type: web
+    name: luxury-hotel-backend
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: code/backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: JAVA_TOOL_OPTIONS
+        value: -XX:MaxRAMPercentage=60.0 -XX:InitialRAMPercentage=15.0 -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Ho_Chi_Minh
+      - key: DB_POOL_MAX_SIZE
+        value: "5"
+      - key: DB_POOL_MIN_IDLE
+        value: "0"
+      - key: DB_CONNECTION_TIMEOUT_MS
+        value: "30000"
+      - key: AUTH_COOKIE_SECURE
+        value: "true"
+      - key: AUTH_COOKIE_SAME_SITE
+        value: None
+      - key: APP_UPLOAD_STORAGE
+        value: cloudinary
+      - key: APP_STATIC_MEDIA_MIGRATION_ENABLED
+        value: "false"
+      - key: APP_SEED_MASTER_DATA_ENABLED
+        value: "false"
+      - key: APP_SEED_DEMO_USERS_ENABLED
+        value: "false"
+      - key: APP_BOOTSTRAP_ADMIN_ENABLED
+        value: "false"
+      - key: VNPAY_REFUND_ENABLED
+        value: "false"
+      - key: SEPAY_RECONCILIATION_ENABLED
+        value: "true"
+      - key: TRUST_FORWARDED_HEADERS
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USERNAME
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
+      - key: BACKEND_BASE_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: JWT_ACCESS_KEY
+        sync: false
+      - key: JWT_REFRESH_KEY
+        sync: false
+      - key: REFUND_DATA_ENCRYPTION_KEY
+        sync: false
+      - key: HOTEL_NAME
+        value: Luxury Hotel
+      - key: HOTEL_ADDRESS
+        sync: false
+      - key: HOTEL_PHONE
+        sync: false
+      - key: HOTEL_EMAIL
+        sync: false
+      - key: HOTEL_TAX_CODE
+        sync: false
+      - key: MERCHANT_BANK_CODE
+        sync: false
+      - key: MERCHANT_BANK_NAME
+        sync: false
+      - key: MERCHANT_BANK_ACCOUNT_NUMBER
+        sync: false
+      - key: MERCHANT_BANK_ACCOUNT_NAME
+        sync: false
+      - key: SEPAY_WEBHOOK_SECRET
+        sync: false
+      - key: SEPAY_API_ACCESS_TOKEN
+        sync: false
+      - key: SEPAY_API_BANK_ACCOUNT_ID
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_FOLDER
+        value: hotel-media
+      - key: SEED_MEDIA_BASE_URL
+        sync: false
+      - key: VERIFICATION_SENDGRID_API_KEY
+        sync: false
+      - key: VERIFICATION_SENDGRID_FROM_EMAIL
+        sync: false
+      - key: VERIFICATION_SENDGRID_TEMPLATE_ID
+        sync: false
+      - key: AUDIT_ALERT_RECIPIENTS
+        sync: false

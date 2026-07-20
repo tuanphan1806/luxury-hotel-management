@@ -1,0 +1,44 @@
+{
+  "navigation": {
+    "home": "Home",
+    "facilities": "Facilities",
+    "rooms": "Rooms",
+    "about": "About us",
+    "reservation": "Reservation",
+    "bookings": "My bookings",
+    "favorites": "Favorites",
+    "login": "Login",
+    "signup": "Sign up",
+    "logout": "Logout",
+    "greeting": "Hi",
+    "overview": "Overview",
+    "users": "Users",
+    "guests": "Reservation guests",
+    "roomTypes": "Room types",
+    "settings": "Settings",
+    "operations": "Operations",
+    "management": "Management"
+  },
+  "common": {
+    "quickLinks": "Quick links",
+    "privacy": "Privacy policy",
+    "terms": "Terms of service",
+    "follow": "Follow us",
+    "copyright": "Copyright",
+    "viewDetails": "View details",
+    "bookNow": "Book now",
+    "perHour": "per hour",
+    "capacity": "Capacity",
+    "guestsUnit": "guests / room",
+    "noDescription": "Content is being updated.",
+    "noData": "No data is available yet."
+  },
+  "language": {
+    "vietnamese": "Vietnamese",
+    "english": "English",
+    "label": "Language",
+    "select": "Select language",
+    "switchToVietnamese": "Switch to Vietnamese",
+    "switchToEnglish": "Switch to English"
+  }
+}

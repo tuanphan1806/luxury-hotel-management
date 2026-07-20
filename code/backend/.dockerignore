@@ -1,0 +1,12 @@
+.git
+.idea
+.env
+.env.*
+!.env.example
+target
+storage
+docs
+db
+hs_err_pid*
+replay_pid*
+*.log

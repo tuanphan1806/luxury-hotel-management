@@ -1,0 +1,96 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  devtools:
+    add-properties: false
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+  sendgrid:
+    api-key: ${VERIFICATION_SENDGRID_API_KEY}
+    from-email: ${VERIFICATION_SENDGRID_FROM_EMAIL}
+    templateId: ${VERIFICATION_SENDGRID_TEMPLATE_ID}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+server:
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,application/problem+json,text/html,text/plain,text/css,application/javascript
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  frontend-base-url: ${FRONTEND_BASE_URL}
+  seed:
+    master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:false}
+    demo-users-enabled: ${APP_SEED_DEMO_USERS_ENABLED:false}
+  bootstrap-admin:
+    enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}
+  seed-media:
+    base-url: ${SEED_MEDIA_BASE_URL}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  security:
+    trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:false}
+    trusted-proxies: ${TRUSTED_PROXIES:127.0.0.1,::1}
+  auth-cookie:
+    secure: true
+    # Use Lax for www.example.com + api.example.com. Use None only while
+    # frontend/backend live on unrelated generated domains.
+    same-site: ${AUTH_COOKIE_SAME_SITE:Lax}
+  oauth:
+    backend-base-url: ${BACKEND_BASE_URL}
+  refund:
+    data-encryption-key: ${REFUND_DATA_ENCRYPTION_KEY}
+  upload:
+    # Provider-specific beans validate only the provider selected here.
+    storage: ${APP_UPLOAD_STORAGE:cloudinary}
+    # Required by local/S3; Cloudinary returns its own secure CDN URL.
+    base-url: ${APP_UPLOAD_BASE_URL:}
+  hotel-name: ${HOTEL_NAME}
+  hotel-address: ${HOTEL_ADDRESS}
+  hotel-phone: ${HOTEL_PHONE}
+  hotel-email: ${HOTEL_EMAIL}
+  hotel-tax-code: ${HOTEL_TAX_CODE}
+
+jwt:
+  expiryMinutes: ${JWT_EXPIRY_MINUTES:30}
+  expiryDay: ${JWT_EXPIRY_DAY:7}
+  accessKey: ${JWT_ACCESS_KEY}
+  refreshKey: ${JWT_REFRESH_KEY}
+
+vnpay:
+  # Legacy read/refund compatibility only. Production no longer requires
+  # VNPay credentials when the hotel has no historical VNPay transactions.
+  tmn-code: ${VNPAY_TMN_CODE:}
+  hash-secret: ${VNPAY_HASH_SECRET:}
+  payment-url: ${VNPAY_PAYMENT_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+  return-url: ${VNPAY_RETURN_URL:https://example.invalid/api/payments/vnpay/return}
+  # QueryDR/refund settings are required only after explicit opt-in.
+  api-url: ${VNPAY_API_URL:}
+  refund-ip-address: ${VNPAY_REFUND_IP_ADDRESS:}
+  refund-enabled: ${VNPAY_REFUND_ENABLED:false}
+
+sepay:
+  qr-bank-account: ${SEPAY_QR_BANK_ACCOUNT:${MERCHANT_BANK_ACCOUNT_NUMBER}}
+  qr-bank-code: ${SEPAY_QR_BANK_CODE:${MERCHANT_BANK_CODE}}
+  qr-bank-name: ${SEPAY_QR_BANK_NAME:${MERCHANT_BANK_NAME:}}
+  qr-account-holder: ${SEPAY_QR_ACCOUNT_HOLDER:${MERCHANT_BANK_ACCOUNT_NAME}}
+  webhook-api-key: ${SEPAY_WEBHOOK_API_KEY:}
+  webhook-secret: ${SEPAY_WEBHOOK_HMAC_SECRET:${SEPAY_WEBHOOK_SECRET:}}
+  refund-webhook-timeout-minutes: ${SEPAY_REFUND_WEBHOOK_TIMEOUT_MINUTES:45}
+  api-access-token: ${SEPAY_API_ACCESS_TOKEN:}
+  reconciliation-enabled: ${SEPAY_RECONCILIATION_ENABLED:true}

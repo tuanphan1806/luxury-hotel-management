@@ -1,0 +1,246 @@
+server:
+    # Render and most container platforms inject PORT at runtime.
+    port: ${PORT:8080}
+    shutdown: graceful
+spring:
+    application:
+        name: backend
+    servlet:
+        multipart:
+            # Request overhead needs a little more room than the 5 MB file itself.
+            max-file-size: ${UPLOAD_MAX_FILE_SIZE:5MB}
+            max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:6MB}
+    profiles:
+        active: @spring.profiles.active@
+    datasource:
+        url: ${DATABASE_URL:jdbc:postgresql://localhost:5433/hotelmanagement}
+        username: ${DATABASE_USERNAME:hotel}
+        password: ${DATABASE_PASSWORD:hotel}
+        driver-class-name: org.postgresql.Driver
+        hikari:
+            # Keep the defaults conservative for a single backend instance;
+            # production can size the pool against PostgreSQL max_connections.
+            maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+            minimum-idle: ${DB_POOL_MIN_IDLE:2}
+            connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:30000}
+            validation-timeout: ${DB_VALIDATION_TIMEOUT_MS:5000}
+            max-lifetime: ${DB_MAX_LIFETIME_MS:1800000}
+            keepalive-time: ${DB_KEEPALIVE_TIME_MS:300000}
+            data-source-properties:
+                ApplicationName: ${DB_APPLICATION_NAME:hotelmanagement-backend}
+                reWriteBatchedInserts: true
+    jpa:
+        open-in-view: false
+        hibernate:
+            ddl-auto: validate
+        show-sql: false
+        properties:
+            hibernate:
+                format_sql: false
+                jdbc:
+                    time_zone: UTC
+    flyway:
+        enabled: true
+        # V1 is a complete PostgreSQL baseline; do not silently mark an empty
+        # database as already migrated.
+        baseline-on-migrate: false
+        validate-on-migrate: true
+        clean-disabled: true
+        connect-retries: ${DB_CONNECT_RETRIES:10}
+        lock-retry-count: ${DB_MIGRATION_LOCK_RETRIES:50}
+        locations: classpath:db/migration-postgres
+    lifecycle:
+        timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+    sendgrid:
+        # Kênh xác thực tài khoản. application-dev.yml có thể override cho môi trường dev.
+        api-key: ${VERIFICATION_SENDGRID_API_KEY:}
+        from-email: ${VERIFICATION_SENDGRID_FROM_EMAIL:}
+        templateId: ${VERIFICATION_SENDGRID_TEMPLATE_ID:}
+        verificationLink: ${BACKEND_BASE_URL:http://localhost:${server.port:8080}}/auth/confirm-email
+management:
+    endpoint:
+        health:
+            # Keep credentials and dependency details out of the public probe.
+            show-details: never
+    endpoints:
+        web:
+            exposure:
+                # /actuator/** remains ADMIN-only except health/info in AppConfig.
+                include: "health,info,metrics"
+logging:
+    level:
+        root: INFO
+        web: INFO
+    pattern:
+        console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [%X{correlationId:-no-correlation}] %logger{36} - %msg%n"
+app:
+    frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
+    seed:
+        # Master/demo seed is opt-in. Production must never recreate weak demo users.
+        master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:false}
+        demo-users-enabled: ${APP_SEED_DEMO_USERS_ENABLED:false}
+    bootstrap-admin:
+        # One-time production bootstrap. Disable and remove the password after first login.
+        enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}
+        full-name: ${BOOTSTRAP_ADMIN_FULL_NAME:}
+        username: ${BOOTSTRAP_ADMIN_USERNAME:}
+        email: ${BOOTSTRAP_ADMIN_EMAIL:}
+        phone: ${BOOTSTRAP_ADMIN_PHONE:}
+        password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    maintenance:
+        # Không chạy job dọn dữ liệu ngay trong lúc ứng dụng còn khởi tạo.
+        startup-delay-ms: ${MAINTENANCE_STARTUP_DELAY_MS:60000}
+        payment-interval-ms: ${PAYMENT_MAINTENANCE_INTERVAL_MS:300000}
+        room-hold-interval-ms: ${ROOM_HOLD_MAINTENANCE_INTERVAL_MS:120000}
+    seed-media:
+        base-url: ${SEED_MEDIA_BASE_URL:http://localhost:${server.port:8080}}
+    cors:
+        allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001}
+    security:
+        # Chỉ bật khi backend đứng sau reverse proxy được liệt kê chính xác bên dưới.
+        trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:false}
+        trusted-proxies: ${TRUSTED_PROXIES:127.0.0.1,::1}
+    auth-cookie:
+        secure: ${AUTH_COOKIE_SECURE:true}
+        same-site: ${AUTH_COOKIE_SAME_SITE:Lax}
+    oauth:
+        backend-base-url: ${BACKEND_BASE_URL:http://localhost:${server.port:8080}}
+        frontend-callback-url: ${FRONTEND_BASE_URL:http://localhost:3000}/oauth/callback
+        google:
+            client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
+            client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}
+        facebook:
+            client-id: ${FACEBOOK_OAUTH_CLIENT_ID:}
+            client-secret: ${FACEBOOK_OAUTH_CLIENT_SECRET:}
+    password-reset-ttl-minutes: ${PASSWORD_RESET_TTL_MINUTES:30}
+    email-verification-ttl-hours: ${EMAIL_VERIFICATION_TTL_HOURS:48}
+    reservation:
+        no-show-grace-minutes: ${NO_SHOW_GRACE_MINUTES:360}
+        pre-payment-session-minutes: ${PRE_PAYMENT_SESSION_MINUTES:30}
+    refund:
+        data-encryption-key: ${REFUND_DATA_ENCRYPTION_KEY:}
+        cancellation-policy-code: ${CANCELLATION_POLICY_CODE:CURRENT_CANCELLATION_POLICY}
+        cancellation-policy-version: ${CANCELLATION_POLICY_VERSION:2026-07-19}
+        merchant-bank:
+            bank-code: ${MERCHANT_BANK_CODE:${SEPAY_QR_BANK_CODE:}}
+            bank-name: ${MERCHANT_BANK_NAME:${SEPAY_QR_BANK_NAME:}}
+            account-number: ${MERCHANT_BANK_ACCOUNT_NUMBER:${SEPAY_QR_BANK_ACCOUNT:}}
+            account-holder: ${MERCHANT_BANK_ACCOUNT_NAME:${SEPAY_QR_ACCOUNT_HOLDER:}}
+    upload:
+        storage: ${APP_UPLOAD_STORAGE:local}
+        static-migration-enabled: ${APP_STATIC_MEDIA_MIGRATION_ENABLED:false}
+        dir: ${APP_UPLOAD_DIR:./storage}
+        base-url: ${APP_UPLOAD_BASE_URL:http://localhost:${server.port:8080}/uploads}
+        max-bytes: ${APP_UPLOAD_MAX_BYTES:5242880}
+        max-width: ${APP_UPLOAD_MAX_WIDTH:6000}
+        max-height: ${APP_UPLOAD_MAX_HEIGHT:6000}
+        max-pixels: ${APP_UPLOAD_MAX_PIXELS:24000000}
+        temporary-ttl-hours: ${APP_UPLOAD_TEMPORARY_TTL_HOURS:24}
+        orphan-ttl-hours: ${APP_UPLOAD_ORPHAN_TTL_HOURS:24}
+        cleanup-batch-size: ${APP_UPLOAD_CLEANUP_BATCH_SIZE:100}
+        cleanup-cron: ${APP_UPLOAD_CLEANUP_CRON:0 30 3 * * *}
+        s3:
+            bucket: ${APP_UPLOAD_S3_BUCKET:}
+            region: ${APP_UPLOAD_S3_REGION:ap-southeast-1}
+            endpoint: ${APP_UPLOAD_S3_ENDPOINT:}
+            path-style-access: ${APP_UPLOAD_S3_PATH_STYLE_ACCESS:false}
+            key-prefix: ${APP_UPLOAD_S3_KEY_PREFIX:hotel-media}
+            verify-bucket-on-startup: ${APP_UPLOAD_S3_VERIFY_BUCKET:true}
+            server-side-encryption: ${APP_UPLOAD_S3_SERVER_SIDE_ENCRYPTION:false}
+        cloudinary:
+            cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+            api-key: ${CLOUDINARY_API_KEY:}
+            api-secret: ${CLOUDINARY_API_SECRET:}
+            folder: ${CLOUDINARY_FOLDER:hotel-media}
+    # Dùng chung SendGrid với kênh xác thực; tránh lưu hai bộ credential trùng nhau.
+    transactional-email:
+        api-key: ${spring.sendgrid.api-key:}
+        from-email: ${spring.sendgrid.from-email:}
+    audit-alert:
+        recipients: ${AUDIT_ALERT_RECIPIENTS:}
+        batch-size: ${AUDIT_ALERT_BATCH_SIZE:25}
+        delivery-interval-ms: ${AUDIT_ALERT_DELIVERY_INTERVAL_MS:30000}
+        processing-timeout-minutes: ${AUDIT_ALERT_PROCESSING_TIMEOUT_MINUTES:10}
+    monitoring:
+        refund-pending-threshold-minutes: ${MONITORING_REFUND_PENDING_THRESHOLD_MINUTES:60}
+        reconciliation-stale-threshold-minutes: ${MONITORING_RECONCILIATION_STALE_THRESHOLD_MINUTES:15}
+        checkout-pending-threshold-minutes: ${MONITORING_CHECKOUT_PENDING_THRESHOLD_MINUTES:30}
+        room-hold-overdue-grace-minutes: ${MONITORING_ROOM_HOLD_OVERDUE_GRACE_MINUTES:5}
+        email-outbox-stale-threshold-minutes: ${MONITORING_EMAIL_OUTBOX_STALE_THRESHOLD_MINUTES:15}
+        webhook-auth-failure-threshold-count: ${MONITORING_WEBHOOK_AUTH_FAILURE_THRESHOLD_COUNT:3}
+        webhook-auth-failure-window-minutes: ${MONITORING_WEBHOOK_AUTH_FAILURE_WINDOW_MINUTES:5}
+    hotel-name: ${HOTEL_NAME:Luxury Hotel}
+    hotel-address: ${HOTEL_ADDRESS:}
+    hotel-phone: ${HOTEL_PHONE:}
+    hotel-email: ${HOTEL_EMAIL:}
+    hotel-tax-code: ${HOTEL_TAX_CODE:}
+jwt:
+    expiryMinutes: ${JWT_EXPIRY_MINUTES:30}
+    expiryDay: ${JWT_EXPIRY_DAY:7}
+    accessKey: ${JWT_ACCESS_KEY:}
+    refreshKey: ${JWT_REFRESH_KEY:}
+openapi:
+  service:
+    api-docs: backend
+    server: ${BACKEND_BASE_URL:http://localhost:${server.port:8080}}
+    title: Backend service
+    version: 1.0.0
+chatbot:
+  api-base-url: ${BACKEND_BASE_URL:http://localhost:${server.port:8080}}
+gemini:
+  api:
+    # Optional: deterministic FAQ/database answers still work without Gemini.
+    key: ${GEMINI_API_KEY:}
+hotel:
+  check-in-time: "${HOTEL_CHECK_IN_TIME:14:00}"
+  check-out-time: "${HOTEL_CHECK_OUT_TIME:12:00}"
+  guest-retention-days: ${GUEST_RETENTION_DAYS:90}
+  pricing:
+    extra-hour-fee: ${HOTEL_EXTRA_HOUR_FEE:10000}
+    late-checkout-fee-per-room-hour: ${HOTEL_LATE_CHECKOUT_FEE:10000}
+  operations:
+    draft-warning-minutes: ${DRAFT_WARNING_MINUTES:30}
+    arrival-window-hours: ${ARRIVAL_WINDOW_HOURS:2}
+    refund-alert-hours: ${REFUND_ALERT_HOURS:48}
+# Chỉ giữ VNPay để đọc giao dịch lịch sử và xử lý refund cũ. Luồng thanh toán
+# online mới dùng SePay VietQR bên dưới.
+vnpay:
+  tmn-code: ${VNPAY_TMN_CODE:}
+  hash-secret: ${VNPAY_HASH_SECRET:}
+  payment-url: ${VNPAY_PAYMENT_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+  return-url: ${VNPAY_RETURN_URL:http://localhost:${server.port:8080}/api/payments/vnpay/return}
+  api-url: ${VNPAY_API_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
+  refund-ip-address: ${VNPAY_REFUND_IP_ADDRESS:127.0.0.1}
+  # Explicit opt-in: never send a real provider refund by default.
+  refund-enabled: ${VNPAY_REFUND_ENABLED:false}
+  version: 2.1.0
+  command: pay
+  curr-code: VND
+  locale: vn
+  order-type: hotel
+
+sepay:
+  qr-bank-account: ${SEPAY_QR_BANK_ACCOUNT:${MERCHANT_BANK_ACCOUNT_NUMBER:}}
+  merchant-bank-account: ${MERCHANT_BANK_ACCOUNT_NUMBER:${SEPAY_QR_BANK_ACCOUNT:}}
+  qr-bank-code: ${SEPAY_QR_BANK_CODE:${MERCHANT_BANK_CODE:}}
+  qr-bank-name: ${SEPAY_QR_BANK_NAME:${MERCHANT_BANK_NAME:}}
+  qr-account-holder: ${SEPAY_QR_ACCOUNT_HOLDER:${MERCHANT_BANK_ACCOUNT_NAME:}}
+  qr-template: ${SEPAY_QR_TEMPLATE:compact}
+  qr-base-url: ${SEPAY_QR_BASE_URL:https://vietqr.app/img}
+  store-name: ${SEPAY_STORE_NAME:${HOTEL_NAME:Luxury Hotel}}
+  # API Key and HMAC are different SePay authentication contracts. HMAC is the
+  # recommended setup and SEPAY_WEBHOOK_SECRET must never be interpreted as an
+  # API Key (doing so rejects every correctly signed HMAC request).
+  webhook-api-key: ${SEPAY_WEBHOOK_API_KEY:}
+  webhook-secret: ${SEPAY_WEBHOOK_HMAC_SECRET:${SEPAY_WEBHOOK_SECRET:}}
+  webhook-timestamp-tolerance-seconds: ${SEPAY_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS:300}
+  webhook-rate-limit-per-minute: ${SEPAY_WEBHOOK_RATE_LIMIT_PER_MINUTE:120}
+  payment-timeout-minutes: ${SEPAY_PAYMENT_TIMEOUT_MINUTES:5}
+  refund-webhook-timeout-minutes: ${SEPAY_REFUND_WEBHOOK_TIMEOUT_MINUTES:45}
+  api-base-url: ${SEPAY_API_BASE_URL:https://userapi.sepay.vn/v2}
+  api-access-token: ${SEPAY_API_ACCESS_TOKEN:}
+  api-bank-account-id: ${SEPAY_API_BANK_ACCOUNT_ID:}
+  reconciliation-enabled: ${SEPAY_RECONCILIATION_ENABLED:true}
+  reconciliation-interval-ms: ${SEPAY_RECONCILIATION_INTERVAL_MS:30000}
+  reconciliation-lookback-hours: ${SEPAY_RECONCILIATION_LOOKBACK_HOURS:24}
+  reconciliation-max-pages: ${SEPAY_RECONCILIATION_MAX_PAGES:10}
