@@ -1,19 +1,57 @@
-name: Production gates
+name: Quality gates
 
 on:
   push:
-    branches: [main]
+    branches: [production, main, dev]
   pull_request:
+    branches: [production, main, dev]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-gates-${{ github.ref }}
+  group: quality-gates-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  branch-policy:
+    name: Branch policy
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate promotion path
+        env:
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          short_lived='^(feature|fix|chore|docs|test|refactor)/[a-z0-9][a-z0-9._-]*$'
+          hotfix='^hotfix/[a-z0-9][a-z0-9._-]*$'
+          release='^release/[a-z0-9][a-z0-9._-]*$'
+
+          case "$BASE_BRANCH" in
+            dev)
+              [[ "$HEAD_BRANCH" =~ $short_lived || "$HEAD_BRANCH" =~ $hotfix || "$HEAD_BRANCH" == "main" ]]
+              ;;
+            main)
+              [[ "$HEAD_BRANCH" == "dev" || "$HEAD_BRANCH" == "production" || "$HEAD_BRANCH" =~ $release || "$HEAD_BRANCH" =~ $hotfix ]]
+              ;;
+            production)
+              [[ "$HEAD_BRANCH" == "main" || "$HEAD_BRANCH" =~ $hotfix ]]
+              ;;
+            *)
+              echo "Unsupported target branch: $BASE_BRANCH" >&2
+              exit 1
+              ;;
+          esac || {
+            echo "Invalid promotion path: $HEAD_BRANCH -> $BASE_BRANCH" >&2
+            echo "Expected feature/fix/chore/docs/test/refactor -> dev -> main -> production, or an approved hotfix path." >&2
+            exit 1
+          }
+
   backend:
     name: Backend and PostgreSQL 16
     runs-on: ubuntu-latest

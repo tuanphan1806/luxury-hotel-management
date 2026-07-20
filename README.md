@@ -98,7 +98,17 @@ pnpm run lint
 pnpm run build
 ```
 
-The same gates run automatically in GitHub Actions for every push to `main` and every pull request.
+The same gates run automatically in GitHub Actions for pushes and pull requests involving `dev`, `main`, or `production`. Pull requests also validate the permitted promotion path.
+
+## Git workflow
+
+The repository uses three long-lived branches:
+
+- `dev` integrates short-lived `feature/*`, `fix/*`, and maintenance branches.
+- `main` is the stable staging/pre-production release candidate.
+- `production` contains only releases approved for the live environment.
+
+Normal changes move through `feature/* -> dev -> main -> production`. Urgent live fixes use `hotfix/*` from `production` and must be synchronized back to `main` and `dev`. See [CONTRIBUTING.md](CONTRIBUTING.md) for naming, pull-request, verification, release, and rollback rules.
 
 ## Deployment
 
@@ -108,6 +118,8 @@ The free-tier reference topology is:
 - Backend: Render (Docker)
 - Database: Neon PostgreSQL 16 in Singapore
 - Media: Cloudinary
+
+Configure development/UAT deployments from `dev`, staging from `main`, and the live deployment from `production`. Preview deployments may be created for pull requests, but must never use production credentials.
 
 Follow [the production deployment runbook](docs/deployment/PRODUCTION_DEPLOYMENT.md) for environment variables, bootstrapping, SePay webhook configuration, health checks, and rollback.
 
