@@ -98,17 +98,16 @@ pnpm run lint
 pnpm run build
 ```
 
-The same gates run automatically in GitHub Actions for pushes and pull requests involving `dev`, `main`, or `production`. Pull requests also validate the permitted promotion path.
+The same gates run automatically in GitHub Actions for pushes and pull requests involving `dev` or `main`. Pull requests also validate the permitted promotion path.
 
 ## Git workflow
 
-The repository uses three long-lived branches:
+The repository uses two long-lived branches:
 
 - `dev` integrates short-lived `feature/*`, `fix/*`, and maintenance branches.
-- `main` is the stable staging/pre-production release candidate.
-- `production` contains only releases approved for the live environment.
+- `main` contains only releases approved for the live production environment.
 
-Normal changes move through `feature/* -> dev -> main -> production`. Urgent live fixes use `hotfix/*` from `production` and must be synchronized back to `main` and `dev`. See [CONTRIBUTING.md](CONTRIBUTING.md) for naming, pull-request, verification, release, and rollback rules.
+Normal changes move through `feature/* -> dev -> main`. Urgent live fixes use `hotfix/*` from `main` and must be synchronized back to `dev`. See [CONTRIBUTING.md](CONTRIBUTING.md) for naming, pull-request, verification, release, and rollback rules.
 
 ## Deployment
 
@@ -119,7 +118,7 @@ The free-tier reference topology is:
 - Database: Neon PostgreSQL 16 in Singapore
 - Media: Cloudinary
 
-Configure development/UAT deployments from `dev`, staging from `main`, and the live deployment from `production`. Preview deployments may be created for pull requests, but must never use production credentials.
+Configure development/UAT and staging validation from `dev`; deploy the live environment only from `main` or a release tag created from `main`. Preview deployments may be created for pull requests, but must never use production credentials.
 
 Follow [the production deployment runbook](docs/deployment/PRODUCTION_DEPLOYMENT.md) for environment variables, bootstrapping, SePay webhook configuration, health checks, and rollback.
 

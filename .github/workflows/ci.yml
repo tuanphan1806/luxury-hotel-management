@@ -2,9 +2,9 @@ name: Quality gates
 
 on:
   push:
-    branches: [production, main, dev]
+    branches: [main, dev]
   pull_request:
-    branches: [production, main, dev]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
@@ -37,10 +37,7 @@ jobs:
               [[ "$HEAD_BRANCH" =~ $short_lived || "$HEAD_BRANCH" =~ $hotfix || "$HEAD_BRANCH" == "main" ]]
               ;;
             main)
-              [[ "$HEAD_BRANCH" == "dev" || "$HEAD_BRANCH" == "production" || "$HEAD_BRANCH" =~ $release || "$HEAD_BRANCH" =~ $hotfix ]]
-              ;;
-            production)
-              [[ "$HEAD_BRANCH" == "main" || "$HEAD_BRANCH" =~ $hotfix ]]
+              [[ "$HEAD_BRANCH" == "dev" || "$HEAD_BRANCH" =~ $release || "$HEAD_BRANCH" =~ $hotfix ]]
               ;;
             *)
               echo "Unsupported target branch: $BASE_BRANCH" >&2
@@ -48,7 +45,7 @@ jobs:
               ;;
           esac || {
             echo "Invalid promotion path: $HEAD_BRANCH -> $BASE_BRANCH" >&2
-            echo "Expected feature/fix/chore/docs/test/refactor -> dev -> main -> production, or an approved hotfix path." >&2
+            echo "Expected feature/fix/chore/docs/test/refactor -> dev -> main, or an approved hotfix path." >&2
             exit 1
           }
 
