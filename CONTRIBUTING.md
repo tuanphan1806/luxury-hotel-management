@@ -6,19 +6,19 @@ This repository uses a two-branch promotion model. Long-lived branches are prote
 
 | Branch | Purpose | Deployment target |
 | --- | --- | --- |
-| `dev` | Integration of completed work | Development/UAT environment |
+| `develop` | Integration of completed work | Development/UAT environment |
 | `main` | Approved, deployable release | Production |
 
-Never develop directly on `main` or `dev`. Staging validation uses the release candidate from `dev`; production deploys only from `main` or an immutable tag created from `main`.
+Never develop directly on `main` or `develop`. Staging validation uses the release candidate from `develop`; production deploys only from `main` or an immutable tag created from `main`.
 
 ## Short-lived branches
 
-Create a branch from the latest `dev` using one of these prefixes:
+Create a branch from the latest `develop` using one of these prefixes:
 
 - `feature/<ticket-or-scope>` for a new capability.
 - `fix/<ticket-or-scope>` for a defect found before production.
 - `refactor/<scope>`, `test/<scope>`, `docs/<scope>`, or `chore/<scope>` for non-feature work.
-- `release/<version>` when a release needs stabilization between `dev` and `main`.
+- `release/<version>` when a release needs stabilization between `develop` and `main`.
 - `hotfix/<incident-or-scope>` from `main` only for an urgent live defect.
 
 Use lowercase names with digits, dots, underscores, or hyphens. Examples: `feature/refund-webhook`, `fix/checkout-race`, `release/1.0.0`.
@@ -29,7 +29,7 @@ Use lowercase names with digits, dots, underscores, or hyphens. Examples: `featu
 feature/*, fix/*, refactor/*, test/*, docs/*, chore/*
                             |
                             v
-                           dev
+                         develop
                             |
                             v
                            main
@@ -38,13 +38,13 @@ feature/*, fix/*, refactor/*, test/*, docs/*, chore/*
                          vX.Y.Z tag
 ```
 
-1. Rebase or merge the latest `dev` into the short-lived branch.
-2. Open a pull request into `dev` and complete the pull-request template.
+1. Rebase or merge the latest `develop` into the short-lived branch.
+2. Open a pull request into `develop` and complete the pull-request template.
 3. Merge only after the branch-policy, backend/PostgreSQL, and frontend checks pass.
-4. Promote `dev` to `main` with a separate pull request after staging/UAT approval.
+4. Promote `develop` to `main` with a separate pull request after sprint review and staging/UAT approval.
 5. Deploy the accepted `main` commit and tag it using semantic versioning, for example `v1.0.0`.
 
-For a hotfix, branch from `main`, merge the fix back into `main`, deploy it, and then apply the same hotfix to `dev` before deleting the branch.
+For a hotfix, branch from `main`, demo and verify the fix, merge it into both `main` and `develop`, deploy `main`, and then delete the hotfix branch.
 
 ## Commit and pull-request policy
 

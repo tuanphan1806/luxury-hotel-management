@@ -39,9 +39,27 @@ pnpm run lint
 pnpm run build
 ```
 
-Sau đó review toàn bộ worktree, tạo một release commit rõ ràng và push lên
-`main`. Không deploy trực tiếp một worktree chứa file cache hoặc thay đổi chưa
-được review.
+Sau đó review toàn bộ worktree và mở pull request theo luồng
+`feature/* -> develop -> main`. Chỉ commit đã qua sprint review/UAT và quality
+gates mới được merge vào `main`. Không deploy trực tiếp một worktree chứa file
+cache hoặc thay đổi chưa được review.
+
+### CI/CD theo GitFlow
+
+- `.github/workflows/ci.yml` chạy branch-policy, backend/PostgreSQL và frontend
+  gates cho pull request/push liên quan tới `develop` hoặc `main`.
+- `develop` là nhánh tích hợp và tạo preview/UAT; `main` là production branch.
+- Vercel liên kết GitHub để tự tạo preview cho pull request/nhánh không phải
+  `main`, và production deployment khi commit đã được merge vào `main`.
+- Render Blueprint dùng `autoDeployTrigger: checksPass`, vì vậy backend trên
+  `main` chỉ deploy sau khi các GitHub checks của commit thành công.
+- Ruleset của GitHub chặn xóa/force-push, yêu cầu pull request, lịch sử tuyến
+  tính và chỉ cho phép squash hoặc rebase trên `develop`/`main`.
+- `hotfix/*` phải tách từ `main`, sau khi kiểm thử phải merge vào cả `main` và
+  `develop` để hai nhánh không bị lệch.
+
+Không dùng biến production cho Vercel Preview. Render/Neon/Cloudinary/SePay
+secret chỉ cấu hình trong dashboard tương ứng, tuyệt đối không commit vào Git.
 
 ## 2. Tạo Neon PostgreSQL Free
 
@@ -73,7 +91,7 @@ nhân; không coi cửa sổ restore ngắn của free tier là backup duy nhấ
 
 1. Đăng nhập Vercel bằng GitHub.
 2. Chọn **Add New → Project**, import repository
-   `tuanphan1806/hotel-management-new`.
+   `tuanphan1806/luxury-hotel-management`.
 3. Root Directory: `code/frontend`.
 4. Framework Preset: Next.js.
 5. Node.js: 24.
