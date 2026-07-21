@@ -625,6 +625,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
               <Link href="/cancellation-policy" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Chính sách hủy lịch", "Cancellation policy")}</Link>
               <Link href="/terms" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Điều khoản sử dụng", "Terms of use")}</Link>
               <Link href="/privacy" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Chính sách bảo mật", "Privacy policy")}</Link>
+              <Link href="/data-deletion" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Yêu cầu xóa dữ liệu", "Data deletion")}</Link>
             </nav>
           </div>
 

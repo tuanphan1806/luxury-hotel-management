@@ -53,5 +53,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "yearly",
       priority: 0.3,
     },
+    {
+      url: absoluteSiteUrl("/data-deletion"),
+      changeFrequency: "yearly",
+      priority: 0.2,
+    },
   ];
 }
