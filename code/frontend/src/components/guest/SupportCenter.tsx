@@ -3,6 +3,7 @@
 import Link from "next/link";
 import GuestPageHero from "@/components/guest/GuestPageHero";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
+import { GALLERY_HERO_IMAGES } from "@/constants/content";
 
 const faqs = [
   {
@@ -37,11 +38,8 @@ export default function SupportCenter() {
   return (
     <div className="min-h-screen bg-[#F1F0EA] text-[#0F2A43]">
       <GuestPageHero
-        imageSrc="/hotel-lobby.png"
+        imageSrc={GALLERY_HERO_IMAGES.support}
         imageAlt={localize("Không gian hỗ trợ khách lưu trú", "Guest support at Luxury Hotel")}
-        useGallery
-        galleryKeywords={["toàn cảnh khách sạn", "hotel building", "café"]}
-        galleryIndex={6}
         eyebrow={localize("Trung tâm hỗ trợ", "Support center")}
         title={localize("Chúng tôi đồng hành trong từng bước lưu trú.", "Support for every step of your stay.")}
         description={localize("Tìm câu trả lời nhanh về đặt phòng, thanh toán, thay đổi lịch và hỗ trợ vận hành.", "Find clear answers about reservations, payments, schedule changes, and stay support.")}

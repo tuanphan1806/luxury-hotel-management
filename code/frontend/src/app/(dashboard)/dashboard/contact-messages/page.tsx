@@ -240,8 +240,8 @@ export default function ContactMessagesPage() {
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={(
           <>
-            <FilterQuickButton active={statusFilter === "NEW"} onClick={() => setStatusFilter("NEW")}>{localize("Tin mới", "New")}</FilterQuickButton>
-            <FilterQuickButton active={statusFilter === "RESOLVED"} onClick={() => setStatusFilter("RESOLVED")}>{localize("Đã xử lý", "Resolved")}</FilterQuickButton>
+            <FilterQuickButton active={statusFilter === "NEW"} onClick={() => setStatusFilter((current) => current === "NEW" ? "ALL" : "NEW")}>{localize("Tin mới", "New")}</FilterQuickButton>
+            <FilterQuickButton active={statusFilter === "RESOLVED"} onClick={() => setStatusFilter((current) => current === "RESOLVED" ? "ALL" : "RESOLVED")}>{localize("Đã xử lý", "Resolved")}</FilterQuickButton>
           </>
         )}
       >

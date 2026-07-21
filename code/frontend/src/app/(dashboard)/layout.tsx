@@ -80,6 +80,7 @@ export default function DashboardLayout({
   const { t, localize } = useLanguage();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [user, setUser] = useState({ fullName: "Alexandre Martin", role: "General Manager", initials: "AM" });
   const [mounted, setMounted] = useState(false);
   const [accessChecked, setAccessChecked] = useState(false);
@@ -135,7 +136,25 @@ export default function DashboardLayout({
 
   useEffect(() => {
     setIsMobileOpen(false);
+    setIsAccountMenuOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!isAccountMenuOpen) return;
+    const closeAccountMenu = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("[data-dashboard-account-menu]")) setIsAccountMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsAccountMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeAccountMenu);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeAccountMenu);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isAccountMenuOpen]);
 
   useEffect(() => {
     if (!accessChecked) return;
@@ -224,6 +243,8 @@ export default function DashboardLayout({
       console.warn("Logout request failed, clearing local session", error);
     }
     authSession.clear();
+    setIsAccountMenuOpen(false);
+    router.replace("/login");
   };
 
   if (!accessChecked) {
@@ -331,16 +352,6 @@ export default function DashboardLayout({
         </svg>
       ),
     },
-    {
-      href: "/dashboard/settings",
-      label: t("settings"),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      ),
-    },
     ...(user.role === "ADMIN" ? [{
       href: "/dashboard/audit-logs",
       label: localize("Nhật ký hệ thống", "System audit log"),
@@ -410,7 +421,7 @@ export default function DashboardLayout({
       <nav aria-label={localize("Điều hướng dashboard", "Dashboard navigation")} className="lux-scrollbar flex-1 space-y-1.5 overflow-y-auto px-4 py-6">
         {[
           { title: t("operations"), items: navigationItems.filter((item) => ["/dashboard", "/dashboard/rooms", "/dashboard/reservations", "/dashboard/reconciliation-requests", "/dashboard/contact-messages", "/dashboard/guest"].includes(item.href)) },
-          { title: t("management"), items: navigationItems.filter((item) => ["/dashboard/users", "/dashboard/facilities", "/dashboard/room-types", "/dashboard/settings", "/dashboard/audit-logs"].includes(item.href)) },
+          { title: t("management"), items: navigationItems.filter((item) => ["/dashboard/users", "/dashboard/facilities", "/dashboard/room-types", "/dashboard/audit-logs"].includes(item.href)) },
         ].map((group, groupIndex) => (
           <div key={group.title} className={groupIndex ? "pt-5" : ""}>
             {!collapsed && <p className="mb-2 px-4 text-[0.6rem] font-bold uppercase tracking-[0.24em] text-[#B8944F]/75">{group.title}</p>}
@@ -432,41 +443,39 @@ export default function DashboardLayout({
         ))}
       </nav>
 
-      {/* Sidebar Footer Operations */}
-      <div className="px-4 py-4 border-t border-[#F1F0EA]/10 space-y-1">
-        <Link
-          href="/login"
-          onClick={() => {
-            if (closeOnNavigate) setIsMobileOpen(false);
-            void handleSignOut();
-          }}
-          aria-label={collapsed ? t("logout") : undefined}
-          title={collapsed ? t("logout") : undefined}
-          className={`flex min-h-11 items-center ${collapsed ? "justify-center" : "gap-3.5"} rounded-lg px-4 py-3 text-[#E87A7A] transition-colors duration-150 hover:bg-red-500/10`}
-        >
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 shrink-0">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
-          {!collapsed && <span className="font-medium text-sm">{t("logout")}</span>}
-        </Link>
-      </div>
-
-      {/* Profile Card */}
-      <div className="dashboard-sidebar-profile border-t border-[#F1F0EA]/12 p-4">
-        {!collapsed && <div className="mb-3"><LanguageSwitcher /></div>}
-        <div className={`flex items-center ${collapsed ? "justify-center" : "gap-3"}`}>
-          <div className="w-10 h-10 rounded-full bg-[#B8944F] text-[#0F2A43] flex items-center justify-center font-serif font-bold text-sm shadow-sm transition-transform hover:scale-105 duration-300 shrink-0">
-            {user.initials}
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col min-w-0">
-              <p className="text-sm font-semibold text-[#F1F0EA] truncate">{user.fullName}</p>
-              <p className="truncate text-xs font-medium text-[#B7C0C8]">{displayedRole}</p>
+      {/* Compact account menu — personal actions stay out of operations nav. */}
+      <div data-dashboard-account-menu className="relative border-t border-[#F1F0EA]/12 p-4">
+        {isAccountMenuOpen && (
+          <div className={`absolute bottom-full z-[70] mb-3 overflow-hidden rounded-xl border border-[#0F2A43]/14 bg-[#FBFAF6] text-[#0F2A43] shadow-[0_22px_60px_rgba(4,15,25,0.32)] ${collapsed ? "left-3 w-64" : "inset-x-4"}`}>
+            <div className="bg-[#0F2A43] px-4 py-4 text-white">
+              <p className="truncate text-sm font-bold">{user.fullName}</p>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#D8C398]">{displayedRole}</p>
             </div>
-          )}
-        </div>
+            <div className="space-y-1 p-2">
+              <Link href="/dashboard/settings" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
+                <span>{localize("Cài đặt tài khoản", "Account settings")}</span><span aria-hidden="true">›</span>
+              </Link>
+              <Link href="/" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
+                <span>{localize("Trang khách sạn", "Guest website")}</span><span aria-hidden="true">↗</span>
+              </Link>
+              <div className="rounded-lg bg-[#F1F0EA] p-2"><LanguageSwitcher /></div>
+            </div>
+            <button type="button" onClick={() => void handleSignOut()} className="flex min-h-12 w-full items-center gap-3 border-t border-[#0F2A43]/10 px-4 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5M21 12H9" /></svg>
+              {t("logout")}
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setIsAccountMenuOpen((open) => !open)}
+          aria-expanded={isAccountMenuOpen}
+          aria-haspopup="menu"
+          className={`flex min-h-12 w-full items-center rounded-xl border border-white/10 bg-white/[0.04] px-2 text-left transition hover:border-[#B8944F]/50 hover:bg-white/[0.08] ${collapsed ? "justify-center" : "gap-3"}`}
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#B8944F] font-serif text-sm font-bold text-[#0F2A43] shadow-sm">{user.initials}</span>
+          {!collapsed && <><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#F1F0EA]">{user.fullName}</span><span className="mt-0.5 block truncate text-xs font-medium text-[#B7C0C8]">{displayedRole}</span></span><svg aria-hidden="true" viewBox="0 0 20 20" className={`h-4 w-4 shrink-0 text-[#B7C0C8] transition ${isAccountMenuOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m6 8 4 4 4-4" /></svg></>}
+        </button>
       </div>
     </div>
   );

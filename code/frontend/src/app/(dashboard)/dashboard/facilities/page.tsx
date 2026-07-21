@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { apiClient, cachedGet } from "@/lib/api";
+import { resolveMediaSource } from "@/lib/media-url";
 import Toast from "@/components/UI/Toast";
 import ImageUploadField from "@/components/UI/ImageUploadField";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
@@ -215,12 +216,17 @@ export default function DashboardFacilitiesPage() {
         </div>
         <div>
           <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#66727C]">{localize("Phân loại", "Category")}</label>
-          <input
+          <select
             value={form.type}
             onChange={(event) => setForm({ ...form, type: event.target.value })}
             className="w-full rounded-xl border border-[#0F2A43]/10 bg-[#F1F0EA] px-4 py-3 text-sm font-semibold outline-none transition focus:border-[#B8944F]"
-            placeholder="Wellness"
-          />
+          >
+            <option value="">{localize("Chọn phạm vi sử dụng", "Select usage scope")}</option>
+            {Array.from(new Set(["ROOM", "PUBLIC", ...facilityTypes])).map((type) => (
+              <option key={type} value={type}>{type === "ROOM" ? localize("Trong phòng", "In-room") : type === "PUBLIC" ? localize("Khu vực chung", "Public area") : type}</option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-[11px] text-[#66727C]">{localize("Hệ thống dùng phân loại này để tự nhóm tiện ích khi hiển thị.", "The system uses this value to group facilities automatically.")}</p>
         </div>
         <ImageUploadField
           id="facility-image-upload"
@@ -337,7 +343,7 @@ export default function DashboardFacilitiesPage() {
               <div className="relative aspect-[16/10] overflow-hidden bg-[#EAE2D2]">
                 {facility.imageUrl ? (
                   <Image
-                    src={facility.imageUrl}
+                    src={resolveMediaSource(facility.imageUrl)}
                     alt={localize(facility.facilityName, facility.facilityNameEn)}
                     fill
                     sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw"

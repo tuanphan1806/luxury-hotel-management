@@ -251,6 +251,12 @@ html.hotel-reduce-motion *::after {
     opacity: 0;
   }
 
+  .hero-image-loading-surface {
+    background-color: #0F2A43;
+    background-image: none;
+    animation: none;
+  }
+
   .progressive-media {
     transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1), transform 560ms cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -614,8 +620,11 @@ html.hotel-reduce-motion *::after {
     background: #fff !important;
   }
   .invoice-print-root,
-  .invoice-print-root * { visibility: visible !important; }
-  .invoice-print-root {
+  .invoice-print-root *,
+  .payment-receipt-print-root,
+  .payment-receipt-print-root * { visibility: visible !important; }
+  .invoice-print-root,
+  .payment-receipt-print-root {
     position: absolute !important;
     inset: 0 auto auto 0 !important;
     width: 100% !important;
@@ -625,7 +634,8 @@ html.hotel-reduce-motion *::after {
     overflow: visible !important;
     box-shadow: none !important;
   }
-  .invoice-no-print { display: none !important; }
+  .invoice-no-print,
+  .payment-receipt-no-print { display: none !important; }
   .invoice-print-root table { break-inside: auto; }
   .invoice-print-root tr { break-inside: avoid; }
 }

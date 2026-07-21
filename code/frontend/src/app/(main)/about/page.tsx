@@ -4,7 +4,7 @@ import Link from "next/link";
 import GuestPageHero from "@/components/guest/GuestPageHero";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
-import { FACILITIES_CONTENT, ROOMS_CONTENT } from "@/constants/content";
+import { FACILITIES_CONTENT, GALLERY_HERO_IMAGES, ROOMS_CONTENT } from "@/constants/content";
 
 export default function AboutPage() {
   const { localize } = useLanguage();
@@ -34,11 +34,8 @@ export default function AboutPage() {
   return (
     <div className="home-color-story">
       <GuestPageHero
-        imageSrc="/hotel-lobby.png"
+        imageSrc={GALLERY_HERO_IMAGES.about}
         imageAlt={localize("Sảnh chính của Luxury Hotel", "The main lobby at Luxury Hotel")}
-        useGallery
-        galleryKeywords={["toàn cảnh khách sạn 2", "hotel building 2"]}
-        galleryIndex={0}
         eyebrow={localize("Về Luxury Hotel", "About Luxury Hotel")}
         title={localize("Sự sang trọng bắt đầu từ cảm giác được chuẩn bị chu đáo.", "Luxury begins with feeling thoughtfully prepared for.")}
         description={localize("Luxury Hotel kết nối không gian lưu trú chỉn chu với một hành trình đặt phòng trực tiếp, rõ ràng và dễ theo dõi.", "Luxury Hotel connects considered hospitality with a direct booking journey that is clear and easy to follow.")}

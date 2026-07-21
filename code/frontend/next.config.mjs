@@ -34,6 +34,9 @@ const remotePatterns = Array.from(new Map(imageOrigins.flatMap((origin) => {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Produces a minimal self-contained server for Docker while remaining
+  // compatible with Vercel deployments.
+  output: 'standalone',
   poweredByHeader: false,
   compress: true,
   distDir: process.env.NEXT_DIST_DIR

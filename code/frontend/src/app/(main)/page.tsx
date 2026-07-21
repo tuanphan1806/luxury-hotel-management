@@ -9,7 +9,6 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 import DateTimeField from "@/components/forms/DateTimeField";
 import { getPublicFacilities, getPublicGalleries, getPublicRoomTypes } from "@/lib/public-catalog";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
-import { resolveGalleryHeroImageSource } from "@/components/guest/useGalleryHeroImage";
 
 interface FacilityItem {
   id?: number;
@@ -133,11 +132,6 @@ export default function HomePage() {
     if (!galleryImages.length) return [];
     return Array.from({ length: Math.min(3, galleryImages.length) }, (_, index) => galleryImages[(galleryStart + index) % galleryImages.length]);
   }, [galleryImages, galleryStart]);
-  const homeHeroImage = useMemo(() => {
-    const hotelOverview = galleryImages.find((item) => `${item.title || ""} ${item.titleEn || ""}`.toLowerCase().match(/toàn cảnh|hotel building/));
-    return resolveGalleryHeroImageSource(hotelOverview?.imageUrl || hotelOverview?.image) || HOME_CONTENT.hero.bg;
-  }, [galleryImages]);
-
   const moveGallery = (direction: "previous" | "next") => {
     if (galleryImages.length <= 1) return;
     setGalleryDirection(direction);
@@ -202,13 +196,14 @@ export default function HomePage() {
     <div className="home-color-story text-[#0F2A43]">
       <section className="relative min-h-[100dvh] overflow-hidden bg-[#E5E9ED] lg:min-h-[780px]">
         <ProgressiveImage
-          src={homeHeroImage}
+          src={HOME_CONTENT.hero.bg}
           alt={localize("Không gian sảnh Luxury Hotel", "Luxury Hotel lobby")}
           fill
           priority
           quality={92}
           sizes="100vw"
           className="object-cover"
+          loaderClassName="hero-image-loading-surface"
         />
         <div className="absolute inset-0 bg-[#091E30]/8" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#091E30]/64 via-[#0F2A43]/20 to-transparent" />
@@ -243,8 +238,8 @@ export default function HomePage() {
                 [localize("Chu đáo", "Attentive"), localize("Hỗ trợ tại quầy", "Front desk support")],
               ].map(([title, detail]) => (
                 <div key={title} className="px-5 first:pl-0">
-                  <dt className="font-serif text-2xl font-semibold text-[#D8C398]">{title}</dt>
-                  <dd className="mt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/60">{detail}</dd>
+                  <dt className="font-serif text-2xl font-semibold text-[#F2D89A] drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)]">{title}</dt>
+                  <dd className="mt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/92 drop-shadow-[0_1px_7px_rgba(0,0,0,0.5)]">{detail}</dd>
                 </div>
               ))}
             </dl>
