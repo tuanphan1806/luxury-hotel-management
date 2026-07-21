@@ -107,6 +107,7 @@ app:
         backend-base-url: ${BACKEND_BASE_URL:http://localhost:${server.port:8080}}
         frontend-callback-url: ${FRONTEND_BASE_URL:http://localhost:3000}/oauth/callback
         exchange-ticket-ttl-seconds: ${OAUTH_EXCHANGE_TICKET_TTL_SECONDS:120}
+        profile-completion-ticket-ttl-seconds: ${OAUTH_PROFILE_COMPLETION_TICKET_TTL_SECONDS:600}
         google:
             client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
             client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}

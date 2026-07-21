@@ -60,6 +60,8 @@ public enum ErrorCode {
     EMAIL_DELIVERY_FAILED(5070, "Không thể gửi email lúc này", HttpStatus.SERVICE_UNAVAILABLE),
     PASSWORD_RESET_TOKEN_INVALID(5071, "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn", HttpStatus.BAD_REQUEST),
     OAUTH_EXCHANGE_TICKET_INVALID(5072, "Phiên đăng nhập mạng xã hội không hợp lệ hoặc đã hết hạn", HttpStatus.BAD_REQUEST),
+    OAUTH_PROFILE_TICKET_INVALID(5073, "Phiên bổ sung email không hợp lệ hoặc đã hết hạn", HttpStatus.BAD_REQUEST),
+    OAUTH_EMAIL_ALREADY_IN_USE(5074, "Email đã thuộc một tài khoản khác; hãy đăng nhập bằng phương thức đã liên kết", HttpStatus.CONFLICT),
 
 
     ;

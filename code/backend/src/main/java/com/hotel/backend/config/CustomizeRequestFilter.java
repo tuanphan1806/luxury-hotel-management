@@ -173,6 +173,7 @@ public class CustomizeRequestFilter extends OncePerRequestFilter {
                         || uri.equals("/auth/verify-email")
                         || uri.equals("/auth/forgot-password")
                         || uri.equals("/auth/reset-password")
+                        || uri.equals("/auth/oauth/complete-profile")
         )) return true;
         if (method.equals("GET") && uri.equals("/auth/confirm-email")) return true;
         if (method.equals("POST") && uri.equals("/api/contact-messages")) return true;

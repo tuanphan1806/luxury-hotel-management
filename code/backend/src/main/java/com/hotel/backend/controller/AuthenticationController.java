@@ -17,6 +17,8 @@ import com.hotel.backend.service.PasswordResetService;
 import com.hotel.backend.service.UserService;
 import com.hotel.backend.service.AuthRateLimitService;
 import com.hotel.backend.service.AuthCookieService;
+import com.hotel.backend.service.OAuthPostVerificationLoginService;
+import com.hotel.backend.config.OAuthProperties;
 import com.hotel.backend.security.ClientIpResolver;
 import static com.hotel.backend.util.SecurityTokenHasher.sha256;
 
@@ -42,6 +44,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.util.UriComponentsBuilder;
 
 
 @RestController
@@ -57,6 +60,8 @@ public class AuthenticationController {
     private final AuthRateLimitService authRateLimitService;
     private final ClientIpResolver clientIpResolver;
     private final AuthCookieService authCookieService;
+    private final OAuthPostVerificationLoginService oauthPostVerificationLoginService;
+    private final OAuthProperties oauthProperties;
     @Value("${app.frontend-base-url:http://localhost:3000}")
     private String frontendBaseUrl;
     @Operation(summary = "Sign in", description = "Return an access token and set the rotated refresh token in an HttpOnly cookie")
@@ -199,15 +204,41 @@ public class AuthenticationController {
     @Operation(summary = "Confirm email", description = "API verify user email by secret code and redirect after confirmation")
     @GetMapping("/confirm-email")
     public void confirmEmail(@RequestParam String secretCode ,HttpServletResponse response) throws IOException{
-        String verificationResult;
+        String redirectUrl;
         try {
-            userService.verifyEmail(secretCode);
-            verificationResult = "success";
+            Long verifiedUserId = userService.verifyEmail(secretCode);
+            String loginTicket = null;
+            try {
+                loginTicket = oauthPostVerificationLoginService
+                        .issueLoginTicketIfEligible(verifiedUserId)
+                        .orElse(null);
+            } catch (RuntimeException oauthException) {
+                // Email verification already committed. A transient ticket error
+                // must fall back to normal login instead of reporting a false
+                // verification failure.
+                log.warn("Could not issue post-verification OAuth ticket for userId={}", verifiedUserId);
+            }
+
+            if (loginTicket != null) {
+                redirectUrl = UriComponentsBuilder
+                        .fromUriString(oauthProperties.normalizedFrontendCallbackUrl())
+                        .replaceQuery(null)
+                        .queryParam("status", "success")
+                        .queryParam("ticket", loginTicket)
+                        .build()
+                        .encode()
+                        .toUriString();
+            } else {
+                redirectUrl = normalizedFrontendBaseUrl() + "/login?verification=success";
+            }
         } catch (Exception e) {
             log.error("Confirm Email failed: {}", e.getMessage());
-            verificationResult = "failed";
+            redirectUrl = normalizedFrontendBaseUrl() + "/login?verification=failed";
         }
-        String redirectBase = frontendBaseUrl.replaceAll("/+$", "");
-        response.sendRedirect(redirectBase + "/login?verification=" + verificationResult);
+        response.sendRedirect(redirectUrl);
+    }
+
+    private String normalizedFrontendBaseUrl() {
+        return frontendBaseUrl.replaceAll("/+$", "");
     }
 }

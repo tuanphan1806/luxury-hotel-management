@@ -394,7 +394,7 @@ public class UserServiceImpl implements UserService {
     
 
     @Transactional(rollbackFor = Exception.class)
-    public void verifyEmail(String secretCode) {
+    public Long verifyEmail(String secretCode) {
         String normalizedCode = secretCode == null ? "" : secretCode.trim();
         if (!StringUtils.hasText(normalizedCode)) {
             throw new InvalidDataException("Mã xác thực không hợp lệ hoặc đã hết hạn");
@@ -414,6 +414,7 @@ public class UserServiceImpl implements UserService {
         userRepository.saveAndFlush(user);
         eventPublisher.publishEvent(new UserEmailVerifiedEvent(user.getId()));
         log.info("Email verified for userId={}", user.getId());
+        return user.getId();
     }
 
     @Override
