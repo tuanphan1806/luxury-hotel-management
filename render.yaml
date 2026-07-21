@@ -27,7 +27,9 @@ services:
       - key: AUTH_COOKIE_SECURE
         value: "true"
       - key: AUTH_COOKIE_SAME_SITE
-        value: None
+        value: Lax
+      - key: OAUTH_EXCHANGE_TICKET_TTL_SECONDS
+        value: "120"
       - key: APP_UPLOAD_STORAGE
         value: cloudinary
       - key: APP_STATIC_MEDIA_MIGRATION_ENABLED

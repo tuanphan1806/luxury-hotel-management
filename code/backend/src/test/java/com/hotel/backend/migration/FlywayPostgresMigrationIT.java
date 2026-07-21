@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "5";
+    private static final String LATEST_VERSION = "6";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -54,11 +54,15 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "payment_refunds");
             assertTableExists(connection, "checkout_reconciliation_requests");
             assertTableExists(connection, "audit_notification_outbox");
+            assertTableExists(connection, "oauth_login_tickets");
             assertColumn(connection, "payment_provider_events", "bank_reference_code");
             assertColumn(connection, "payment_refunds", "completion_provider_event_id");
             assertColumn(connection, "payment_refunds", "refund_detail_json");
             assertColumn(connection, "reservation_audit_logs", "detail_json");
             assertColumn(connection, "reservation_audit_logs", "risk_level");
+            assertColumn(connection, "oauth_login_tickets", "token_hash");
+            assertColumn(connection, "oauth_login_tickets", "expires_at_utc");
+            assertColumn(connection, "oauth_login_tickets", "consumed_at_utc");
             assertColumnType(connection, "idempotency_requests", "request_hash", "character", 64);
             assertColumnType(connection, "reservation_invoices", "currency", "character", 3);
             assertColumnType(connection, "payment_provider_events", "provider_occurred_at_utc",
@@ -72,8 +76,11 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_audit_correlation_id");
             assertIndex(connection, "idx_checkout_reconciliation_pending");
             assertIndex(connection, "idx_audit_notification_due");
+            assertIndex(connection, "idx_oauth_login_tickets_expiry");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
+            assertConstraint(connection, "uk_oauth_login_tickets_token_hash");
+            assertConstraint(connection, "fk_oauth_login_tickets_user");
             assertColumnDefault(connection, "rooms", "sellable", "true");
         }
 

@@ -71,10 +71,19 @@ function OAuthCallbackContent() {
       }
 
       try {
-        // OAuth callback chỉ đặt refresh cookie HttpOnly. Access token luôn được
-        // đổi qua backend, không bao giờ được nhận từ URL hoặc localStorage.
-        const refreshResponse = await publicApiClient.post<RefreshTokenResponse>("/auth/refresh-token", null);
-        const accessToken = refreshResponse.data?.accessToken || refreshResponse.data?.data?.accessToken;
+        // The URL carries only a short-lived, one-time exchange code. Remove it
+        // before any further navigation, then exchange through the same-origin
+        // Next.js proxy so the HttpOnly refresh cookie belongs to the frontend
+        // origin rather than becoming a third-party Render cookie.
+        const ticket = searchParams.get("ticket")?.trim();
+        if (!ticket) throw new Error("Missing OAuth exchange ticket");
+        window.history.replaceState({}, "", window.location.pathname);
+
+        const exchangeResponse = await publicApiClient.post<RefreshTokenResponse>(
+          "/auth/oauth/exchange",
+          { ticket },
+        );
+        const accessToken = exchangeResponse.data?.accessToken || exchangeResponse.data?.data?.accessToken;
         if (!accessToken) throw new Error("Missing access token in refresh response");
 
         authSession.setAccessToken(accessToken);

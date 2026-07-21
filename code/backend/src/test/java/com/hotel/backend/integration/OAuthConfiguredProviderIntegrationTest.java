@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -60,5 +62,13 @@ class OAuthConfiguredProviderIntegrationTest {
                 .contains("redirect_uri=https://backend.example/login/oauth2/code/google")
                 .doesNotContain("test-google-secret");
         assertThat(result.getRequest().getSession(false)).isNotNull();
+    }
+
+    @Test
+    void exchangeEndpointIsPublicButRejectsUnknownOneTimeTicket() throws Exception {
+        mockMvc.perform(post("/auth/oauth/exchange")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"ticket\":\"unknown-one-time-ticket\"}"))
+                .andExpect(status().isBadRequest());
     }
 }

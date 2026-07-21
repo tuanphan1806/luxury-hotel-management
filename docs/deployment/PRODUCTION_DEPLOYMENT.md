@@ -270,13 +270,13 @@ Vào Vercel → Project → Settings → Environment Variables và thay:
 
 ```dotenv
 BACKEND_INTERNAL_URL=https://<render-service>.onrender.com
-NEXT_PUBLIC_API_URL=https://<render-service>.onrender.com
+NEXT_PUBLIC_API_URL=/backend_proxy
 NEXT_PUBLIC_BACKEND_URL=https://<render-service>.onrender.com
 NEXT_PUBLIC_SITE_URL=https://<vercel-project>.vercel.app
 ```
 
 Chọn Production và redeploy. Kiểm tra login, refresh cookie, ảnh Cloudinary và
-các request API trong DevTools không có CORS error.
+các request API trong DevTools đi qua `/backend_proxy` và không có CORS error.
 
 ## 6. Khởi tạo dữ liệu lần đầu
 
