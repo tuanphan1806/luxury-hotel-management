@@ -3,12 +3,14 @@ package com.hotel.backend.controller;
 import com.hotel.backend.config.OAuthProperties;
 import com.hotel.backend.constant.OAuthLoginError;
 import com.hotel.backend.dto.request.OAuthExchangeRequest;
+import com.hotel.backend.dto.request.OAuthProfileCompletionRequest;
 import com.hotel.backend.dto.response.ApiResponse;
 import com.hotel.backend.dto.response.TokenResponse;
 import com.hotel.backend.security.ClientIpResolver;
 import com.hotel.backend.service.AuthCookieService;
 import com.hotel.backend.service.AuthRateLimitService;
 import com.hotel.backend.service.OAuthLoginTicketService;
+import com.hotel.backend.service.OAuthProfileCompletionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -27,6 +29,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 
+import static com.hotel.backend.util.SecurityTokenHasher.sha256;
+
 @RestController
 @RequestMapping("/auth/oauth")
 @RequiredArgsConstructor
@@ -34,6 +38,7 @@ public class OAuthController {
 
     private final OAuthProperties properties;
     private final OAuthLoginTicketService loginTicketService;
+    private final OAuthProfileCompletionService profileCompletionService;
     private final AuthCookieService authCookieService;
     private final AuthRateLimitService authRateLimitService;
     private final ClientIpResolver clientIpResolver;
@@ -56,6 +61,20 @@ public class OAuthController {
         return ResponseEntity.ok(TokenResponse.builder()
                 .accessToken(tokens.getAccessToken())
                 .build());
+    }
+
+    @PostMapping("/complete-profile")
+    public ApiResponse<Void> completeProfile(
+            @RequestBody @Valid OAuthProfileCompletionRequest request,
+            HttpServletRequest httpRequest) {
+        String clientIp = clientIpResolver.resolve(httpRequest);
+        authRateLimitService.check("oauth-profile-ip:" + clientIp, 20, Duration.ofMinutes(15));
+        authRateLimitService.check(
+                "oauth-profile-ticket:" + sha256(request.ticket().trim()),
+                5,
+                Duration.ofMinutes(15));
+        profileCompletionService.complete(request.ticket(), request.email());
+        return ApiResponse.success("Đã gửi liên kết xác minh tới email của bạn");
     }
 
     @GetMapping("/authorize/{provider}")

@@ -12,6 +12,8 @@ import com.hotel.backend.service.ChatBotService;
 import com.hotel.backend.service.ContactMessageService;
 import com.hotel.backend.service.PasswordResetService;
 import com.hotel.backend.service.UserService;
+import com.hotel.backend.service.OAuthPostVerificationLoginService;
+import com.hotel.backend.config.OAuthProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -44,6 +46,10 @@ class PublicEndpointRateLimitTest {
     private AuthCookieService authCookieService;
     @Mock
     private UserService userService;
+    @Mock
+    private OAuthPostVerificationLoginService oauthPostVerificationLoginService;
+    @Mock
+    private OAuthProperties oauthProperties;
 
     private final MockHttpServletRequest httpRequest = new MockHttpServletRequest();
 
@@ -97,6 +103,8 @@ class PublicEndpointRateLimitTest {
                 rateLimitService,
                 clientIpResolver,
                 authCookieService,
+                oauthPostVerificationLoginService,
+                oauthProperties,
                 userService);
         UserCreationRequest request = new UserCreationRequest();
         ReflectionTestUtils.setField(request, "fullName", "Nguyen Van A");

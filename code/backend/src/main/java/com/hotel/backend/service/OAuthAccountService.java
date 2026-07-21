@@ -7,6 +7,8 @@ import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.OAuthLoginProfile;
 import com.hotel.backend.entity.OAuthAccount;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.exception.AppException;
+import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.exception.OAuthLoginException;
 import com.hotel.backend.repository.OAuthAccountRepository;
 import com.hotel.backend.repository.UserRepository;
@@ -50,7 +52,36 @@ public class OAuthAccountService {
             return linkExistingUser(profile, existingUser.get());
         }
 
-        return createProviderUser(profile, normalizedEmail);
+        return createProviderUser(profile, normalizedEmail, UserStatus.ACTIVE, true);
+    }
+
+    @Transactional
+    public User createPendingFacebookAccount(OAuthLoginProfile profile, String requestedEmail) {
+        validateIdentity(profile);
+        String normalizedEmail = normalizeEmail(requestedEmail);
+        if (profile.provider() != OAuthProvider.FACEBOOK || !isUsableEmail(normalizedEmail)) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Email không hợp lệ");
+        }
+        if (oauthAccountRepository.findByProviderAndProviderSubject(
+                profile.provider(), profile.providerSubject()).isPresent()) {
+            throw new AppException(ErrorCode.OAUTH_PROFILE_TICKET_INVALID);
+        }
+        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+            throw new AppException(ErrorCode.OAUTH_EMAIL_ALREADY_IN_USE);
+        }
+
+        try {
+            return createProviderUser(
+                    profile,
+                    normalizedEmail,
+                    UserStatus.PENDING_VERIFICATION,
+                    false);
+        } catch (OAuthLoginException exception) {
+            if (exception.getError() == OAuthLoginError.ACCOUNT_CONFLICT) {
+                throw new AppException(ErrorCode.OAUTH_EMAIL_ALREADY_IN_USE);
+            }
+            throw exception;
+        }
     }
 
     private void validateIdentity(OAuthLoginProfile profile) {
@@ -107,7 +138,11 @@ public class OAuthAccountService {
         }
     }
 
-    private User createProviderUser(OAuthLoginProfile profile, String normalizedEmail) {
+    private User createProviderUser(
+            OAuthLoginProfile profile,
+            String normalizedEmail,
+            UserStatus status,
+            boolean emailVerified) {
         User user = User.builder()
                 .username(generateUniqueUsername(profile.provider()))
                 .email(normalizedEmail)
@@ -115,8 +150,8 @@ public class OAuthAccountService {
                 .password(null)
                 .phone(null)
                 .type(UserType.CUSTOMER)
-                .status(UserStatus.ACTIVE)
-                .emailVerified(true)
+                .status(status)
+                .emailVerified(emailVerified)
                 .imageUrl(truncate(trimToNull(profile.imageUrl()), 500))
                 .build();
 
@@ -137,6 +172,11 @@ public class OAuthAccountService {
     private User requireActive(User user) {
         if (user != null && user.getType() != UserType.CUSTOMER) {
             throw new OAuthLoginException(OAuthLoginError.ACCOUNT_CONFLICT);
+        }
+        if (user != null
+                && user.getStatus() == UserStatus.PENDING_VERIFICATION
+                && !user.isEmailVerified()) {
+            throw new OAuthLoginException(OAuthLoginError.EMAIL_VERIFICATION_REQUIRED);
         }
         if (user == null || user.getStatus() != UserStatus.ACTIVE || !user.isEnabled()) {
             throw new OAuthLoginException(OAuthLoginError.ACCOUNT_DISABLED);
