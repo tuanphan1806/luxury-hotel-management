@@ -1,0 +1,42 @@
+name: Keep Render backend warm
+
+on:
+  schedule:
+    # Render Free sleeps after 15 minutes without inbound traffic.
+    # Offset from the top of the hour to reduce GitHub scheduler congestion.
+    - cron: "3,13,23,33,43,53 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-render-backend-warm
+  cancel-in-progress: true
+
+jobs:
+  health-check:
+    name: Ping production health endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Wake backend and verify health
+        env:
+          HEALTH_URL: https://luxury-hotel-backend-c06y.onrender.com/actuator/health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          response="$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --max-time 120 \
+            --retry 2 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            "$HEALTH_URL")"
+
+          echo "$response" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"'
+          echo "Render backend is healthy."
