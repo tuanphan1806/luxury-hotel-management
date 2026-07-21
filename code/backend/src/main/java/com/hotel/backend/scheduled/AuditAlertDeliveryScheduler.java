@@ -36,7 +36,7 @@ public class AuditAlertDeliveryScheduler {
             AuditNotificationOutboxStore.Delivery delivery = outboxStore.claim(id);
             if (delivery == null) continue;
             try {
-                emailService.send(
+                emailService.sendAuditAlert(
                         delivery.recipient(),
                         subject(delivery.payload()),
                         body(delivery.payload()));

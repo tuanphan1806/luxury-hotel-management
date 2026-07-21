@@ -13,7 +13,11 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
       - key: JAVA_TOOL_OPTIONS
-        value: -XX:MaxRAMPercentage=60.0 -XX:InitialRAMPercentage=15.0 -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Ho_Chi_Minh
+        value: -Xms64m -Xmx240m -Xss512k -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Ho_Chi_Minh
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: SPRING_DATA_JPA_REPOSITORIES_BOOTSTRAP_MODE
+        value: default
       - key: DB_POOL_MAX_SIZE
         value: "5"
       - key: DB_POOL_MIN_IDLE
@@ -23,7 +27,9 @@ services:
       - key: AUTH_COOKIE_SECURE
         value: "true"
       - key: AUTH_COOKIE_SAME_SITE
-        value: None
+        value: Lax
+      - key: OAUTH_EXCHANGE_TICKET_TTL_SECONDS
+        value: "120"
       - key: APP_UPLOAD_STORAGE
         value: cloudinary
       - key: APP_STATIC_MEDIA_MIGRATION_ENABLED
@@ -55,6 +61,14 @@ services:
       - key: JWT_ACCESS_KEY
         sync: false
       - key: JWT_REFRESH_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: FACEBOOK_OAUTH_CLIENT_ID
+        sync: false
+      - key: FACEBOOK_OAUTH_CLIENT_SECRET
         sync: false
       - key: REFUND_DATA_ENCRYPTION_KEY
         sync: false
@@ -97,6 +111,14 @@ services:
       - key: VERIFICATION_SENDGRID_FROM_EMAIL
         sync: false
       - key: VERIFICATION_SENDGRID_TEMPLATE_ID
+        sync: false
+      - key: PASSWORD_RESET_SENDGRID_TEMPLATE_ID
+        sync: false
+      - key: BOOKING_CONFIRMATION_SENDGRID_TEMPLATE_ID
+        sync: false
+      - key: CONTACT_REPLY_SENDGRID_TEMPLATE_ID
+        sync: false
+      - key: AUDIT_ALERT_SENDGRID_TEMPLATE_ID
         sync: false
       - key: AUDIT_ALERT_RECIPIENTS
         sync: false

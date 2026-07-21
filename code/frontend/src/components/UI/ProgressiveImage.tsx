@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image, { type ImageProps } from "next/image";
+import { resolveMediaSource } from "@/lib/media-url";
 
 type ProgressiveImageProps = ImageProps & {
   loaderClassName?: string;
@@ -22,14 +23,16 @@ export default function ProgressiveImage({
   loading,
   onLoad,
   onError,
+  src,
   ...props
 }: ProgressiveImageProps) {
   const [isLoaded, setIsLoaded] = useState(false);
   const shouldPrioritize = Boolean(priority);
+  const resolvedSrc = resolveMediaSource(src);
 
   useEffect(() => {
     setIsLoaded(false);
-  }, [props.src]);
+  }, [resolvedSrc]);
 
   return (
     <>
@@ -39,6 +42,7 @@ export default function ProgressiveImage({
       />
       <Image
         {...props}
+        src={resolvedSrc}
         alt={alt}
         quality={quality}
         decoding={decoding}

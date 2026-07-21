@@ -6,6 +6,7 @@ import GuestPageHero from "@/components/guest/GuestPageHero";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { apiClient, authSession, getApiErrorMessage } from "@/lib/api";
 import { siteConfig } from "@/lib/siteConfig";
+import { GALLERY_HERO_IMAGES } from "@/constants/content";
 
 interface ContactProfile {
   fullName?: string;
@@ -91,11 +92,8 @@ export default function ContactRequestPage() {
   return (
     <div className="min-h-screen bg-[#F1F0EA] text-[#0F2A43]">
       <GuestPageHero
-        imageSrc="/hotel-lobby.png"
+        imageSrc={GALLERY_HERO_IMAGES.contact}
         imageAlt={localize("Lễ tân hỗ trợ khách tại Luxury Hotel", "Guest assistance at Luxury Hotel")}
-        useGallery
-        galleryKeywords={["quán cà phê", "café", "thư viện", "library"]}
-        galleryIndex={9}
         eyebrow={localize("Liên hệ hỗ trợ", "Contact support")}
         title={localize("Gửi thông tin một lần, để chúng tôi xử lý đúng việc.", "Tell us once, so we can handle the right issue.")}
         description={localize("Biểu mẫu này chuyển yêu cầu trực tiếp đến bộ phận vận hành. Hãy thêm mã đặt phòng nếu vấn đề liên quan đến một kỳ lưu trú cụ thể.", "This form sends your request directly to hotel operations. Add the booking code when the issue relates to a specific stay.")}

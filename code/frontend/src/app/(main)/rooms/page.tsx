@@ -84,9 +84,6 @@ function RoomsPageContent() {
       <GuestPageHero
         imageSrc={ROOMS_CONTENT.hero.bg}
         imageAlt={localize("Phòng nghỉ tại Luxury Hotel", "A guest room at Luxury Hotel")}
-        useGallery
-        galleryKeywords={["phòng khách trong phòng", "hotel room living room", "room"]}
-        galleryIndex={2}
         eyebrow={localize("Danh mục lưu trú", "Accommodation collection")}
         title={localize("Khám phá các loại phòng", "Explore our room types")}
         description={localize("Xem không gian, tiện ích và đánh giá của từng loại phòng trước khi kiểm tra lịch trống.", "Review each room type's spaces, facilities and ratings before checking availability.")}

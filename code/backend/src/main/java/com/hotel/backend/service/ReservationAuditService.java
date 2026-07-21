@@ -34,11 +34,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.Arrays;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class ReservationAuditService {
     private static final String ALERT_TYPE = "HIGH_RISK_AUDIT";
+    private static final Set<ReservationAuditAction> ROUTINE_AUTH_ACTIONS = Set.of(
+            ReservationAuditAction.LOGIN_SUCCESS,
+            ReservationAuditAction.LOGOUT,
+            ReservationAuditAction.PASSWORD_CHANGED,
+            ReservationAuditAction.PASSWORD_RESET_COMPLETED);
 
     private final ReservationAuditLogRepository repository;
     private final AuditNotificationOutboxRepository outboxRepository;
@@ -254,6 +260,11 @@ public class ReservationAuditService {
             int size) {
         Specification<ReservationAuditLog> specification =
                 (root, query, builder) -> builder.conjunction();
+        // Audit pages are for operation/management mutations. Historical
+        // sign-in/session/self-service password rows remain append-only in the
+        // database but are intentionally excluded from operational queries.
+        specification = specification.and((root, query, builder) ->
+                builder.not(root.get("action").in(ROUTINE_AUTH_ACTIONS)));
         if (hasText(targetType)) {
             specification = specification.and((root, query, builder) ->
                     builder.equal(root.get("targetType"), targetType.trim().toUpperCase()));
@@ -276,12 +287,18 @@ public class ReservationAuditService {
                     builder.equal(root.get("action"), action));
         }
         if (category != null) {
+            List<ReservationAuditAction> actionsInCategory = Arrays.stream(ReservationAuditAction.values())
+                    .filter(candidate -> candidate.category() == category)
+                    .toList();
             specification = specification.and((root, query, builder) ->
-                    builder.equal(root.get("category"), category));
+                    root.get("action").in(actionsInCategory));
         }
         if (riskLevel != null) {
+            List<ReservationAuditAction> actionsAtRiskLevel = Arrays.stream(ReservationAuditAction.values())
+                    .filter(candidate -> candidate.riskLevel() == riskLevel)
+                    .toList();
             specification = specification.and((root, query, builder) ->
-                    builder.equal(root.get("riskLevel"), riskLevel));
+                    root.get("action").in(actionsAtRiskLevel));
         }
         if (from != null) {
             specification = specification.and((root, query, builder) ->
@@ -300,7 +317,10 @@ public class ReservationAuditService {
 
     @Transactional(readOnly = true)
     public List<String> findActors(String query) {
-        return repository.findActorNames(hasText(query) ? query.trim() : null, PageRequest.of(0, 20));
+        Pageable limit = PageRequest.of(0, 20);
+        return hasText(query)
+                ? repository.searchActorNames(query.trim(), limit)
+                : repository.findActorNames(limit);
     }
 
     private Actor currentActor() {

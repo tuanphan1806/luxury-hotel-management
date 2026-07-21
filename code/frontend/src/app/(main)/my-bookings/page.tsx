@@ -15,6 +15,7 @@ import RefundProgressCard, { type CustomerRefund } from "@/components/refunds/Re
 import { clearIdempotencyKey, getOrCreateIdempotencyKey } from "@/lib/idempotency";
 import GuestPageHero from "@/components/guest/GuestPageHero";
 import BankAccountFields from "@/components/forms/BankAccountFields";
+import { GALLERY_HERO_IMAGES } from "@/constants/content";
 
 const ReservationInvoiceModal = dynamic(
   () => import("@/components/reservations/ReservationInvoiceModal"),
@@ -355,11 +356,8 @@ export default function MyBookingsPage() {
   return (
     <div className="min-h-screen bg-[#F1F0EA] pb-24">
       <GuestPageHero
-        imageSrc="/hotel-lobby.png"
+        imageSrc={GALLERY_HERO_IMAGES.bookings}
         imageAlt={localize("Sảnh khách sạn Luxury Hotel", "Luxury Hotel lobby")}
-        useGallery
-        galleryKeywords={["toàn cảnh khách sạn", "hotel building"]}
-        galleryIndex={8}
         eyebrow={localize("Đơn của tôi", "My bookings")}
         title={localize("Đơn đặt phòng của tôi", "My reservations")}
         description={localize("Theo dõi kỳ lưu trú, tiền đặt cọc và yêu cầu hủy tại một nơi.", "Track upcoming stays, deposit payments, and cancellation requests in one place.")}

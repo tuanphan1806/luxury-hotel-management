@@ -1,0 +1,113 @@
+name: luxury-hotel-management
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hotelmanagement
+      POSTGRES_USER: hotel
+      POSTGRES_PASSWORD: hotel
+    ports:
+      # Port 5433 avoids colliding with PostgreSQL installed on Windows.
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - hotel-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotel -d hotelmanagement"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    shm_size: 128mb
+    logging: *default-logging
+
+  backend:
+    image: luxury-hotel-management-backend:local
+    build:
+      context: ./code/backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file:
+      # Provider/API secrets stay outside the image and outside Git.
+      - ./code/backend/.env
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/hotelmanagement
+      DATABASE_USERNAME: hotel
+      DATABASE_PASSWORD: hotel
+      PORT: 8080
+    ports:
+      - "${BACKEND_HOST_PORT:-8080}:8080"
+    volumes:
+      # Used only when APP_UPLOAD_STORAGE=local; harmless with Cloudinary.
+      - backend-storage:/app/storage
+    networks:
+      - hotel-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    stop_grace_period: 35s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  frontend:
+    image: luxury-hotel-management-frontend:local
+    build:
+      context: ./code/frontend
+      dockerfile: Dockerfile
+      args:
+        # Browser calls the same-origin /backend_proxy path. Next.js forwards
+        # it to the backend service on the private Compose network.
+        BACKEND_INTERNAL_URL: http://backend:8080
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      BACKEND_INTERNAL_URL: http://backend:8080
+      NEXT_TELEMETRY_DISABLED: 1
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
+    networks:
+      - hotel-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://127.0.0.1:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    stop_grace_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+networks:
+  hotel-network:
+    name: luxury-hotel-management-network
+
+volumes:
+  postgres-data:
+    # Preserve the existing local PostgreSQL data created by the former
+    # backend-only Compose file. Do not change without a backup/restore plan.
+    name: backend_postgres-data
+  backend-storage:
+    name: luxury-hotel-management-backend-storage

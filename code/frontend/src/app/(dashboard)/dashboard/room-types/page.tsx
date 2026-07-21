@@ -3,6 +3,7 @@
 import React, { useCallback, useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { apiClient, cachedGet } from "@/lib/api";
+import { resolveMediaSource } from "@/lib/media-url";
 import Toast from "@/components/UI/Toast";
 import ImageUploadField from "@/components/UI/ImageUploadField";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
@@ -345,7 +346,7 @@ export default function RoomTypesManagement() {
                 <div className="relative h-48 bg-gray-100 overflow-hidden">
                   {type.imageUrl ? (
                     <Image
-                      src={type.imageUrl}
+                      src={resolveMediaSource(type.imageUrl)}
                       alt={localize(type.typeName, type.typeNameEn)}
                       fill
                       sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"

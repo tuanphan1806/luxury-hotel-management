@@ -249,8 +249,8 @@ export default function UsersManagement() {
           resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
           actions={(
             <>
-              <FilterQuickButton active={selectedFilter === "STAFF"} onClick={() => setSelectedFilter("STAFF")}>{localize("Nhân viên", "Staff")}</FilterQuickButton>
-              <FilterQuickButton active={selectedFilter === "CUSTOMER"} onClick={() => setSelectedFilter("CUSTOMER")}>{localize("Khách hàng", "Customers")}</FilterQuickButton>
+              <FilterQuickButton active={selectedFilter === "STAFF"} onClick={() => setSelectedFilter((current) => current === "STAFF" ? "All" : "STAFF")}>{localize("Nhân viên", "Staff")}</FilterQuickButton>
+              <FilterQuickButton active={selectedFilter === "CUSTOMER"} onClick={() => setSelectedFilter((current) => current === "CUSTOMER" ? "All" : "CUSTOMER")}>{localize("Khách hàng", "Customers")}</FilterQuickButton>
             </>
           )}
         >

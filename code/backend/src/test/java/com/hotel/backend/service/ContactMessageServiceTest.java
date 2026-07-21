@@ -57,8 +57,9 @@ class ContactMessageServiceTest {
 
         var response = contactMessageService.reply(11L, replyRequest, "staff01");
 
-        verify(emailService).send(
+        verify(emailService).sendContactReply(
                 org.mockito.ArgumentMatchers.eq("guest@example.com"),
+                org.mockito.ArgumentMatchers.eq("Nguyen Van A"),
                 org.mockito.ArgumentMatchers.eq("Re: Tu van dat phong"),
                 contains("Khach san da tiep nhan yeu cau."));
         assertThat(response.getStatus()).isEqualTo(ContactMessageStatus.RESOLVED);
@@ -70,7 +71,11 @@ class ContactMessageServiceTest {
     void failedEmailDoesNotMarkContactAsResolved() {
         when(contactMessageRepository.findById(11L)).thenReturn(Optional.of(contactMessage));
         doThrow(new AppException(ErrorCode.EMAIL_DELIVERY_FAILED))
-                .when(emailService).send(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                .when(emailService).sendContactReply(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
 
         assertThatThrownBy(() -> contactMessageService.reply(11L, replyRequest, "staff01"))
                 .isInstanceOf(AppException.class);

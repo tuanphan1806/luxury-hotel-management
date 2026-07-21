@@ -8,7 +8,7 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 import DateTimeField from "@/components/forms/DateTimeField";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import GuestPageHero from "@/components/guest/GuestPageHero";
-import { HOME_CONTENT } from "@/constants/content";
+import { GALLERY_HERO_IMAGES } from "@/constants/content";
 
 interface ReservationRoomOption {
   id: number;
@@ -230,11 +230,8 @@ export default function ReservationPage() {
   return (
     <div className="min-h-screen bg-[#F1F0EA] text-[#0F2A43]">
       <GuestPageHero
-        imageSrc={HOME_CONTENT.hero.bg}
+        imageSrc={GALLERY_HERO_IMAGES.reservation}
         imageAlt={localize("Sảnh đón khách tại Luxury Hotel", "Luxury Hotel guest lobby")}
-        useGallery
-        galleryKeywords={["phòng khách trong phòng", "hotel room living room", "room"]}
-        galleryIndex={3}
         title={localize("Đặt phòng phù hợp với kỳ nghỉ của bạn.", "Build the right reservation for your stay.")}
         description={localize("Chọn ngày, giờ, số khách và nhiều hạng phòng trong cùng một đơn. Hệ thống sẽ giữ nguyên lựa chọn khi bạn chuyển sang thanh toán.", "Choose dates, times, guests, and multiple room types in one booking. Your selections carry into payment.")}
       />

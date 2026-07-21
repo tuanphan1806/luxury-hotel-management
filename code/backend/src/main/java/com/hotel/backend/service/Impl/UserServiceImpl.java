@@ -202,6 +202,15 @@ public class UserServiceImpl implements UserService {
             ensureCustomerProfileForUser(user);
         }
         log.info("User create with type {} successfully",user.getType());
+        reservationAuditService.recordTarget(
+                "USER", String.valueOf(user.getId()),
+                ReservationAuditAction.USER_CREATED,
+                "ADMIN tạo tài khoản vận hành",
+                null,
+                Map.of("role", user.getType().name(), "status", user.getStatus().name()),
+                Map.of("account", username),
+                UUID.randomUUID().toString(),
+                null);
         eventPublisher.publishEvent(new UserRegisteredEvent(user.getId()));
         return user.getId();
     }
@@ -283,27 +292,27 @@ public class UserServiceImpl implements UserService {
         user.setPassword(passwordEncoder.encode(req.getPassword()));
         invalidateSessions(user);
         userRepository.save(user);
-        reservationAuditService.recordTarget(
-                "USER",
-                String.valueOf(user.getId()),
-                ReservationAuditAction.PASSWORD_CHANGED,
-                "Người dùng đổi mật khẩu",
-                null,
-                null,
-                Map.of("sessionsInvalidated", true),
-                UUID.randomUUID().toString(),
-                null);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         User user = getUserById(id);
+        UserStatus previousStatus = user.getStatus();
         // Đây là soft-delete. Giữ avatar ACTIVE để audit/khôi phục tài
         // khoản không bị mất file; chỉ release khi có hard-delete thật sự.
         user.setStatus(UserStatus.INACTIVE);
         invalidateSessions(user);
         userRepository.save(user);
+        reservationAuditService.recordTarget(
+                "USER", String.valueOf(user.getId()),
+                ReservationAuditAction.USER_DEACTIVATED,
+                "ADMIN vô hiệu hóa tài khoản",
+                Map.of("status", previousStatus.name()),
+                Map.of("status", UserStatus.INACTIVE.name()),
+                Map.of("sessionsInvalidated", true, "role", user.getType().name()),
+                UUID.randomUUID().toString(),
+                null);
         log.info("delete user: {}", user);
     }
 

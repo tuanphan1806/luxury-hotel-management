@@ -1,7 +1,6 @@
 package com.hotel.backend.service;
 
 import com.hotel.backend.constant.UserStatus;
-import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.dto.request.ResetPasswordRequest;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.exception.AppException;
@@ -34,16 +33,12 @@ public class PasswordResetService {
     private final UserTokenRepository userTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
-    private final ReservationAuditService reservationAuditService;
 
     @Value("${app.frontend-base-url:http://localhost:3000}")
     private String frontendBaseUrl = "http://localhost:3000";
 
     @Value("${app.password-reset-ttl-minutes:30}")
     private long resetTtlMinutes = 30;
-
-    @Value("${app.hotel-name:Luxury Hotel}")
-    private String hotelName = "Luxury Hotel";
 
     @Transactional
     public void requestReset(String email) {
@@ -64,17 +59,11 @@ public class PasswordResetService {
         String resetLink = frontendBaseUrl.replaceAll("/+$", "")
                 + "/reset-password?token="
                 + URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
-        String content = """
-                Xin chào %s,
-
-                Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.
-                Liên kết đặt lại mật khẩu (có hiệu lực trong %d phút):
-                %s
-
-                Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email. Mật khẩu hiện tại vẫn được giữ nguyên.
-                """.formatted(user.getFullName(), resetTtlMinutes, resetLink);
-
-        emailService.send(user.getEmail(), "Đặt lại mật khẩu " + hotelName, content);
+        emailService.sendPasswordReset(
+                user.getEmail(),
+                user.getFullName(),
+                resetLink,
+                resetTtlMinutes);
     }
 
     @Transactional
@@ -98,13 +87,6 @@ public class PasswordResetService {
         if (userTokenRepository.existsById(user.getId())) {
             userTokenRepository.deleteById(user.getId());
         }
-        reservationAuditService.recordTargetForUser(
-                user,
-                "USER",
-                String.valueOf(user.getId()),
-                ReservationAuditAction.PASSWORD_RESET_COMPLETED,
-                "Hoàn tất đặt lại mật khẩu",
-                java.util.Map.of("sessionsInvalidated", true));
     }
 
     private void clearResetToken(User user) {

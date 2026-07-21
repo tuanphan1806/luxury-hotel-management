@@ -32,21 +32,25 @@ public class ReservationAuditLogResponse {
     private Instant occurredAtUtc;
 
     public static ReservationAuditLogResponse from(ReservationAuditLog log) {
+        ReservationAuditAction action = log.getAction();
         return ReservationAuditLogResponse.builder()
                 .id(log.getId())
                 .reservationId(log.getReservationId())
                 .reservationCode(log.getReservationCode())
                 .targetType(log.getTargetType())
                 .targetId(log.getTargetId())
-                .action(log.getAction())
+                .action(action)
                 .actionCode(log.getActionCode())
                 .actorName(log.getActorName()).actorRole(log.getActorRole())
                 .details(log.getDetails())
                 .oldValue(log.getOldValueJson())
                 .newValue(log.getNewValueJson())
                 .detail(log.getDetailJson())
-                .riskLevel(log.getRiskLevel())
-                .category(log.getCategory())
+                // Old append-only rows may contain the broad category/risk
+                // assigned by an earlier release. The action is canonical, so
+                // derive presentation metadata without mutating audit history.
+                .riskLevel(action != null ? action.riskLevel() : log.getRiskLevel())
+                .category(action != null ? action.category() : log.getCategory())
                 .correlationId(log.getCorrelationId())
                 .occurredAtUtc(log.getOccurredAtUtc())
                 .build();

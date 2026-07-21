@@ -10,6 +10,7 @@ interface FavoritesContextValue {
   isReady: boolean;
   isFavorite: (roomId: number) => boolean;
   toggleFavorite: (roomId: number) => void;
+  reconcileFavorites: (availableRoomIds: number[]) => void;
   clearFavorites: () => void;
 }
 
@@ -31,7 +32,11 @@ export function FavoritesProvider({ children }: Readonly<{ children: React.React
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    setFavoriteRoomIds(parseFavoriteIds(localStorage.getItem(FAVORITES_STORAGE_KEY)));
+    try {
+      setFavoriteRoomIds(parseFavoriteIds(localStorage.getItem(FAVORITES_STORAGE_KEY)));
+    } catch {
+      setFavoriteRoomIds([]);
+    }
     setIsReady(true);
 
     const handleStorage = (event: StorageEvent) => {
@@ -43,12 +48,17 @@ export function FavoritesProvider({ children }: Readonly<{ children: React.React
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
+  useEffect(() => {
+    if (!isReady) return;
+    try {
+      localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteRoomIds));
+    } catch {
+      // Favorites remain usable for the current session when storage is blocked.
+    }
+  }, [favoriteRoomIds, isReady]);
+
   const updateFavorites = useCallback((updater: (current: number[]) => number[]) => {
-    setFavoriteRoomIds((current) => {
-      const next = updater(current);
-      localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    setFavoriteRoomIds((current) => updater(current));
   }, []);
 
   const toggleFavorite = useCallback((roomId: number) => {
@@ -56,6 +66,16 @@ export function FavoritesProvider({ children }: Readonly<{ children: React.React
     updateFavorites((current) => current.includes(roomId)
       ? current.filter((id) => id !== roomId)
       : [...current, roomId]);
+  }, [updateFavorites]);
+
+  const reconcileFavorites = useCallback((availableRoomIds: number[]) => {
+    const availableIds = new Set(
+      availableRoomIds.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+    );
+    updateFavorites((current) => {
+      const reconciled = current.filter((id) => availableIds.has(id));
+      return reconciled.length === current.length ? current : reconciled;
+    });
   }, [updateFavorites]);
 
   const clearFavorites = useCallback(() => updateFavorites(() => []), [updateFavorites]);
@@ -67,8 +87,9 @@ export function FavoritesProvider({ children }: Readonly<{ children: React.React
     isReady,
     isFavorite,
     toggleFavorite,
+    reconcileFavorites,
     clearFavorites,
-  }), [clearFavorites, favoriteRoomIds, isFavorite, isReady, toggleFavorite]);
+  }), [clearFavorites, favoriteRoomIds, isFavorite, isReady, reconcileFavorites, toggleFavorite]);
 
   return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
 }

@@ -3,7 +3,6 @@
 import type { ReactNode } from "react";
 import type { ImageProps } from "next/image";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
-import { useGalleryHeroImage } from "@/components/guest/useGalleryHeroImage";
 
 interface GuestPageHeroProps {
   imageSrc: ImageProps["src"];
@@ -13,9 +12,6 @@ interface GuestPageHeroProps {
   description?: ReactNode;
   actions?: ReactNode;
   className?: string;
-  useGallery?: boolean;
-  galleryKeywords?: string[];
-  galleryIndex?: number;
 }
 
 /** Shared visual contract for the first image on guest discovery pages. */
@@ -27,23 +23,18 @@ export default function GuestPageHero({
   description,
   actions,
   className = "",
-  useGallery = false,
-  galleryKeywords = [],
-  galleryIndex = 0,
 }: GuestPageHeroProps) {
-  const galleryImage = useGalleryHeroImage(imageSrc, galleryKeywords, galleryIndex);
-  const resolvedImage = useGallery ? galleryImage : imageSrc;
-
   return (
     <section className={`relative flex min-h-[64dvh] overflow-hidden bg-[#0F2A43] pt-20 md:min-h-[620px] ${className}`}>
       <ProgressiveImage
-        src={resolvedImage}
+        src={imageSrc}
         alt={imageAlt}
         fill
         priority
         quality={92}
         sizes="100vw"
         className="object-cover"
+        loaderClassName="hero-image-loading-surface"
       />
       <div
         aria-hidden="true"

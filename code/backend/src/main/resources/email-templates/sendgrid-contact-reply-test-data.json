@@ -1,0 +1,13 @@
+{
+  "guest_name": "Nguyễn Văn An",
+  "subject": "Yêu cầu thay đổi ngày lưu trú",
+  "message_paragraphs": [
+    "Chúng tôi đã kiểm tra tình trạng phòng và có thể hỗ trợ thay đổi ngày lưu trú theo yêu cầu của bạn.",
+    "Vui lòng mở Trung tâm hỗ trợ để xác nhận phương án mới trước 18:00 hôm nay."
+  ],
+  "support_url": "https://luxury-hotel-management-three.vercel.app/support",
+  "hotel_name": "Luxury Hotel",
+  "support_email": "phanvietanhtuan01626019143@gmail.com",
+  "home_url": "https://luxury-hotel-management-three.vercel.app",
+  "current_year": 2026
+}

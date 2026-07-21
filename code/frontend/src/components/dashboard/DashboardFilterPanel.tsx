@@ -148,6 +148,7 @@ export function FilterQuickButton({ active = false, className = "", ...props }: 
     <button
       type="button"
       {...props}
+      aria-pressed={active}
       className={`inline-flex min-h-11 items-center justify-center rounded-lg border px-3 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] ${
         active
           ? "border-[#B8944F] bg-[#B8944F] text-[#0F2A43]"

@@ -1,8 +1,26 @@
+const galleryAsset = (filename: string) => `/backend_proxy/galeries/${filename}?v=20260721-stable-hero`;
+
+/**
+ * Stable, same-origin hero assets. Keeping these deterministic prevents a page
+ * from first painting a remote fallback and then swapping to a gallery image.
+ */
+export const GALLERY_HERO_IMAGES = {
+  home: galleryAsset('g-1.jpg'),
+  rooms: galleryAsset('g-5.jpg'),
+  reservation: galleryAsset('g-3.jpg'),
+  facilities: galleryAsset('g-6.jpg'),
+  about: galleryAsset('g-7.jpg'),
+  bookings: galleryAsset('g-1.jpg'),
+  support: galleryAsset('g-12.jpg'),
+  contact: galleryAsset('g-11.jpg'),
+  information: galleryAsset('g-8.jpg'),
+} as const;
+
 export const HOME_CONTENT = {
   hero: {
     title: 'Welcome to Luxury Hotels',
     subtitle: 'Experience unparalleled comfort and hospitality in the heart of the city',
-    bg: 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=1200&h=600&fit=crop',
+    bg: GALLERY_HERO_IMAGES.home,
     btn: 'Explore Rooms',
   },
   features: {
@@ -53,7 +71,7 @@ export const FACILITIES_CONTENT = {
   hero: {
     title: 'FACILITIES',
     subtitle: 'We want your stay at our lush hotel to be truly unforgettable. That is why we give special attention to all of your needs so that we can ensure an experience quite unique. Luxury hotels offers the perfect setting with stunning views for leisure and our modern luxury resort facilities will help you enjoy the best of all.',
-    bg: 'https://images.unsplash.com/photo-1582610116397-edb318620f90?w=2000&h=800&fit=crop',
+    bg: GALLERY_HERO_IMAGES.facilities,
   },
   main: {
     data: [
@@ -133,7 +151,7 @@ export const CONTACT_CONTENT = {
 
 export const ROOMS_CONTENT = {
   hero: {
-    bg: 'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=2000&h=800&fit=crop',
+    bg: GALLERY_HERO_IMAGES.rooms,
   },
   main: {
     title: 'ROOMS AND RATES',
