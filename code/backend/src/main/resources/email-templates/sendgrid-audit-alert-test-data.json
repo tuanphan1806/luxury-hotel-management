@@ -1,0 +1,12 @@
+{
+  "subject": "Thanh toán thủ công cần kiểm tra",
+  "body_paragraphs": [
+    "ADMIN Nguyễn Văn A vừa đánh dấu thủ công giao dịch cho đơn RES-20260721-001.",
+    "Số tiền: 2.400.000 ₫. Lý do: Đối soát giao dịch ngân hàng bị trễ webhook."
+  ],
+  "audit_url": "https://luxury-hotel-management-three.vercel.app/dashboard/audit-logs",
+  "hotel_name": "Luxury Hotel",
+  "support_email": "phanvietanhtuan01626019143@gmail.com",
+  "home_url": "https://luxury-hotel-management-three.vercel.app",
+  "current_year": 2026
+}

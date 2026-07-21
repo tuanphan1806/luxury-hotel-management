@@ -14,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hotel.backend.constant.TokenType;
 import com.hotel.backend.constant.UserType;
-import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.dto.request.SignInRequest;
 import com.hotel.backend.dto.response.TokenResponse;
 import com.hotel.backend.entity.InvalidatedToken;
@@ -25,7 +24,6 @@ import com.hotel.backend.repository.UserRepository;
 import com.hotel.backend.repository.UserTokenRepository;
 import com.hotel.backend.service.AuthenticationService;
 import com.hotel.backend.service.JwtService;
-import com.hotel.backend.service.ReservationAuditService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -33,7 +31,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Map;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +45,6 @@ public class AuthenticationServiceImpl implements AuthenticationService{
 
     private final InvalidatedTokenRepository invalidatedTokenRepository;
     private final UserTokenRepository userTokenRepository;
-    private final ReservationAuditService reservationAuditService;
 
     @Transactional(rollbackFor = Exception.class)
     public TokenResponse getAccessToken(SignInRequest request){
@@ -74,13 +70,6 @@ public class AuthenticationServiceImpl implements AuthenticationService{
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
         TokenResponse response = issueTokensInternal(user, authorities);
-        reservationAuditService.recordTargetForUser(
-                user,
-                "USER",
-                String.valueOf(user.getId()),
-                ReservationAuditAction.LOGIN_SUCCESS,
-                "Đăng nhập thành công",
-                Map.of("method", "PASSWORD"));
         log.info("Login success for username={}", request.getUsername());
         return response;
     }
@@ -94,15 +83,7 @@ public class AuthenticationServiceImpl implements AuthenticationService{
         List<String> authorities = user.getAuthorities().stream()
                 .map(authority -> authority.getAuthority())
                 .toList();
-        TokenResponse response = issueTokensInternal(user, authorities);
-        reservationAuditService.recordTargetForUser(
-                user,
-                "USER",
-                String.valueOf(user.getId()),
-                ReservationAuditAction.LOGIN_SUCCESS,
-                "Đăng nhập thành công",
-                Map.of("method", "OAUTH"));
-        return response;
+        return issueTokensInternal(user, authorities);
     }
 
     private TokenResponse issueTokensInternal(
@@ -281,13 +262,6 @@ public class AuthenticationServiceImpl implements AuthenticationService{
                 userTokenRepository.deleteById(user.getId());
                 log.info("Single-session record removed for username={}", username);
             }
-            reservationAuditService.recordTargetForUser(
-                    user,
-                    "USER",
-                    String.valueOf(user.getId()),
-                    ReservationAuditAction.LOGOUT,
-                    "Đăng xuất",
-                    Map.of("sessionsInvalidated", true));
         });
 
         log.info("Logout success — tokens invalidated, jti={}", jti);

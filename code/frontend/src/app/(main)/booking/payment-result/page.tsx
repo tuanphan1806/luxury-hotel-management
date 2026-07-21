@@ -462,7 +462,7 @@ function PaymentResultContent() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#F1F0EA] px-3 py-8 sm:px-6 sm:py-14">
-      <section className={`w-full overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white shadow-[0_24px_70px_rgba(15,42,67,0.14)] ${showSepayInstructions ? "max-w-5xl" : "max-w-xl"}`}>
+      <section className={`payment-receipt-print-root w-full overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white shadow-[0_24px_70px_rgba(15,42,67,0.14)] ${showSepayInstructions ? "max-w-5xl" : "max-w-xl"}`}>
         <header className={`relative flex flex-col items-center gap-4 px-5 py-6 text-center text-white sm:flex-row sm:px-8 sm:py-7 sm:text-left ${bannerClass}`}>
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/10" aria-hidden="true">
             {isLoading ? (
@@ -654,8 +654,16 @@ function PaymentResultContent() {
               <dd className="font-bold text-[#0F2A43]">{payment?.reservationCode || "—"}</dd>
             </div>
             <div className="flex items-center justify-between gap-4 border-b border-[#0F2A43]/10 pb-3">
-              <dt className="font-semibold text-[#66727C]">{localize("Mã tham chiếu giao dịch", "Transaction reference")}</dt>
-              <dd className="max-w-[60%] break-all text-right font-mono font-semibold text-[#091E30]">{payment?.transactionReference || payment?.transactionId || "—"}</dd>
+              <dt className="font-semibold text-[#66727C]">
+                {provider === "SEPAY"
+                  ? localize("Mã thanh toán", "Payment code")
+                  : localize("Mã tham chiếu giao dịch", "Transaction reference")}
+              </dt>
+              <dd className="max-w-[60%] break-all text-right font-mono font-semibold text-[#091E30]">
+                {provider === "SEPAY"
+                  ? payment?.transferContent || payment?.transactionReference || "—"
+                  : payment?.transactionReference || payment?.transactionId || "—"}
+              </dd>
             </div>
             <div className="flex items-center justify-between gap-4 border-b border-[#0F2A43]/10 pb-3">
               <dt className="font-semibold text-[#66727C]">{localize("Số tiền", "Amount")}</dt>
@@ -711,7 +719,7 @@ function PaymentResultContent() {
             </div>
           </dl>
 
-          <div className="flex flex-col gap-3 pt-1 sm:flex-row">
+          <div className="payment-receipt-no-print flex flex-col gap-3 pt-1 sm:flex-row">
             {isPending && isDeposit && (
               <button
                 type="button"
@@ -726,7 +734,7 @@ function PaymentResultContent() {
             )}
             {isConfirmedOutcome && (
               <button type="button" onClick={() => window.print()} className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-[#0F2A43] px-5 text-xs font-bold text-[#0F2A43] hover:bg-[#0F2A43]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">
-                {localize("In kết quả thanh toán", "Print payment result")}
+                {localize("In biên nhận thanh toán", "Print payment receipt")}
               </button>
             )}
             {!isConfirmedOutcome && !isLoading && (guestReservationToken ? (

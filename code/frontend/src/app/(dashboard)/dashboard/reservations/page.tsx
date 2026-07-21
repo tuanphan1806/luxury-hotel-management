@@ -2226,10 +2226,10 @@ export default function ReservationsManagement() {
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={(
           <>
-            <FilterQuickButton active={stayDate === todayDate().slice(0, 10)} onClick={() => setStayDate(todayDate().slice(0, 10))}>
+            <FilterQuickButton active={stayDate === todayDate().slice(0, 10)} onClick={() => setStayDate((current) => current === todayDate().slice(0, 10) ? "" : todayDate().slice(0, 10))}>
               {localize("Hôm nay", "Today")}
             </FilterQuickButton>
-            <FilterQuickButton active={stayDate === tomorrowDate().slice(0, 10)} onClick={() => setStayDate(tomorrowDate().slice(0, 10))}>
+            <FilterQuickButton active={stayDate === tomorrowDate().slice(0, 10)} onClick={() => setStayDate((current) => current === tomorrowDate().slice(0, 10) ? "" : tomorrowDate().slice(0, 10))}>
               {localize("Ngày mai", "Tomorrow")}
             </FilterQuickButton>
           </>

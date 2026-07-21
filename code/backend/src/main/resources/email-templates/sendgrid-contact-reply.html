@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <title>{{subject}} · {{hotel_name}}</title>
+    <style>
+      @media only screen and (max-width:620px) {
+        .email-shell { width:100% !important; }
+        .email-pad { padding-left:22px !important; padding-right:22px !important; }
+        .email-title { font-size:28px !important; line-height:1.18 !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background:#F1F0EA;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#0F2A43;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Đội ngũ {{hotel_name}} đã phản hồi yêu cầu hỗ trợ của bạn.</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#F1F0EA">
+      <tr><td align="center" style="padding:28px 12px;">
+        <table class="email-shell" role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:640px;max-width:640px;border-radius:16px;overflow:hidden;background:#FFFFFF;box-shadow:0 18px 55px rgba(15,42,67,.12);">
+          <tr><td class="email-pad" bgcolor="#0F2A43" style="padding:30px 38px 34px;border-top:5px solid #B8944F;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
+              <td width="44" height="44" align="center" bgcolor="#B8944F" style="width:44px;height:44px;border-radius:50%;color:#0F2A43;font-family:'Times New Roman',Times,serif;font-size:18px;font-weight:700;">LH</td>
+              <td style="padding-left:12px;"><div style="color:#FFFFFF;font-family:'Times New Roman',Times,serif;font-size:20px;font-weight:700;">{{hotel_name}}</div><div style="margin-top:3px;color:#D8C398;font-size:9px;font-weight:700;letter-spacing:.22em;">GUEST CARE</div></td>
+            </tr></table>
+            <div style="margin-top:30px;color:#D8C398;font-size:10px;font-weight:700;letter-spacing:.2em;">TRUNG TÂM HỖ TRỢ</div>
+            <h1 class="email-title" style="margin:10px 0 0;color:#FFFFFF;font-family:'Times New Roman',Times,serif;font-size:36px;font-weight:700;line-height:1.16;letter-spacing:-.02em;">Chúng tôi đã phản hồi yêu cầu của bạn</h1>
+          </td></tr>
+          <tr><td class="email-pad" style="padding:34px 38px 36px;">
+            <p style="margin:0 0 18px;color:#0F2A43;font-size:16px;font-weight:700;line-height:1.5;">Xin chào {{guest_name}},</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:22px;border:1px solid #E6E2D8;border-radius:10px;background:#FBFAF6;border-collapse:separate;overflow:hidden;"><tr>
+              <td style="padding:12px 14px;color:#64748B;font-size:11px;font-weight:700;letter-spacing:.08em;">YÊU CẦU</td>
+              <td align="right" style="padding:12px 14px;color:#0F2A43;font-size:13px;font-weight:700;line-height:1.45;">{{subject}}</td>
+            </tr></table>
+            <div style="margin-bottom:8px;color:#B07A23;font-size:10px;font-weight:700;letter-spacing:.14em;">PHẢN HỒI TỪ KHÁCH SẠN</div>
+            {{#each message_paragraphs}}
+            <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.75;">{{this}}</p>
+            {{/each}}
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:28px 0 24px;"><tr><td bgcolor="#B8944F" style="border-radius:8px;">
+              <a href="{{{support_url}}}" target="_blank" style="display:inline-block;padding:14px 24px;color:#0F2A43;font-size:14px;font-weight:700;text-decoration:none;">Mở trung tâm hỗ trợ &nbsp;→</a>
+            </td></tr></table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="border-left:4px solid #B8944F;background:#F8F6F1;border-radius:0 8px 8px 0;padding:14px 16px;color:#475569;font-size:13px;line-height:1.65;">Nếu nội dung chưa giải quyết đầy đủ yêu cầu, bạn có thể trả lời email này để tiếp tục trao đổi.</td></tr></table>
+          </td></tr>
+          <tr><td class="email-pad" bgcolor="#F8F6F1" style="padding:24px 38px;border-top:1px solid #E6E2D8;text-align:center;">
+            <div style="color:#0F2A43;font-family:'Times New Roman',Times,serif;font-size:16px;font-weight:700;">{{hotel_name}}</div>
+            <div style="margin-top:8px;color:#64748B;font-size:11px;line-height:1.65;">Liên hệ trực tiếp: <a href="mailto:{{support_email}}" style="color:#0F2A43;">{{support_email}}</a></div>
+            <div style="margin-top:10px;color:#94A3B8;font-size:10px;">© {{current_year}} {{hotel_name}}. Email giao dịch tự động.</div>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>

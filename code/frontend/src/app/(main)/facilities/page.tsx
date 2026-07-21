@@ -51,9 +51,6 @@ export default function FacilitiesPage() {
       <GuestPageHero
         imageSrc={FACILITIES_CONTENT.hero.bg}
         imageAlt={localize("Hồ bơi và không gian thư giãn tại Luxury Hotel", "Pool and relaxation spaces at Luxury Hotel")}
-        useGallery
-        galleryKeywords={["hồ bơi", "swimming pool"]}
-        galleryIndex={0}
         eyebrow={localize("Tiện ích", "Facilities")}
         title={localize("Không gian nâng tầm kỳ nghỉ.", "Spaces designed to elevate your stay.")}
         description={localize("Từ hồ bơi, bữa sáng đến những góc yên tĩnh, bạn có thể hình dung đầy đủ trải nghiệm khách sạn trước khi đặt phòng.", "From the pool to breakfast and quiet corners, guests can understand the hotel experience before they book.")}

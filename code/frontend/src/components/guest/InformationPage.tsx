@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
-import { useGalleryHeroImage } from "@/components/guest/useGalleryHeroImage";
+import { GALLERY_HERO_IMAGES } from "@/constants/content";
 
 export interface LocalizedCopy {
   vi: string;
@@ -28,12 +28,12 @@ interface InformationPageProps {
 
 export default function InformationPage({ eyebrow, title, intro, sections, notice, primaryAction, secondaryAction }: InformationPageProps) {
   const { localize } = useLanguage();
-  const heroImage = useGalleryHeroImage("/hotel-lobby.png", [title.vi, title.en, eyebrow.vi, eyebrow.en], 6);
+  const heroImage = GALLERY_HERO_IMAGES.information;
 
   return (
     <div className="min-h-screen bg-[#F1F0EA] pb-24 pt-20 text-[#0F2A43]">
       <header className="relative overflow-hidden border-b border-[#0F2A43]/12 bg-[#0F2A43] px-5 py-20 text-white md:px-8 md:py-24">
-        <ProgressiveImage src={heroImage} alt={localize(title.vi, title.en)} fill priority quality={92} sizes="100vw" className="object-cover" />
+        <ProgressiveImage src={heroImage} alt={localize(title.vi, title.en)} fill priority quality={92} sizes="100vw" className="object-cover" loaderClassName="hero-image-loading-surface" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#091E30]/72 via-[#0F2A43]/42 to-[#0F2A43]/10" />
         <div className="relative z-10 mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-end">
           <div>

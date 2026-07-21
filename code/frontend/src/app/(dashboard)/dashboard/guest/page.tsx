@@ -261,10 +261,10 @@ export default function DashboardGuestPage() {
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={(
           <>
-            <FilterQuickButton active={statusFilter === "CHECKED_IN"} onClick={() => setStatusFilter("CHECKED_IN")}>
+            <FilterQuickButton active={statusFilter === "CHECKED_IN"} onClick={() => setStatusFilter((current) => current === "CHECKED_IN" ? "All" : "CHECKED_IN")}>
               {localize("Đang lưu trú", "Currently staying")}
             </FilterQuickButton>
-            <FilterQuickButton active={statusFilter === "CHECKED_OUT"} onClick={() => setStatusFilter("CHECKED_OUT")}>
+            <FilterQuickButton active={statusFilter === "CHECKED_OUT"} onClick={() => setStatusFilter((current) => current === "CHECKED_OUT" ? "All" : "CHECKED_OUT")}>
               {localize("Đã trả phòng", "Checked out")}
             </FilterQuickButton>
           </>

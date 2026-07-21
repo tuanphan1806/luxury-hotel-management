@@ -14,13 +14,13 @@ integration test đều dùng PostgreSQL 16.
 Khởi động database:
 
 ```powershell
-cd code/backend
 docker compose up -d postgres
 ```
 
 Khởi động backend:
 
 ```powershell
+cd code/backend
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -103,10 +103,12 @@ nhận rollback.
 ## Kiểm tra nhanh
 
 ```powershell
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
 cd code/backend
 .\mvnw.cmd test
 .\mvnw.cmd -Ppostgres-migration-test verify
-docker compose config --quiet
 ```
 
 Profile migration kiểm tra PostgreSQL 16 thật, gồm clean migration, Hibernate

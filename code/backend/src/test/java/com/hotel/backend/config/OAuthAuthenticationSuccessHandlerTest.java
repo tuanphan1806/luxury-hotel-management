@@ -4,12 +4,11 @@ import com.hotel.backend.constant.OAuthLoginError;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.OAuthLoginProfile;
-import com.hotel.backend.dto.response.TokenResponse;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.exception.OAuthLoginException;
 import com.hotel.backend.service.AuthCookieService;
-import com.hotel.backend.service.AuthenticationService;
 import com.hotel.backend.service.OAuthAccountService;
+import com.hotel.backend.service.OAuthLoginTicketService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,7 +38,7 @@ class OAuthAuthenticationSuccessHandlerTest {
     @Mock
     private OAuthAccountService oauthAccountService;
     @Mock
-    private AuthenticationService authenticationService;
+    private OAuthLoginTicketService loginTicketService;
     @Mock
     private OAuth2AuthorizedClientService authorizedClientService;
 
@@ -51,21 +50,18 @@ class OAuthAuthenticationSuccessHandlerTest {
         properties.setFrontendCallbackUrl("https://frontend.example/oauth/callback");
         handler = new OAuthAuthenticationSuccessHandler(
                 oauthAccountService,
-                authenticationService,
+                loginTicketService,
                 new AuthCookieService(false, 7, "Lax"),
                 properties,
                 authorizedClientService);
     }
 
     @Test
-    void issuesJwtPairButRedirectsWithStatusOnlyAndRefreshInHttpOnlyCookie() throws Exception {
+    void redirectsWithShortLivedExchangeTicketInsteadOfJwtOrRefreshCookie() throws Exception {
         OAuth2AuthenticationToken authentication = googleAuthentication();
         User user = activeCustomer();
         when(oauthAccountService.resolveOrCreate(any(OAuthLoginProfile.class))).thenReturn(user);
-        when(authenticationService.issueTokens(user)).thenReturn(TokenResponse.builder()
-                .accessToken("access.jwt.must-not-be-in-url")
-                .refreshToken("refresh.jwt.must-only-be-cookie")
-                .build());
+        when(loginTicketService.issue(user)).thenReturn("single-use-ticket");
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpSession temporaryOAuthSession = (MockHttpSession) request.getSession(true);
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -73,15 +69,17 @@ class OAuthAuthenticationSuccessHandlerTest {
         handler.onAuthenticationSuccess(request, response, authentication);
 
         assertThat(response.getRedirectedUrl())
-                .isEqualTo("https://frontend.example/oauth/callback?status=success")
+                .isEqualTo("https://frontend.example/oauth/callback?status=success&ticket=single-use-ticket")
                 .doesNotContain("access.jwt", "refresh.jwt", "guest@gmail.com", "provider_token");
         assertThat(response.getHeader("Set-Cookie"))
-                .contains("refreshToken=refresh.jwt.must-only-be-cookie")
+                .contains("refreshToken=")
+                .contains("Max-Age=0")
                 .contains("HttpOnly")
                 .contains("SameSite=Lax");
         ArgumentCaptor<OAuthLoginProfile> profileCaptor = ArgumentCaptor.forClass(OAuthLoginProfile.class);
         verify(oauthAccountService).resolveOrCreate(profileCaptor.capture());
         assertThat(profileCaptor.getValue().providerSubject()).isEqualTo("google-subject");
+        verify(loginTicketService).issue(user);
         verify(authorizedClientService).removeAuthorizedClient("google", "google-subject");
         assertThat(temporaryOAuthSession.isInvalid()).isTrue();
     }
@@ -104,7 +102,7 @@ class OAuthAuthenticationSuccessHandlerTest {
                 .contains("refreshToken=")
                 .contains("Max-Age=0")
                 .contains("HttpOnly");
-        verify(authenticationService, never()).issueTokens(any(User.class));
+        verify(loginTicketService, never()).issue(any(User.class));
     }
 
     private OAuth2AuthenticationToken googleAuthentication() {

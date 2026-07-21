@@ -11,7 +11,8 @@ spring:
   sendgrid:
     api-key: ${VERIFICATION_SENDGRID_API_KEY}
     from-email: ${VERIFICATION_SENDGRID_FROM_EMAIL}
-    templateId: ${VERIFICATION_SENDGRID_TEMPLATE_ID}
+    # Optional: EmailService falls back to the versioned local HTML template.
+    templateId: ${VERIFICATION_SENDGRID_TEMPLATE_ID:}
   jpa:
     hibernate:
       ddl-auto: validate

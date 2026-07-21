@@ -140,6 +140,7 @@ export default function RoomsManagement() {
     floor: 1,
     description: "",
   });
+  const [roomNameAutoFilled, setRoomNameAutoFilled] = useState(false);
 
   const [selectedRoom, setSelectedRoom] = useState<RoomItem | null>(null);
 
@@ -252,15 +253,31 @@ export default function RoomsManagement() {
   }, [filteredRooms]);
 
   // Init Create
+  const suggestRoomName = useCallback((floor: number) => {
+    const normalizedFloor = Math.max(1, Number(floor) || 1);
+    const numbersOnFloor = rooms
+      .filter((room) => Number(room.floor) === normalizedFloor)
+      .map((room) => room.roomName.match(/(\d+)\s*$/)?.[1])
+      .filter(Boolean)
+      .map(Number)
+      .filter(Number.isFinite);
+    const nextNumber = numbersOnFloor.length
+      ? Math.max(...numbersOnFloor) + 1
+      : normalizedFloor * 100 + 1;
+    return localize(`Phòng ${nextNumber}`, `Room ${nextNumber}`);
+  }, [localize, rooms]);
+
   const openCreateModal = () => {
     if (!isAdmin) return;
+    const defaultFloor = 1;
     setFormData({
       id: 0,
-      roomName: "",
+      roomName: suggestRoomName(defaultFloor),
       roomTypeId: roomTypes[0]?.id || 0,
-      floor: 1,
+      floor: defaultFloor,
       description: "",
     });
+    setRoomNameAutoFilled(true);
     setIsCreateOpen(true);
   };
 
@@ -300,6 +317,7 @@ export default function RoomsManagement() {
       floor: room.floor,
       description: room.description || "",
     });
+    setRoomNameAutoFilled(false);
     setIsEditOpen(true);
   };
 
@@ -1031,12 +1049,12 @@ export default function RoomsManagement() {
             <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Thêm phòng mới", "Add new room")}</h3>
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Tên / số phòng", "Room name / number")} *</label>
+                <div className="mb-1.5 flex items-center justify-between gap-3"><label className="block text-xs font-bold uppercase tracking-wider text-[#66727C]">{localize("Tên / số phòng", "Room name / number")} *</label><button type="button" onClick={() => { setFormData((current) => ({ ...current, roomName: suggestRoomName(current.floor) })); setRoomNameAutoFilled(true); }} className="text-[10px] font-bold text-[#80632F] underline-offset-4 hover:underline">{localize("Tự điền", "Auto-fill")}</button></div>
                 <input
                   type="text"
                   required
                   value={formData.roomName}
-                  onChange={(e) => setFormData({ ...formData, roomName: e.target.value })}
+                  onChange={(e) => { setRoomNameAutoFilled(false); setFormData({ ...formData, roomName: e.target.value }); }}
                   className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
                   placeholder={localize("Ví dụ: Phòng 304", "e.g. Room 304")}
                 />
@@ -1065,7 +1083,10 @@ export default function RoomsManagement() {
                     min="1"
                     required
                     value={formData.floor}
-                    onChange={(e) => setFormData({ ...formData, floor: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const floor = Number(e.target.value);
+                      setFormData((current) => ({ ...current, floor, roomName: roomNameAutoFilled ? suggestRoomName(floor) : current.roomName }));
+                    }}
                     className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
                   />
                 </div>

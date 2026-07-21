@@ -28,9 +28,17 @@ public interface ReservationAuditLogRepository extends JpaRepository<Reservation
         SELECT DISTINCT a.actorName
         FROM ReservationAuditLog a
         WHERE a.actorName IS NOT NULL
-          AND (:query IS NULL OR lower(a.actorName) LIKE lower(concat('%', :query, '%')))
         ORDER BY a.actorName
     """)
-    List<String> findActorNames(@Param("query") String query,
-                                org.springframework.data.domain.Pageable pageable);
+    List<String> findActorNames(org.springframework.data.domain.Pageable pageable);
+
+    @Query("""
+        SELECT DISTINCT a.actorName
+        FROM ReservationAuditLog a
+        WHERE a.actorName IS NOT NULL
+          AND lower(a.actorName) LIKE lower(concat('%', :query, '%'))
+        ORDER BY a.actorName
+    """)
+    List<String> searchActorNames(@Param("query") String query,
+                                  org.springframework.data.domain.Pageable pageable);
 }

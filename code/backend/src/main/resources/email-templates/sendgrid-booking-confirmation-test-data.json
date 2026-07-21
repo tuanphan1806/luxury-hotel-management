@@ -1,0 +1,16 @@
+{
+  "guest_name": "Nguyễn Văn An",
+  "reservation_code": "RES-20260721-001",
+  "check_in": "14:00 · 01/08/2026",
+  "check_out": "12:00 · 03/08/2026",
+  "room_types": [
+    {"name": "Deluxe King", "quantity": 2, "subtotal": "4.800.000 ₫"},
+    {"name": "Executive Suite", "quantity": 1, "subtotal": "3.600.000 ₫"}
+  ],
+  "total_amount": "8.400.000 ₫",
+  "lookup_link": "https://luxury-hotel-management-three.vercel.app/booking/lookup#token=preview",
+  "hotel_name": "Luxury Hotel",
+  "support_email": "phanvietanhtuan01626019143@gmail.com",
+  "home_url": "https://luxury-hotel-management-three.vercel.app",
+  "current_year": 2026
+}

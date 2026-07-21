@@ -106,6 +106,7 @@ app:
     oauth:
         backend-base-url: ${BACKEND_BASE_URL:http://localhost:${server.port:8080}}
         frontend-callback-url: ${FRONTEND_BASE_URL:http://localhost:3000}/oauth/callback
+        exchange-ticket-ttl-seconds: ${OAUTH_EXCHANGE_TICKET_TTL_SECONDS:120}
         google:
             client-id: ${GOOGLE_OAUTH_CLIENT_ID:}
             client-secret: ${GOOGLE_OAUTH_CLIENT_SECRET:}
@@ -156,6 +157,11 @@ app:
     transactional-email:
         api-key: ${spring.sendgrid.api-key:}
         from-email: ${spring.sendgrid.from-email:}
+        templates:
+            password-reset: ${PASSWORD_RESET_SENDGRID_TEMPLATE_ID:}
+            booking-confirmation: ${BOOKING_CONFIRMATION_SENDGRID_TEMPLATE_ID:}
+            contact-reply: ${CONTACT_REPLY_SENDGRID_TEMPLATE_ID:}
+            audit-alert: ${AUDIT_ALERT_SENDGRID_TEMPLATE_ID:}
     audit-alert:
         recipients: ${AUDIT_ALERT_RECIPIENTS:}
         batch-size: ${AUDIT_ALERT_BATCH_SIZE:25}

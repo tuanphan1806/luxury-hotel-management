@@ -36,6 +36,7 @@ A full-stack hotel reservation and operations platform with multi-room bookings,
 |   `-- frontend/      Next.js guest site and operations dashboard
 |-- docs/              Architecture, payment platform and deployment notes
 |-- .github/workflows/ CI production gates
+|-- compose.yml        Complete local stack: PostgreSQL, backend and frontend
 `-- render.yaml        Render backend blueprint
 ```
 
@@ -55,23 +56,28 @@ Copy-Item code/backend/.env.example code/backend/.env
 Copy-Item code/frontend/.env.example code/frontend/.env.local
 ```
 
-Start PostgreSQL and the backend:
+Start the complete production-like local stack from the repository root:
 
 ```powershell
-Set-Location code/backend
-docker compose up -d postgres
-.\mvnw.cmd spring-boot:run
+docker compose up -d --build
+docker compose ps
 ```
 
-Start the frontend in another terminal:
+Docker Desktop will show one `luxury-hotel-management` project containing
+`postgres`, `backend`, and `frontend`. The frontend runs at
+`http://localhost:3000`; the backend runs at `http://localhost:8080`; PostgreSQL
+is exposed at `localhost:5433`.
+
+Follow startup or shutdown without deleting database data:
 
 ```powershell
-Set-Location code/frontend
-pnpm install --frozen-lockfile
-pnpm run dev
+docker compose logs -f backend frontend
+docker compose down
 ```
 
-The frontend runs at `http://localhost:3000`; the backend runs at `http://localhost:8080`.
+For source-level development with hot reload, start only PostgreSQL with
+`docker compose up -d postgres`, then run Spring Boot and Next.js from their
+respective `code/backend` and `code/frontend` directories.
 
 Demo users are available only when the development seed flags are enabled. Production configuration disables demo users and requires a one-time secure admin bootstrap.
 

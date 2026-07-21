@@ -22,12 +22,13 @@ interface FavoriteRoomsMenuProps {
 }
 
 export default function FavoriteRoomsMenu({ open, onClose }: FavoriteRoomsMenuProps) {
-  const { favoriteRoomIds, favoriteCount, toggleFavorite } = useFavorites();
+  const { favoriteRoomIds, favoriteCount, reconcileFavorites, toggleFavorite } = useFavorites();
   const { localize, locale } = useLanguage();
   const [roomTypes, setRoomTypes] = useState<FavoriteRoomSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (!open || favoriteCount === 0 || hasLoaded) return;
@@ -37,22 +38,35 @@ export default function FavoriteRoomsMenu({ open, onClose }: FavoriteRoomsMenuPr
     setLoadError("");
     getPublicRoomTypes<FavoriteRoomSummary>()
       .then((items) => {
-        if (active) setRoomTypes(items);
+        if (active) {
+          setRoomTypes(items);
+          reconcileFavorites(items.map((room) => Number(room.id)));
+          setHasLoaded(true);
+        }
       })
       .catch(() => {
-        if (active) setLoadError(localize("Không thể tải danh sách yêu thích.", "Unable to load favorite rooms."));
+        if (active) {
+          setLoadError(localize("Không thể tải danh sách yêu thích.", "Unable to load favorite rooms."));
+          setHasLoaded(false);
+        }
       })
       .finally(() => {
         if (active) {
           setIsLoading(false);
-          setHasLoaded(true);
         }
       });
 
     return () => {
       active = false;
     };
-  }, [favoriteCount, hasLoaded, localize, open]);
+  }, [favoriteCount, hasLoaded, localize, open, reconcileFavorites, retryKey]);
+
+  useEffect(() => {
+    if (favoriteCount > 0) return;
+    setRoomTypes([]);
+    setLoadError("");
+    setHasLoaded(false);
+  }, [favoriteCount]);
 
   const favoriteRooms = useMemo(
     () => roomTypes.filter((room) => favoriteRoomIds.includes(Number(room.id))),
@@ -86,7 +100,12 @@ export default function FavoriteRoomsMenu({ open, onClose }: FavoriteRoomsMenuPr
             </div>
           ))
         ) : loadError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">{loadError}</div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">
+            <p>{loadError}</p>
+            <button type="button" onClick={() => { setLoadError(""); setRetryKey((value) => value + 1); }} className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-rose-300 bg-white px-3 text-xs font-bold text-rose-700 transition hover:bg-rose-100">
+              {localize("Thử tải lại", "Try again")}
+            </button>
+          </div>
         ) : favoriteRooms.length === 0 ? (
           <div className="px-4 py-8 text-center">
             <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-[#0F2A43]/12 bg-[#F1F0EA] text-[#80632F]">

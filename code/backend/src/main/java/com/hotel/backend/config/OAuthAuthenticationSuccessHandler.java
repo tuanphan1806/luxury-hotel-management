@@ -3,11 +3,10 @@ package com.hotel.backend.config;
 import com.hotel.backend.constant.OAuthLoginError;
 import com.hotel.backend.constant.OAuthProvider;
 import com.hotel.backend.dto.OAuthLoginProfile;
-import com.hotel.backend.dto.response.TokenResponse;
 import com.hotel.backend.exception.OAuthLoginException;
 import com.hotel.backend.service.AuthCookieService;
-import com.hotel.backend.service.AuthenticationService;
 import com.hotel.backend.service.OAuthAccountService;
+import com.hotel.backend.service.OAuthLoginTicketService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -32,7 +31,7 @@ import java.util.Map;
 public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessHandler {
 
     private final OAuthAccountService oauthAccountService;
-    private final AuthenticationService authenticationService;
+    private final OAuthLoginTicketService loginTicketService;
     private final AuthCookieService authCookieService;
     private final OAuthProperties properties;
     private final OAuth2AuthorizedClientService authorizedClientService;
@@ -44,6 +43,7 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
             Authentication authentication) throws IOException, ServletException {
         String status = "success";
         String error = null;
+        String exchangeTicket = null;
         OAuth2AuthenticationToken oauthToken = authentication instanceof OAuth2AuthenticationToken token
                 ? token
                 : null;
@@ -54,8 +54,12 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
             }
             OAuthLoginProfile profile = toProfile(oauthToken);
             var user = oauthAccountService.resolveOrCreate(profile);
-            TokenResponse tokens = authenticationService.issueTokens(user);
-            authCookieService.setRefreshToken(response, tokens.getRefreshToken());
+            exchangeTicket = loginTicketService.issue(user);
+            // A backend-domain refresh cookie cannot be relied on from a separate
+            // Vercel hostname once third-party cookies are blocked. The frontend
+            // exchanges this short-lived, single-use code through its same-origin
+            // backend proxy and receives the HttpOnly cookie on that origin.
+            authCookieService.clearRefreshToken(response);
         } catch (OAuthLoginException exception) {
             status = "error";
             error = exception.getError().getCode();
@@ -71,7 +75,7 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
             clearTemporarySession(request);
         }
 
-        response.sendRedirect(buildFrontendRedirect(status, error));
+        response.sendRedirect(buildFrontendRedirect(status, error, exchangeTicket));
     }
 
     private OAuthLoginProfile toProfile(OAuth2AuthenticationToken authentication) {
@@ -148,11 +152,14 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
         }
     }
 
-    private String buildFrontendRedirect(String status, String error) {
+    private String buildFrontendRedirect(String status, String error, String exchangeTicket) {
         UriComponentsBuilder builder = UriComponentsBuilder
                 .fromUriString(properties.normalizedFrontendCallbackUrl())
                 .replaceQuery(null)
                 .queryParam("status", status);
+        if (exchangeTicket != null) {
+            builder.queryParam("ticket", exchangeTicket);
+        }
         if (error != null) {
             builder.queryParam("error", error);
         }

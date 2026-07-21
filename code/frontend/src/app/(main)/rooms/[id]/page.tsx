@@ -5,6 +5,7 @@ import axios from "axios";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { resolveMediaSource } from "@/lib/media-url";
 import { apiClient } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
@@ -13,6 +14,7 @@ import { getPublicRoomTypes } from "@/lib/public-catalog";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import GuestPageHero from "@/components/guest/GuestPageHero";
 import { ROOMS_CONTENT } from "@/constants/content";
+import { useFavorites } from "@/components/favorites/FavoritesProvider";
 
 
 interface RoomDetails {
@@ -100,6 +102,7 @@ const getApiErrorMessage = (error: unknown, fallback: string) =>
 export default function RoomDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { localeTag, localize } = useLanguage();
+  const { isFavorite, toggleFavorite } = useFavorites();
   const resolvedParams = use(params);
   const roomId = resolvedParams.id;
 
@@ -288,19 +291,30 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
     );
   }
 
+  const favoriteRoomId = Number(room.id || roomId);
+  const favorite = isFavorite(favoriteRoomId);
+
   return (
     <div className="bg-[#F1F0EA]">
       <GuestPageHero
         imageSrc={room.imageUrl || ROOMS_CONTENT.hero.bg}
         imageAlt={localize(`Không gian hạng phòng ${room.typeName}`, `${room.typeName} room interior`)}
-        useGallery
-        galleryKeywords={[room.typeName, "phòng khách trong phòng", "hotel room", "room"]}
-        galleryIndex={Number(room.id)}
         eyebrow={localize("Phòng & hạng phòng", "Rooms & suites")}
         title={room.typeName}
         description={rating?.totalReviews
           ? localize(`${Number(rating.averageRating || 0).toFixed(1)} / 5 từ ${rating.totalReviews} lượt đánh giá · Tối đa ${room.maxGuests} khách / phòng`, `${Number(rating.averageRating || 0).toFixed(1)} / 5 from ${rating.totalReviews} reviews · Up to ${room.maxGuests} guests per room`)
           : localize(`Tối đa ${room.maxGuests} khách / phòng`, `Up to ${room.maxGuests} guests per room`)}
+        actions={(
+          <button
+            type="button"
+            onClick={() => toggleFavorite(favoriteRoomId)}
+            aria-pressed={favorite}
+            className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-5 text-sm font-bold shadow-sm transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C398] ${favorite ? "border-rose-200 bg-rose-50 text-rose-700" : "border-white/40 bg-[#FBFAF6]/95 text-[#0F2A43] hover:bg-white"}`}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill={favorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" /></svg>
+            {favorite ? localize("Đã lưu yêu thích", "Saved to favorites") : localize("Lưu vào yêu thích", "Save to favorites")}
+          </button>
+        )}
       />
 
       {/* Main Grid Content */}
@@ -448,7 +462,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
                             </div>
                           </div>
                           {review.userImageUrl ? (
-                            <Image src={review.userImageUrl} alt={review.userName || localize("Khách", "Guest")} width={40} height={40} className="h-10 w-10 rounded-full object-cover" />
+                            <Image src={resolveMediaSource(review.userImageUrl)} alt={review.userName || localize("Khách", "Guest")} width={40} height={40} className="h-10 w-10 rounded-full object-cover" />
                           ) : (
                             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#E5E9ED] font-serif font-bold text-[#80632F]">
                               {(review.userName || "G").charAt(0)}
@@ -553,7 +567,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
 
           <Image
               key={`${selectedImage}-${selectedImageDirection}`}
-              src={selectedGalleryImage}
+              src={resolveMediaSource(selectedGalleryImage)}
               alt={`${room.typeName} selected gallery`}
               width={1600}
               height={1000}

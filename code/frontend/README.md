@@ -67,12 +67,14 @@ Facebook. Frontend gọi API thông thường qua `NEXT_PUBLIC_API_URL` hoặc
 provider đã được cấu hình rồi mới chuyển sang endpoint OAuth2 của Spring, nhờ đó
 cookie `JSESSIONID`/OAuth state được tạo trên đúng backend origin.
 
-Khi frontend và backend dùng hai hostname khác nhau ở production, đặt cả
-`NEXT_PUBLIC_API_URL` và `NEXT_PUBLIC_BACKEND_URL` về public origin của backend,
-đồng thời thêm origin frontend vào `CORS_ALLOWED_ORIGINS`. Việc này bảo đảm refresh
-cookie host-only được gửi lại đúng backend sau callback OAuth.
+Khi frontend và backend dùng hai hostname khác nhau ở production, giữ
+`NEXT_PUBLIC_BACKEND_URL` là public origin của backend để bắt đầu redirect OAuth,
+nhưng đặt `NEXT_PUBLIC_API_URL=/backend_proxy`. Trình duyệt luôn gọi API qua cùng
+origin Vercel; Next.js chuyển tiếp tới `BACKEND_INTERNAL_URL`, nên refresh cookie
+HttpOnly không phụ thuộc third-party cookie giữa Vercel và Render.
 
 Backend phải chuyển người dùng về
-`<FRONTEND_BASE_URL>/oauth/callback?status=success` hoặc trả một `error` code an
-toàn. Callback frontend chỉ đổi refresh cookie HttpOnly thành access token trong
-bộ nhớ; không nhận JWT hoặc provider token qua query string hay localStorage.
+`<FRONTEND_BASE_URL>/oauth/callback?status=success&ticket=<one-time-code>` hoặc trả
+một `error` code an toàn. Callback đổi mã dùng một lần qua `/backend_proxy`, nhận
+refresh cookie HttpOnly và chỉ giữ access token trong bộ nhớ. JWT, refresh token và
+provider token không xuất hiện trong URL hoặc localStorage.
