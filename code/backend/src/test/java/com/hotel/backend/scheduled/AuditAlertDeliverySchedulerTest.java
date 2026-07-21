@@ -46,7 +46,7 @@ class AuditAlertDeliverySchedulerTest {
                 new AuditNotificationOutboxStore.Delivery(
                         41L, "admin@example.com", payload, 1));
         doThrow(new RuntimeException("SendGrid unavailable"))
-                .when(emailService).send(anyString(), anyString(), anyString());
+                .when(emailService).sendAuditAlert(anyString(), anyString(), anyString());
 
         scheduler.deliver();
 

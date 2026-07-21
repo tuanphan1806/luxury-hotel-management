@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <title>Xác thực tài khoản {{hotel_name}}</title>
+    <style>
+      @media only screen and (max-width:620px) {
+        .email-shell { width:100% !important; }
+        .email-pad { padding-left:22px !important; padding-right:22px !important; }
+        .email-title { font-size:28px !important; line-height:1.18 !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background:#F1F0EA;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#0F2A43;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Chỉ còn một bước để hoàn tất tài khoản {{hotel_name}}.</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" bgcolor="#F1F0EA">
+      <tr>
+        <td align="center" style="padding:28px 12px;">
+          <table class="email-shell" role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:640px;max-width:640px;border-radius:16px;overflow:hidden;background:#FFFFFF;box-shadow:0 18px 55px rgba(15,42,67,.12);">
+            <tr>
+              <td class="email-pad" bgcolor="#0F2A43" style="padding:30px 38px 34px;border-top:5px solid #047857;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td valign="middle">
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                          <td width="44" height="44" align="center" valign="middle" bgcolor="#B8944F" style="width:44px;height:44px;border-radius:50%;color:#0F2A43;font-family:'Times New Roman',Times,serif;font-size:18px;font-weight:700;">LH</td>
+                          <td style="padding-left:12px;">
+                            <div style="color:#FFFFFF;font-family:'Times New Roman',Times,serif;font-size:20px;font-weight:700;">{{hotel_name}}</div>
+                            <div style="margin-top:3px;color:#D8C398;font-size:9px;font-weight:700;letter-spacing:.22em;">DIRECT BOOKING</div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+                <div style="margin-top:30px;color:#D8C398;font-size:10px;font-weight:700;letter-spacing:.2em;">XÁC THỰC TÀI KHOẢN</div>
+                <h1 class="email-title" style="margin:10px 0 0;color:#FFFFFF;font-family:'Times New Roman',Times,serif;font-size:36px;font-weight:700;line-height:1.16;letter-spacing:-.02em;">Chào mừng bạn đến {{hotel_name}}</h1>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-pad" style="padding:34px 38px 36px;">
+                <p style="margin:0 0 18px;color:#0F2A43;font-size:16px;font-weight:700;line-height:1.5;">Xin chào {{name}},</p>
+                <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.75;">Chỉ còn một bước để hoàn tất tài khoản và quản lý đặt phòng thuận tiện hơn.</p>
+                <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.75;">Nhấn nút bên dưới để xác nhận địa chỉ email của bạn.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:22px 0 8px;border:1px solid #E6E2D8;border-radius:10px;background:#FBFAF6;border-collapse:separate;overflow:hidden;">
+                  <tr>
+                    <td style="padding:11px 14px;border-bottom:1px solid #E6E2D8;color:#64748B;font-size:12px;font-weight:700;">Email</td>
+                    <td align="right" style="padding:11px 14px;border-bottom:1px solid #E6E2D8;color:#0F2A43;font-size:13px;font-weight:700;">{{emailUser}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:11px 14px;color:#64748B;font-size:12px;font-weight:700;">Hiệu lực</td>
+                    <td align="right" style="padding:11px 14px;color:#0F2A43;font-size:13px;font-weight:700;">{{verification_ttl_hours}} giờ</td>
+                  </tr>
+                </table>
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:28px 0 24px;">
+                  <tr>
+                    <td bgcolor="#B8944F" style="border-radius:8px;">
+                      <a href="{{{verification_link}}}" target="_blank" style="display:inline-block;padding:14px 24px;color:#0F2A43;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.01em;">Xác thực email &nbsp;→</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0;color:#64748B;font-size:12px;line-height:1.65;">Nếu nút không mở được, hãy sao chép liên kết sau vào trình duyệt:<br><a href="{{{verification_link}}}" style="color:#0F2A43;word-break:break-all;">{{verification_link}}</a></p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:24px;">
+                  <tr>
+                    <td style="border-left:4px solid #047857;background:#F8F6F1;border-radius:0 8px 8px 0;padding:14px 16px;color:#475569;font-size:13px;line-height:1.65;">Không chia sẻ liên kết này. Nếu bạn không tạo tài khoản, bạn có thể bỏ qua email một cách an toàn.</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="email-pad" bgcolor="#F8F6F1" style="padding:24px 38px;border-top:1px solid #E6E2D8;text-align:center;">
+                <div style="color:#0F2A43;font-family:'Times New Roman',Times,serif;font-size:16px;font-weight:700;">{{hotel_name}}</div>
+                <div style="margin-top:8px;color:#64748B;font-size:11px;line-height:1.65;">Cần hỗ trợ? Liên hệ <a href="mailto:{{support_email}}" style="color:#0F2A43;">{{support_email}}</a></div>
+                <div style="margin-top:10px;color:#94A3B8;font-size:10px;">© {{current_year}} {{hotel_name}}. Email giao dịch tự động.</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

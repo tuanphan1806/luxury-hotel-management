@@ -1,12 +1,15 @@
 package com.hotel.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hotel.backend.constant.AuditCategory;
+import com.hotel.backend.constant.AuditRiskLevel;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.entity.AuditNotificationOutbox;
 import com.hotel.backend.entity.ReservationAuditLog;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.dto.response.ReservationAuditLogResponse;
 import com.hotel.backend.repository.AuditNotificationOutboxRepository;
 import com.hotel.backend.repository.ReservationAuditLogRepository;
 import com.hotel.backend.repository.UserRepository;
@@ -17,6 +20,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -46,11 +50,6 @@ class ReservationAuditServiceTest {
         service = new ReservationAuditService(
                 auditRepository, outboxRepository, userRepository, new ObjectMapper());
         ReflectionTestUtils.setField(service, "configuredAlertRecipients", "ops@example.com");
-        when(auditRepository.save(any(ReservationAuditLog.class))).thenAnswer(invocation -> {
-            ReservationAuditLog log = invocation.getArgument(0);
-            log.setId(91L);
-            return log;
-        });
         User admin = User.builder()
                 .fullName("Admin audit")
                 .username("admin-audit")
@@ -71,6 +70,7 @@ class ReservationAuditServiceTest {
 
     @Test
     void highRiskAuditCapturesActorMasksSensitiveDataAndCreatesOneOutboxRow() {
+        stubAuditSave();
         when(auditRepository.existsByDedupKey("role-change:7")).thenReturn(false);
         when(outboxRepository.existsByAuditLogIdAndNotificationTypeAndRecipientEmail(
                 91L, "HIGH_RISK_AUDIT", "ops@example.com")).thenReturn(false);
@@ -104,6 +104,7 @@ class ReservationAuditServiceTest {
 
     @Test
     void schedulerDedupKeyDoesNotCreateSecondAuditOrAlert() {
+        stubAuditSave();
         when(auditRepository.existsByDedupKey("scheduler:hold:11"))
                 .thenReturn(false, true);
         when(outboxRepository.existsByAuditLogIdAndNotificationTypeAndRecipientEmail(
@@ -122,5 +123,39 @@ class ReservationAuditServiceTest {
         assertNull(replay);
         verify(auditRepository, times(1)).save(any(ReservationAuditLog.class));
         verify(outboxRepository, times(1)).save(any(AuditNotificationOutbox.class));
+    }
+
+    @Test
+    void responseDerivesCanonicalCategoryAndRiskWithoutRewritingLegacyAuditRow() {
+        ReservationAuditLog legacyRow = ReservationAuditLog.builder()
+                .action(ReservationAuditAction.PAYMENT_MARKED_PAID_MANUALLY)
+                .category(AuditCategory.BUSINESS)
+                .riskLevel(AuditRiskLevel.NORMAL)
+                .build();
+
+        ReservationAuditLogResponse response = ReservationAuditLogResponse.from(legacyRow);
+
+        assertEquals(AuditCategory.PAYMENT, response.getCategory());
+        assertEquals(AuditRiskLevel.HIGH, response.getRiskLevel());
+        assertEquals(AuditCategory.BUSINESS, legacyRow.getCategory());
+        assertEquals(AuditRiskLevel.NORMAL, legacyRow.getRiskLevel());
+    }
+
+    @Test
+    void actorFilterWithoutKeywordUsesPostgresSafeQuery() {
+        when(auditRepository.findActorNames(any(Pageable.class)))
+                .thenReturn(List.of("Admin audit", "SYSTEM"));
+
+        assertEquals(List.of("Admin audit", "SYSTEM"), service.findActors(null));
+
+        verify(auditRepository).findActorNames(any(Pageable.class));
+    }
+
+    private void stubAuditSave() {
+        when(auditRepository.save(any(ReservationAuditLog.class))).thenAnswer(invocation -> {
+            ReservationAuditLog log = invocation.getArgument(0);
+            log.setId(91L);
+            return log;
+        });
     }
 }

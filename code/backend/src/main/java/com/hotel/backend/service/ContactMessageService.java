@@ -9,7 +9,6 @@ import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.ContactMessageRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,9 +21,6 @@ public class ContactMessageService {
 
     private final ContactMessageRepository contactMessageRepository;
     private final EmailService emailService;
-
-    @Value("${app.hotel-name:Luxury Hotel}")
-    private String hotelName = "Luxury Hotel";
 
     @Transactional
     public ContactMessageResponse create(ContactMessageRequest request) {
@@ -57,17 +53,12 @@ public class ContactMessageService {
         ContactMessage message = getById(id);
         String subject = request.getSubject().trim();
         String replyMessage = request.getMessage().trim();
-        String content = """
-                Xin chào %s,
-
-                %s
-
-                Trân trọng,
-                %s
-                """.formatted(message.getName(), replyMessage, hotelName);
-
         // Nếu gửi thất bại EmailService sẽ ném lỗi; trạng thái và lịch sử không bị cập nhật giả.
-        emailService.send(message.getEmail(), subject, content);
+        emailService.sendContactReply(
+                message.getEmail(),
+                message.getName(),
+                subject,
+                replyMessage);
 
         message.setReplySubject(subject);
         message.setReplyMessage(replyMessage);
