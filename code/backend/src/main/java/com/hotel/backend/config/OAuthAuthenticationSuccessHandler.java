@@ -7,6 +7,7 @@ import com.hotel.backend.exception.OAuthLoginException;
 import com.hotel.backend.service.AuthCookieService;
 import com.hotel.backend.service.OAuthAccountService;
 import com.hotel.backend.service.OAuthLoginTicketService;
+import com.hotel.backend.service.OAuthProfileCompletionService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -32,6 +33,7 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
 
     private final OAuthAccountService oauthAccountService;
     private final OAuthLoginTicketService loginTicketService;
+    private final OAuthProfileCompletionService profileCompletionService;
     private final AuthCookieService authCookieService;
     private final OAuthProperties properties;
     private final OAuth2AuthorizedClientService authorizedClientService;
@@ -44,6 +46,7 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
         String status = "success";
         String error = null;
         String exchangeTicket = null;
+        OAuthLoginProfile profile = null;
         OAuth2AuthenticationToken oauthToken = authentication instanceof OAuth2AuthenticationToken token
                 ? token
                 : null;
@@ -52,7 +55,7 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
             if (oauthToken == null) {
                 throw new OAuthLoginException(OAuthLoginError.PROVIDER_ERROR);
             }
-            OAuthLoginProfile profile = toProfile(oauthToken);
+            profile = toProfile(oauthToken);
             var user = oauthAccountService.resolveOrCreate(profile);
             exchangeTicket = loginTicketService.issue(user);
             // A backend-domain refresh cookie cannot be relied on from a separate
@@ -61,8 +64,22 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
             // backend proxy and receives the HttpOnly cookie on that origin.
             authCookieService.clearRefreshToken(response);
         } catch (OAuthLoginException exception) {
-            status = "error";
-            error = exception.getError().getCode();
+            if (exception.getError() == OAuthLoginError.MISSING_EMAIL
+                    && profile != null
+                    && profile.provider() == OAuthProvider.FACEBOOK) {
+                try {
+                    status = "profile_required";
+                    exchangeTicket = profileCompletionService.issue(profile);
+                } catch (RuntimeException ticketException) {
+                    status = "error";
+                    error = OAuthLoginError.PROVIDER_ERROR.getCode();
+                    log.error("Could not issue Facebook profile completion ticket");
+                    log.debug("Facebook profile completion ticket failure", ticketException);
+                }
+            } else {
+                status = "error";
+                error = exception.getError().getCode();
+            }
             authCookieService.clearRefreshToken(response);
         } catch (RuntimeException exception) {
             status = "error";

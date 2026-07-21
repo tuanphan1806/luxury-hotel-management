@@ -9,6 +9,7 @@ import com.hotel.backend.exception.OAuthLoginException;
 import com.hotel.backend.service.AuthCookieService;
 import com.hotel.backend.service.OAuthAccountService;
 import com.hotel.backend.service.OAuthLoginTicketService;
+import com.hotel.backend.service.OAuthProfileCompletionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +41,8 @@ class OAuthAuthenticationSuccessHandlerTest {
     @Mock
     private OAuthLoginTicketService loginTicketService;
     @Mock
+    private OAuthProfileCompletionService profileCompletionService;
+    @Mock
     private OAuth2AuthorizedClientService authorizedClientService;
 
     private OAuthAuthenticationSuccessHandler handler;
@@ -51,6 +54,7 @@ class OAuthAuthenticationSuccessHandlerTest {
         handler = new OAuthAuthenticationSuccessHandler(
                 oauthAccountService,
                 loginTicketService,
+                profileCompletionService,
                 new AuthCookieService(false, 7, "Lax"),
                 properties,
                 authorizedClientService);
@@ -105,6 +109,24 @@ class OAuthAuthenticationSuccessHandlerTest {
         verify(loginTicketService, never()).issue(any(User.class));
     }
 
+    @Test
+    void asksForEmailWhenFacebookDoesNotReturnOne() throws Exception {
+        OAuth2AuthenticationToken authentication = facebookAuthenticationWithoutEmail();
+        when(oauthAccountService.resolveOrCreate(any(OAuthLoginProfile.class)))
+                .thenThrow(new OAuthLoginException(OAuthLoginError.MISSING_EMAIL));
+        when(profileCompletionService.issue(any(OAuthLoginProfile.class)))
+                .thenReturn("profile-ticket");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler.onAuthenticationSuccess(
+                new MockHttpServletRequest(), response, authentication);
+
+        assertThat(response.getRedirectedUrl()).isEqualTo(
+                "https://frontend.example/oauth/callback?status=profile_required&ticket=profile-ticket");
+        verify(profileCompletionService).issue(any(OAuthLoginProfile.class));
+        verify(loginTicketService, never()).issue(any(User.class));
+    }
+
     private OAuth2AuthenticationToken googleAuthentication() {
         Map<String, Object> attributes = Map.of(
                 "sub", "google-subject",
@@ -117,6 +139,17 @@ class OAuthAuthenticationSuccessHandlerTest {
                 attributes,
                 "sub");
         return new OAuth2AuthenticationToken(principal, principal.getAuthorities(), "google");
+    }
+
+    private OAuth2AuthenticationToken facebookAuthenticationWithoutEmail() {
+        Map<String, Object> attributes = Map.of(
+                "id", "facebook-subject",
+                "name", "Facebook Guest");
+        DefaultOAuth2User principal = new DefaultOAuth2User(
+                List.of(new SimpleGrantedAuthority("ROLE_USER")),
+                attributes,
+                "id");
+        return new OAuth2AuthenticationToken(principal, principal.getAuthorities(), "facebook");
     }
 
     private User activeCustomer() {

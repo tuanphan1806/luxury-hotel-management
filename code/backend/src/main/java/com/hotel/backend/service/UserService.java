@@ -17,7 +17,7 @@ public interface UserService {
     void changePassword(UserPasswordRequest req);
     void resetPasswordByAdmin(Long userId, AdminResetPasswordRequest request);
     void delete(Long id);
-    void verifyEmail(String secretCode);
+    Long verifyEmail(String secretCode);
     void resendVerification(String email);
 
     Long createUserWithType(UserCreationWithTypeRequest req);

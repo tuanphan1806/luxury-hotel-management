@@ -203,6 +203,98 @@ class OAuthAccountServiceTest {
         verify(oauthAccountRepository, never()).saveAndFlush(any(OAuthAccount.class));
     }
 
+    @Test
+    void rejectsNewFacebookProfileWhenFacebookOmitsEmail() {
+        OAuthLoginProfile profile = new OAuthLoginProfile(
+                OAuthProvider.FACEBOOK,
+                "facebook-without-email",
+                null,
+                false,
+                null,
+                "Facebook Guest",
+                "https://images.example/facebook-avatar.png");
+
+        when(oauthAccountRepository.findByProviderAndProviderSubject(
+                OAuthProvider.FACEBOOK, "facebook-without-email"))
+                .thenReturn(Optional.empty());
+
+        assertOAuthError(OAuthLoginError.MISSING_EMAIL,
+                () -> oauthAccountService.resolveOrCreate(profile));
+
+        verifyNoInteractions(userRepository);
+        verify(oauthAccountRepository, never()).saveAndFlush(any(OAuthAccount.class));
+    }
+
+    @Test
+    void createsPendingFacebookAccountAfterUserSuppliesEmail() {
+        OAuthLoginProfile profile = new OAuthLoginProfile(
+                OAuthProvider.FACEBOOK,
+                "facebook-profile-completion",
+                null,
+                false,
+                null,
+                "Facebook Guest",
+                "https://images.example/facebook-avatar.png");
+
+        when(oauthAccountRepository.findByProviderAndProviderSubject(
+                OAuthProvider.FACEBOOK, "facebook-profile-completion"))
+                .thenReturn(Optional.empty());
+        when(userRepository.existsByEmailIgnoreCase("guest@example.com")).thenReturn(false);
+        when(userRepository.existsByUsernameIgnoreCase(anyString())).thenReturn(false);
+        when(userRepository.saveAndFlush(any(User.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(oauthAccountRepository.saveAndFlush(any(OAuthAccount.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        User resolved = oauthAccountService.createPendingFacebookAccount(
+                profile, " Guest@Example.com ");
+
+        assertThat(resolved.getEmail()).isEqualTo("guest@example.com");
+        assertThat(resolved.getStatus()).isEqualTo(UserStatus.PENDING_VERIFICATION);
+        assertThat(resolved.isEmailVerified()).isFalse();
+        assertThat(resolved.getPassword()).isNull();
+        assertThat(resolved.getType()).isEqualTo(UserType.CUSTOMER);
+        ArgumentCaptor<OAuthAccount> mappingCaptor = ArgumentCaptor.forClass(OAuthAccount.class);
+        verify(oauthAccountRepository).saveAndFlush(mappingCaptor.capture());
+        assertThat(mappingCaptor.getValue().getProviderSubject())
+                .isEqualTo("facebook-profile-completion");
+        assertThat(mappingCaptor.getValue().getUser()).isSameAs(resolved);
+    }
+
+    @Test
+    void reusesExistingFacebookMappingEvenWhenFacebookStillOmitsEmail() {
+        User user = User.builder()
+                .email("facebook-existing@example.com")
+                .fullName("Facebook Guest")
+                .status(UserStatus.ACTIVE)
+                .emailVerified(false)
+                .type(UserType.CUSTOMER)
+                .build();
+        OAuthAccount mapping = OAuthAccount.builder()
+                .provider(OAuthProvider.FACEBOOK)
+                .providerSubject("facebook-existing-subject")
+                .user(user)
+                .build();
+        OAuthLoginProfile profile = new OAuthLoginProfile(
+                OAuthProvider.FACEBOOK,
+                "facebook-existing-subject",
+                null,
+                false,
+                null,
+                "Facebook Guest",
+                null);
+
+        when(oauthAccountRepository.findByProviderAndProviderSubject(
+                OAuthProvider.FACEBOOK, "facebook-existing-subject"))
+                .thenReturn(Optional.of(mapping));
+
+        User resolved = oauthAccountService.resolveOrCreate(profile);
+
+        assertThat(resolved).isSameAs(user);
+        verifyNoInteractions(userRepository);
+        verify(oauthAccountRepository, never()).saveAndFlush(any(OAuthAccount.class));
+    }
+
     @ParameterizedTest
     @EnumSource(value = UserType.class, names = {"STAFF", "ADMIN"})
     void neverAutoLinksGoogleEmailToPrivilegedAccount(UserType privilegedType) {
