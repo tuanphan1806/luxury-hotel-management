@@ -144,12 +144,42 @@ AUTH_COOKIE_SECURE=true
 AUTH_COOKIE_SAME_SITE=None
 DB_POOL_MAX_SIZE=5
 DB_POOL_MIN_IDLE=0
+SPRING_DATA_JPA_REPOSITORIES_BOOTSTRAP_MODE=default
+MALLOC_ARENA_MAX=2
 APP_UPLOAD_STORAGE=cloudinary
 APP_SEED_DEMO_USERS_ENABLED=false
 ```
 
 Pool và JVM đã được giảm để phù hợp giới hạn RAM của Render Free. Không tăng các
 giá trị này nếu chưa xem log memory và connection của Neon.
+
+### Đăng nhập Google/Facebook
+
+OAuth chạy hoàn toàn ở backend. Chỉ lưu các biến sau trên Render và `.env` local;
+không đưa client secret lên Vercel hoặc vào biến `NEXT_PUBLIC_*`:
+
+```dotenv
+GOOGLE_OAUTH_CLIENT_ID=<google-web-client-id>
+GOOGLE_OAUTH_CLIENT_SECRET=<google-web-client-secret>
+FACEBOOK_OAUTH_CLIENT_ID=<meta-app-id>
+FACEBOOK_OAUTH_CLIENT_SECRET=<meta-app-secret>
+```
+
+Google Web OAuth client phải có redirect URI:
+
+```text
+https://<render-service>.onrender.com/login/oauth2/code/google
+```
+
+Meta Facebook Login phải có valid OAuth redirect URI:
+
+```text
+https://<render-service>.onrender.com/login/oauth2/code/facebook
+```
+
+Thêm origin/site URL `https://<vercel-project>.vercel.app`. Google chỉ cần các
+scope cơ bản `openid`, `email`, `profile`; không bật billing hoặc API trả phí.
+Một provider chỉ hiện trên giao diện khi backend nhận đủ cả client ID và secret.
 
 ### Key bảo mật
 
@@ -218,6 +248,10 @@ Không cần chuyển ảnh và không cần upload lại ảnh cũ.
 VERIFICATION_SENDGRID_API_KEY=<sendgrid-key>
 VERIFICATION_SENDGRID_FROM_EMAIL=<verified-sender>
 VERIFICATION_SENDGRID_TEMPLATE_ID=<template-id>
+PASSWORD_RESET_SENDGRID_TEMPLATE_ID=<template-id>
+BOOKING_CONFIRMATION_SENDGRID_TEMPLATE_ID=<template-id>
+CONTACT_REPLY_SENDGRID_TEMPLATE_ID=<template-id>
+AUDIT_ALERT_SENDGRID_TEMPLATE_ID=<template-id>
 AUDIT_ALERT_RECIPIENTS=<email-admin>
 ```
 

@@ -45,5 +45,5 @@ scripts/*.sql.local
 BAO_CAO_TTTN_RIKKEI_EDUCATION_BO_SUNG_PROJECT.docx
 BAO_CAO_TTTN_RIKKEI_EDUCATION_BO_SUNG_PROJECT.pdf
 
-# Empty legacy placeholder
-test/
+# Empty legacy placeholder at the repository root only.
+/test/
