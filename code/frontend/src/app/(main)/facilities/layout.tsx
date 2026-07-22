@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
-const title = "Tiện ích khách sạn";
-const description = "Tìm hiểu các tiện ích và không gian phục vụ kỳ nghỉ tại Luxury Hotel.";
+const title = "Tiện nghi khách sạn";
+const description = "Tìm hiểu các tiện nghi và không gian phục vụ kỳ nghỉ tại Luxury Hotel.";
 
 export const metadata: Metadata = {
   title,

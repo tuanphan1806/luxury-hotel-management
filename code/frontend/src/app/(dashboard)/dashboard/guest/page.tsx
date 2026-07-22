@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiClient, cachedGet } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
+import ViewportModal from "@/components/UI/ViewportModal";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import {
   DashboardFilterPanel,
@@ -24,6 +25,7 @@ interface ReservationGuestRow {
   checkIn: string;
   checkOut: string;
   roomSummary: string;
+  roomName?: string;
   isPrimary: boolean;
   idCard: string;
   source: "STAY_GUEST" | "BOOKING_CONTACT";
@@ -60,6 +62,15 @@ interface StayGuestApiItem {
   dateOfBirth?: string;
 }
 
+interface ReservationGuestGroup {
+  reservationId: number;
+  reservationCode: string;
+  status: string;
+  checkIn: string;
+  checkOut: string;
+  rows: ReservationGuestRow[];
+}
+
 const getApiErrorMessage = (error: unknown, fallback: string) => {
   if (typeof error !== "object" || error === null || !("response" in error)) return fallback;
   const response = (error as { response?: { data?: { message?: unknown } } }).response;
@@ -82,6 +93,7 @@ export default function DashboardGuestPage() {
   const [loadError, setLoadError] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [editingGuest, setEditingGuest] = useState<ReservationGuestRow | null>(null);
+  const [expandedReservationId, setExpandedReservationId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ fullName: "", phone: "", email: "", idCardType: "CCCD", idCardNumber: "", nationality: "Vietnam", dateOfBirth: "" });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -115,6 +127,7 @@ export default function DashboardGuestPage() {
             checkIn: reservation.checkIn,
             checkOut: reservation.checkOut,
             roomSummary: ["CONFIRMED", "DRAFT", "CANCELLATION_PENDING"].includes(reservation.status) ? "Chưa check-in / chưa gán phòng" : "Không có danh sách khách lưu trú",
+            roomName: undefined,
             isPrimary: true,
             idCard: "-",
             source: "BOOKING_CONTACT" as const,
@@ -136,6 +149,7 @@ export default function DashboardGuestPage() {
           checkIn: reservation.checkIn,
           checkOut: reservation.checkOut,
           roomSummary: guest.roomName ? `Phòng #${guest.roomName}` : guest.reservationRoomId ? `Chưa gán phòng vật lý (#${guest.reservationRoomId})` : "Đã checkout",
+          roomName: guest.roomName,
           isPrimary: Boolean(guest.isPrimary),
           idCard: [guest.idCardType, guest.idCardNumber].filter(Boolean).join(" · ") || "-",
           source: "STAY_GUEST" as const,
@@ -178,13 +192,45 @@ export default function DashboardGuestPage() {
           String(row.id).toLowerCase().includes(keyword) ||
           row.reservationCode.toLowerCase().includes(keyword) ||
           row.email.toLowerCase().includes(keyword) ||
-          row.phone.toLowerCase().includes(keyword);
+          row.phone.toLowerCase().includes(keyword) ||
+          row.roomSummary.toLowerCase().includes(keyword);
         return matchesStatus && matchesSearch;
       })
       .sort((left, right) => (priority[left.status] ?? 99) - (priority[right.status] ?? 99)
         || Number(right.isPrimary) - Number(left.isPrimary)
         || new Date(right.checkIn).getTime() - new Date(left.checkIn).getTime());
   }, [rows, searchQuery, statusFilter]);
+
+  const filteredReservationGroups = useMemo(() => {
+    const matchedReservationIds = new Set(filteredRows.map((row) => row.reservationId));
+    const groups = new Map<number, ReservationGuestGroup>();
+    rows.forEach((row) => {
+      if (!matchedReservationIds.has(row.reservationId)) return;
+      const current = groups.get(row.reservationId);
+      if (current) {
+        current.rows.push(row);
+        return;
+      }
+      groups.set(row.reservationId, {
+        reservationId: row.reservationId,
+        reservationCode: row.reservationCode,
+        status: row.status,
+        checkIn: row.checkIn,
+        checkOut: row.checkOut,
+        rows: [row],
+      });
+    });
+
+    const priority: Record<string, number> = { CHECKED_IN: 0, CANCELLATION_PENDING: 1, CONFIRMED: 2, DRAFT: 3, CHECKED_OUT: 4, NO_SHOW: 5 };
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        rows: [...group.rows].sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary)
+          || left.guestName.localeCompare(right.guestName, localeTag)),
+      }))
+      .sort((left, right) => (priority[left.status] ?? 99) - (priority[right.status] ?? 99)
+        || new Date(right.checkIn).getTime() - new Date(left.checkIn).getTime());
+  }, [filteredRows, localeTag, rows]);
 
   const openEditGuest = (row: ReservationGuestRow) => {
     setEditingGuest(row);
@@ -206,21 +252,24 @@ export default function DashboardGuestPage() {
     }
   };
 
-  const stayingCount = rows.filter((row) => row.status === "CHECKED_IN").length;
-  const upcomingCount = rows.filter((row) => ["DRAFT", "CONFIRMED", "CANCELLATION_PENDING"].includes(row.status)).length;
-  const checkedOutCount = rows.filter((row) => row.status === "CHECKED_OUT").length;
+  const reservationIdsForStatuses = (statusesToCount: string[]) => new Set(
+    rows.filter((row) => statusesToCount.includes(row.status)).map((row) => row.reservationId),
+  ).size;
+  const stayingCount = reservationIdsForStatuses(["CHECKED_IN"]);
+  const upcomingCount = reservationIdsForStatuses(["DRAFT", "CONFIRMED", "CANCELLATION_PENDING"]);
+  const checkedOutCount = reservationIdsForStatuses(["CHECKED_OUT"]);
   const reservationCount = new Set(rows.map((row) => row.reservationId)).size;
   const statusLabel = (status: string) => (locale === "vi"
     ? { DRAFT: "Chờ xác nhận", CONFIRMED: "Đã xác nhận", CANCELLATION_PENDING: "Chờ duyệt hủy", CANCELLED: "Đã hủy", CHECKED_IN: "Đang lưu trú", CHECKED_OUT: "Đã trả phòng", NO_SHOW: "Không đến" }
     : { DRAFT: "Awaiting confirmation", CONFIRMED: "Confirmed", CANCELLATION_PENDING: "Cancellation pending", CANCELLED: "Cancelled", CHECKED_IN: "Checked in", CHECKED_OUT: "Checked out", NO_SHOW: "No-show" })[status] || status;
   const statusClass = (status: string) => status === "CHECKED_IN" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : status === "CHECKED_OUT" ? "border-slate-200 bg-slate-50 text-slate-700" : status === "CONFIRMED" ? "border-blue-200 bg-blue-50 text-blue-700" : status === "CANCELLED" || status === "NO_SHOW" ? "border-rose-200 bg-rose-50 text-rose-700" : status === "CANCELLATION_PENDING" ? "border-violet-200 bg-violet-50 text-violet-700" : "border-[#D8C398] bg-[#EAE2D2] text-[#66727C]";
 
-  const renderGuestActions = (row: ReservationGuestRow) => (
+  const renderGuestActions = (row: ReservationGuestRow, includeReservationLink = true) => (
     <div className="flex flex-wrap justify-end gap-2">
       {row.source === "STAY_GUEST" && <button type="button" onClick={() => openEditGuest(row)} className="min-h-10 rounded-lg bg-[#0F2A43] px-3 text-xs font-bold text-white hover:bg-[#091E30]">{localize("Sửa thông tin", "Edit guest")}</button>}
-      <Link href={`/dashboard/reservations?reservationId=${row.reservationId}`} className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] hover:bg-[#E5E9ED]">
+      {includeReservationLink && <Link href={`/dashboard/reservations?reservationId=${row.reservationId}`} className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] hover:bg-[#E5E9ED]">
         {localize("Xem đơn", "View reservation")}
-      </Link>
+      </Link>}
     </div>
   );
 
@@ -248,9 +297,9 @@ export default function DashboardGuestPage() {
       <DashboardFilterPanel
         title={localize("Bộ lọc hồ sơ khách", "Guest filters")}
         description={localize("Tra cứu khách theo thông tin liên hệ, mã đơn và trạng thái lưu trú", "Find guests by contact details, reservation code and stay status")}
-        resultCount={filteredRows.length}
-        resultLabel={localize("hồ sơ phù hợp", "matching guest records")}
-        resultNote={localize("khách đang lưu trú được ưu tiên", "current stays appear first")}
+        resultCount={filteredReservationGroups.length}
+        resultLabel={localize("đơn phù hợp", "matching reservations")}
+        resultNote={localize(`${filteredRows.length} hồ sơ khách · đơn đang lưu trú được ưu tiên`, `${filteredRows.length} guest records · current stays appear first`)}
         hasActiveFilters={Boolean(searchQuery || statusFilter !== "All")}
         activeFilterCount={Number(Boolean(searchQuery)) + Number(statusFilter !== "All")}
         activeFilterLabel={localize("bộ lọc đang dùng", "active filters")}
@@ -295,66 +344,108 @@ export default function DashboardGuestPage() {
       <section className="overflow-hidden rounded-xl border border-[#0F2A43]/10 bg-white" aria-labelledby="guest-list-title">
 
       <div className="flex flex-col gap-2 border-b border-[#0F2A43]/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h2 id="guest-list-title" className="font-bold text-[#0F2A43]">{localize("Hồ sơ khách theo đặt phòng", "Guests by reservation")}</h2><p className="mt-0.5 text-xs text-[#66727C]">{filteredRows.length} {localize("hồ sơ · Khách đang lưu trú được ưu tiên trước", "records · Current stays appear first")}</p></div>
-        <span className="text-xs font-semibold text-[#66727C] sm:text-right">{localize("Mở hồ sơ để xem hoặc cập nhật thông tin", "Open a record to review or update details")}</span>
+        <div><h2 id="guest-list-title" className="font-bold text-[#0F2A43]">{localize("Khách được nhóm theo đơn đặt phòng", "Guests grouped by reservation")}</h2><p className="mt-0.5 text-xs text-[#66727C]">{filteredReservationGroups.length} {localize(`đơn · ${filteredRows.length} hồ sơ khách`, `reservations · ${filteredRows.length} guest records`)}</p></div>
+        <span className="text-xs font-semibold text-[#66727C] sm:text-right">{localize("Mỗi khối là một đơn; phòng và khách nằm cùng một nhóm", "Each block is one reservation with its rooms and guests")}</span>
       </div>
 
       {loadError && <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700" role="alert">{loadError}</div>}
         {isLoading ? (
           <div className="space-y-3 p-4" role="status" aria-label={localize("Đang tải dữ liệu khách", "Loading guest data")}>{[1, 2, 3].map((item) => <div key={item} className="h-20 animate-pulse rounded-lg bg-[#F1F0EA]" />)}</div>
-        ) : filteredRows.length === 0 ? (
+        ) : filteredReservationGroups.length === 0 ? (
           <div className="px-6 py-14 text-center"><p className="font-bold text-[#0F2A43]">{localize("Không có khách phù hợp", "No matching guests")}</p><p className="mt-2 text-sm text-[#66727C]">{localize("Thử thay đổi từ khóa hoặc bộ lọc trạng thái.", "Try a different keyword or status filter.")}</p></div>
         ) : (
-          <>
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-[1040px] text-left text-sm">
-              <thead className="bg-[#F1F0EA] text-xs font-bold text-[#66727C]">
-                <tr>
-                  <th className="px-5 py-3">{localize("Khách & liên hệ", "Guest & contact")}</th><th className="px-5 py-3">{localize("Vai trò & đặt phòng", "Role & reservation")}</th><th className="px-5 py-3">{localize("Lưu trú & phòng", "Stay & room")}</th><th className="px-5 py-3">{localize("Trạng thái", "Status")}</th><th className="w-[230px] px-5 py-3 text-right">{localize("Thao tác", "Actions")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#0F2A43]/5">
-                {filteredRows.map((row) => (
-                  <tr key={row.id} className={`align-top transition hover:bg-[#F1F0EA] ${row.status === "CHECKED_IN" ? "bg-emerald-50/20" : ""}`}>
-                    <td className="px-5 py-4">
-                      <p className="font-bold text-[#0F2A43]">{row.guestName}</p>
-                      <p className="mt-1 text-xs text-[#66727C]">{row.phone}</p><p className="mt-0.5 text-xs text-[#66727C]">{row.email}</p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-lg border px-2 py-1 text-[11px] font-bold ${row.source === "BOOKING_CONTACT" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-[#0F2A43]/15 bg-[#E5E9ED] text-[#0F2A43]"}`}>{row.source === "BOOKING_CONTACT" ? localize("Người đặt phòng", "Booking contact") : row.isPrimary ? localize("Khách chính", "Primary guest") : localize("Khách cùng phòng", "Additional guest")}</span>
-                      <p className="mt-2 font-mono text-xs font-bold text-[#0F2A43]">{row.reservationCode || `#${row.reservationId}`}</p>
-                      {row.source === "STAY_GUEST" && <p className="mt-1 text-xs text-[#66727C]">{row.idCard}</p>}
-                    </td>
-                    <td className="px-5 py-4 text-xs text-[#66727C]"><p className="font-semibold text-[#0F2A43]">{formatDate(row.checkIn, localeTag)} → {formatDate(row.checkOut, localeTag)}</p><p className="mt-1.5">{row.roomSummary}</p>{row.source === "BOOKING_CONTACT" && <p className="mt-1">{row.guestCount} {localize("khách trong đơn", "guests in reservation")}</p>}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${statusClass(row.status)}`}>{statusLabel(row.status)}</span>
-                    </td>
-                    <td className="px-5 py-4 text-right">{renderGuestActions(row)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-2 bg-[#F7F4EC]/55 p-3">
+            {filteredReservationGroups.map((group) => {
+              const roomNames = Array.from(new Set(
+                group.rows.map((row) => row.roomName).filter((roomName): roomName is string => Boolean(roomName)),
+              )).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+              const primaryGuest = group.rows.find((row) => row.isPrimary) || group.rows[0];
+              const isExpanded = expandedReservationId === group.reservationId;
+              const titleId = `guest-reservation-${group.reservationId}`;
+              const detailsId = `${titleId}-details`;
+              return (
+                <article key={group.reservationId} className="overflow-hidden rounded-lg border border-[#0F2A43]/12 bg-white shadow-[0_4px_14px_rgba(15,42,67,0.04)]" aria-labelledby={titleId}>
+                  <header className={`flex items-stretch ${group.status === "CHECKED_IN" ? "bg-emerald-50/65" : "bg-white"}`}>
+                    <button
+                      type="button"
+                      aria-expanded={isExpanded}
+                      aria-controls={detailsId}
+                      onClick={() => setExpandedReservationId((current) => current === group.reservationId ? null : group.reservationId)}
+                      className="group grid min-h-[72px] min-w-0 flex-1 cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3 text-left transition hover:bg-[#F1F0EA]/65 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#B8944F] xl:grid-cols-[minmax(11rem,1fr)_minmax(10rem,1.05fr)_minmax(10rem,0.95fr)_minmax(7rem,0.65fr)_auto] xl:items-center"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 id={titleId} className="truncate font-mono text-sm font-black text-[#0F2A43]">{group.reservationCode || `#${group.reservationId}`}</h3>
+                          <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-bold ${statusClass(group.status)}`}>{statusLabel(group.status)}</span>
+                        </div>
+                        <p className="mt-1 truncate text-[11px] font-semibold text-[#80632F]">
+                          {group.rows.length} {localize("hồ sơ khách", "guest records")}
+                          <span className="xl:hidden"> · {formatDate(group.checkIn, localeTag)} → {formatDate(group.checkOut, localeTag)}</span>
+                        </p>
+                      </div>
+
+                      <div className="min-w-0 text-xs">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#66727C]">{localize("Khách chính", "Primary guest")}</p>
+                        <p className="mt-1 truncate font-bold text-[#0F2A43]">{primaryGuest?.guestName || "-"}</p>
+                        <p className="truncate text-[11px] text-[#66727C]">{primaryGuest?.phone || "-"}</p>
+                      </div>
+
+                      <div className="hidden text-xs xl:block">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#66727C]">{localize("Kỳ lưu trú", "Stay period")}</p>
+                        <p className="mt-1 whitespace-nowrap font-bold text-[#0F2A43]">{formatDate(group.checkIn, localeTag)} → {formatDate(group.checkOut, localeTag)}</p>
+                      </div>
+
+                      <div className="text-xs">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#66727C]">{localize("Phòng", "Rooms")}</p>
+                        <div className="mt-1 flex flex-wrap gap-1">{roomNames.length > 0 ? roomNames.map((roomName) => <span key={roomName} className="rounded border border-emerald-200 bg-white px-1.5 py-0.5 font-mono font-bold text-emerald-800">#{roomName}</span>) : <span className="font-semibold text-[#66727C]">{localize("Chưa gán", "Unassigned")}</span>}</div>
+                      </div>
+
+                      <span className={`col-start-2 row-start-1 flex h-9 w-9 items-center justify-center justify-self-end rounded-full border border-[#0F2A43]/15 bg-white text-[#0F2A43] transition group-hover:border-[#B8944F] group-hover:bg-[#FBFAF6] xl:col-auto xl:row-auto ${isExpanded ? "rotate-180" : ""}`} aria-hidden="true">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                      </span>
+                    </button>
+
+                    <div className="flex shrink-0 items-center border-l border-[#0F2A43]/10 px-3">
+                      <Link href={`/dashboard/reservations?reservationId=${group.reservationId}`} className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#FBFAF6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B8944F]">
+                        {localize("Xem đơn", "View")}
+                      </Link>
+                    </div>
+                  </header>
+
+                  {isExpanded && <div id={detailsId} className="divide-y divide-[#0F2A43]/8 border-t border-[#0F2A43]/10 bg-[#FBFAF6]">
+                    {group.rows.map((row) => (
+                      <section key={row.id} className="grid gap-2 px-4 py-3 transition hover:bg-white sm:grid-cols-[minmax(12rem,1.25fr)_minmax(10rem,0.9fr)_minmax(9rem,0.75fr)_auto] sm:items-center">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-bold text-[#0F2A43]">{row.guestName}</p>
+                            <span className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${row.source === "BOOKING_CONTACT" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-[#0F2A43]/15 bg-[#E5E9ED] text-[#0F2A43]"}`}>{row.source === "BOOKING_CONTACT" ? localize("Người đặt phòng", "Booking contact") : row.isPrimary ? localize("Khách chính", "Primary guest") : localize("Khách cùng phòng", "Additional guest")}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-[#66727C]">{row.phone} · {row.email}</p>
+                        </div>
+                        <div className="text-xs"><p className="font-semibold text-[#66727C]">{localize("Phòng", "Room")}</p><p className="mt-1 font-bold text-[#0F2A43]">{row.roomSummary}</p></div>
+                        <div className="text-xs"><p className="font-semibold text-[#66727C]">{localize("Giấy tờ", "Identity document")}</p><p className="mt-1 font-bold text-[#0F2A43]">{row.source === "STAY_GUEST" ? row.idCard : localize(`${row.guestCount} khách khai báo`, `${row.guestCount} declared guests`)}</p></div>
+                        {row.source === "STAY_GUEST" && <div className="md:justify-self-end">{renderGuestActions(row, false)}</div>}
+                      </section>
+                    ))}
+                  </div>}
+                </article>
+              );
+            })}
           </div>
-          <div className="divide-y divide-[#0F2A43]/10 lg:hidden">
-            {filteredRows.map((row) => (
-              <article key={row.id} className={`p-4 ${row.status === "CHECKED_IN" ? "bg-emerald-50/20" : ""}`}>
-                <div className="flex items-start justify-between gap-3"><div><p className="font-bold text-[#0F2A43]">{row.guestName}</p><p className="mt-1 font-mono text-xs font-bold text-[#0F2A43]">{row.reservationCode || `#${row.reservationId}`}</p></div><span className={`shrink-0 rounded-lg border px-2 py-1 text-[11px] font-bold ${statusClass(row.status)}`}>{statusLabel(row.status)}</span></div>
-                <div className="mt-3 flex flex-wrap gap-2"><span className={`rounded-lg border px-2 py-1 text-[11px] font-bold ${row.source === "BOOKING_CONTACT" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-[#0F2A43]/15 bg-[#E5E9ED] text-[#0F2A43]"}`}>{row.source === "BOOKING_CONTACT" ? localize("Người đặt phòng", "Booking contact") : row.isPrimary ? localize("Khách chính", "Primary guest") : localize("Khách cùng phòng", "Additional guest")}</span></div>
-                <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2"><div><dt className="text-[#66727C]">{localize("Liên hệ", "Contact")}</dt><dd className="mt-1 font-semibold text-[#0F2A43]">{row.phone}<br />{row.email}</dd></div><div><dt className="text-[#66727C]">{localize("Lưu trú", "Stay")}</dt><dd className="mt-1 font-semibold text-[#0F2A43]">{formatDate(row.checkIn, localeTag)} → {formatDate(row.checkOut, localeTag)}<br />{row.roomSummary}</dd></div></dl>
-                <div className="mt-4 border-t border-[#0F2A43]/10 pt-3">{renderGuestActions(row)}</div>
-              </article>
-            ))}
-          </div>
-          </>
         )}
       </section>
 
       {editingGuest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#091E30]/65 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-guest-title" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSaving) setEditingGuest(null); }}>
-          <section className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
+        <ViewportModal
+          open
+          onClose={() => setEditingGuest(null)}
+          labelledBy="edit-guest-title"
+          busy={isSaving}
+          panelClassName="max-w-2xl"
+        >
             <header className="border-b border-[#0F2A43]/10 px-6 py-5"><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#80632F]">Hồ sơ khách lưu trú</p><h2 id="edit-guest-title" className="mt-1 text-xl font-bold text-[#0F2A43]">Chỉnh sửa thông tin khách</h2><p className="mt-1 text-sm text-[#66727C]">Reservation {editingGuest.reservationCode} · {editingGuest.roomSummary}</p></header>
-            <div className="grid gap-4 px-6 py-5 sm:grid-cols-2">
-              <label className="text-sm font-semibold text-[#0F2A43] sm:col-span-2">Họ và tên *<input value={editForm.fullName} onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })} className="mt-2 w-full rounded-lg border border-[#0F2A43]/15 px-4 py-2.5 font-normal outline-none focus:border-[#B8944F]" /></label>
+            <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
+              <label className="text-sm font-semibold text-[#0F2A43] sm:col-span-2">Họ và tên *<input data-modal-autofocus value={editForm.fullName} onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })} className="mt-2 w-full rounded-lg border border-[#0F2A43]/15 px-4 py-2.5 font-normal outline-none focus:border-[#B8944F]" /></label>
               <label className="text-sm font-semibold text-[#0F2A43]">Số điện thoại<input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="mt-2 w-full rounded-lg border border-[#0F2A43]/15 px-4 py-2.5 font-normal outline-none focus:border-[#B8944F]" /></label>
               <label className="text-sm font-semibold text-[#0F2A43]">Email<input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className="mt-2 w-full rounded-lg border border-[#0F2A43]/15 px-4 py-2.5 font-normal outline-none focus:border-[#B8944F]" /></label>
               <label className="text-sm font-semibold text-[#0F2A43]">Loại giấy tờ<select value={editForm.idCardType} onChange={(e) => setEditForm({ ...editForm, idCardType: e.target.value })} className="mt-2 w-full rounded-lg border border-[#0F2A43]/15 px-4 py-2.5 font-normal"><option value="CCCD">CCCD</option><option value="CMND">CMND</option><option value="PASSPORT">Hộ chiếu</option></select></label>
@@ -363,8 +454,7 @@ export default function DashboardGuestPage() {
               <label className="text-sm font-semibold text-[#0F2A43]">Quốc tịch<input value={editForm.nationality} onChange={(e) => setEditForm({ ...editForm, nationality: e.target.value })} className="mt-2 w-full rounded-lg border border-[#0F2A43]/15 px-4 py-2.5 font-normal outline-none focus:border-[#B8944F]" /></label>
             </div>
             <footer className="flex justify-end gap-3 border-t border-[#0F2A43]/10 px-6 py-4"><button disabled={isSaving} onClick={() => setEditingGuest(null)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43]">Hủy</button><button disabled={isSaving || !editForm.fullName.trim()} onClick={saveGuest} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white disabled:opacity-50">{isSaving ? "Đang lưu..." : "Lưu thay đổi"}</button></footer>
-          </section>
-        </div>
+        </ViewportModal>
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

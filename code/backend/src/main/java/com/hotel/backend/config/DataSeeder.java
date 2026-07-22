@@ -79,7 +79,7 @@ public class DataSeeder implements CommandLineRunner {
     private Map<String, Facility> seedFacilities() {
         Map<String, Facility> result = new HashMap<>();
 
-        result.put("pool", seedFacility("Hồ bơi", "Swimming Pool", "ROOM",
+        result.put("pool", seedFacility("Hồ bơi", "Swimming Pool", "PUBLIC",
                 "Bơi lội thư giãn trong hồ bơi riêng của khách sạn.",
                 "Swim in a private pool with your friends!",
                 staticUrl("/facilities/fasilitas-1.jpg")));
@@ -107,6 +107,14 @@ public class DataSeeder implements CommandLineRunner {
                 "Không gian phòng khách riêng để nghỉ ngơi và tiếp bạn bè.",
                 "Welcome your friends to your hotel room's living room!",
                 staticUrl("/facilities/fasilitas-7.jpg")));
+        result.put("spa", seedFacility("Spa & chăm sóc sức khỏe", "Spa & Wellness", "PUBLIC",
+                "Không gian trị liệu riêng tư với liệu trình thư giãn và chăm sóc cơ thể theo lịch hẹn.",
+                "A private treatment space offering scheduled relaxation and wellness services.",
+                staticUrl("/facilities/facility-spa-wellness.webp")));
+        result.put("fitness", seedFacility("Trung tâm thể hình", "Fitness Center", "PUBLIC",
+                "Không gian tập luyện hiện đại với thiết bị cardio và tạ phục vụ khách lưu trú.",
+                "A modern workout space with cardio and strength equipment for staying guests.",
+                staticUrl("/facilities/facility-fitness-center.webp")));
 
         return result;
     }
@@ -134,13 +142,13 @@ public class DataSeeder implements CommandLineRunner {
     private Map<String, RoomType> seedRoomTypes(Map<String, Facility> facilities) {
         Map<String, RoomType> result = new HashMap<>();
 
-        // Standard: tiện ích cơ bản + không gian chung để ảnh facility phong phú hơn
+        // Standard: tiện nghi cơ bản + không gian chung để ảnh facility phong phú hơn
         result.put("Standard", seedRoomType(
                 "Phòng tiêu chuẩn", "Standard",
                 "Phòng Standard tiện nghi đầy đủ, phù hợp cho cặp đôi hoặc du khách đơn lẻ.",
                 "A well-equipped standard room, ideal for couples or solo travellers.",
                 new BigDecimal("50000"),
-                staticUrl("/room_types/1.jpg"),
+                staticUrl("/room_types/room-standard-main.webp"),
                 Set.of(
                         facilities.get("bathroom"),
                         facilities.get("livingRoom"),
@@ -155,7 +163,7 @@ public class DataSeeder implements CommandLineRunner {
                 "Phòng Deluxe rộng rãi với ban công view thành phố, nội thất sang trọng.",
                 "A spacious deluxe room with a city-view balcony and refined interiors.",
                 new BigDecimal("60000"),
-                staticUrl("/room_types/2.jpg"),
+                staticUrl("/room_types/room-deluxe-detail.webp"),
                 Set.of(
                         facilities.get("bathroom"),
                         facilities.get("livingRoom"),
@@ -165,30 +173,47 @@ public class DataSeeder implements CommandLineRunner {
                 )
         ));
 
-        // Suite: gần như đầy đủ tiện ích nghỉ dưỡng
+        // Executive: nằm giữa Deluxe và Suite, ưu tiên khách công tác/lưu trú ngắn ngày
+        result.put("Executive", seedRoomType(
+                "Phòng Executive", "Executive Room",
+                "Phòng Executive dành cho khách công tác, có khu vực làm việc riêng, cửa sổ lớn và không gian thư giãn chỉn chu.",
+                "An executive room for business travellers with a dedicated workspace, large windows and a refined relaxation area.",
+                new BigDecimal("65000"),
+                staticUrl("/room_types/room-executive-main.webp"),
+                Set.of(
+                        facilities.get("bathroom"),
+                        facilities.get("livingRoom"),
+                        facilities.get("cafe"),
+                        facilities.get("library"),
+                        facilities.get("fitness")
+                )
+        ));
+
+        // Suite: gần như đầy đủ tiện nghi nghỉ dưỡng
         result.put("Suite", seedRoomType(
                 "Phòng Suite", "Suite",
                 "Phòng Suite cao cấp với phòng khách riêng, bồn tắm jacuzzi và dịch vụ butler.",
                 "A premium suite with a separate living room, jacuzzi and butler service.",
                 new BigDecimal("70000"),
-                staticUrl("/room_types/3.jpg"),
+                staticUrl("/room_types/room-suite-detail.webp"),
                 Set.of(
                         facilities.get("bathroom"),
                         facilities.get("livingRoom"),
                         facilities.get("kitchen"),
                         facilities.get("pool"),
                         facilities.get("library"),
-                        facilities.get("cafe")
+                        facilities.get("cafe"),
+                        facilities.get("spa")
                 )
         ));
 
-        // Family: ưu tiên các tiện ích dùng chung và mua sắm thuận tiện
+        // Family: ưu tiên các tiện nghi dùng chung và mua sắm thuận tiện
         result.put("Family", seedRoomType(
                 "Phòng gia đình", "Family Room",
                 "Phòng Family rộng lớn thiết kế cho gia đình, có 2 phòng ngủ và bếp nhỏ.",
                 "A spacious family room with two bedrooms and a kitchenette.",
                 new BigDecimal("80000"),
-                staticUrl("/room_types/4.jpg"),
+                staticUrl("/room_types/room-family-detail.webp"),
                 Set.of(
                         facilities.get("bathroom"),
                         facilities.get("livingRoom"),
@@ -205,7 +230,7 @@ public class DataSeeder implements CommandLineRunner {
                 "Presidential Suite sang trọng bậc nhất với tầm nhìn panoramic 360 độ.",
                 "Our most luxurious presidential suite with panoramic 360-degree views.",
                 new BigDecimal("90000"),
-                staticUrl("/room_types/5.jpg"),
+                staticUrl("/room_types/room-presidential-detail.webp"),
                 Set.of(
                         facilities.get("pool"),
                         facilities.get("bathroom"),
@@ -213,7 +238,9 @@ public class DataSeeder implements CommandLineRunner {
                         facilities.get("kitchen"),
                         facilities.get("library"),
                         facilities.get("marketplace"),
-                        facilities.get("cafe")
+                        facilities.get("cafe"),
+                        facilities.get("spa"),
+                        facilities.get("fitness")
                 )
         ));
 
@@ -249,10 +276,12 @@ public class DataSeeder implements CommandLineRunner {
         seedRoom("202", 2, "Phòng Deluxe view thành phố", roomTypes.get("Deluxe"));
         seedRoom("203", 2, "Phòng Deluxe view thành phố", roomTypes.get("Deluxe"));
         seedRoom("204", 2, "Phòng Deluxe góc ban công đôi", roomTypes.get("Deluxe"));
+        seedRoom("205", 2, "Phòng Executive với khu vực làm việc riêng", roomTypes.get("Executive"));
         seedRoom("301", 3, "Phòng Deluxe tầng 3", roomTypes.get("Deluxe"));
         seedRoom("302", 3, "Phòng Family 2 phòng ngủ", roomTypes.get("Family"));
         seedRoom("303", 3, "Phòng Family view sân vườn", roomTypes.get("Family"));
         seedRoom("304", 3, "Phòng Deluxe tầng 3", roomTypes.get("Deluxe"));
+        seedRoom("305", 3, "Phòng Executive view thành phố", roomTypes.get("Executive"));
         seedRoom("401", 4, "Suite với bồn tắm jacuzzi", roomTypes.get("Suite"));
         seedRoom("402", 4, "Suite view thành phố", roomTypes.get("Suite"));
         seedRoom("403", 4, "Suite góc panoramic", roomTypes.get("Suite"));

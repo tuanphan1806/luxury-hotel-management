@@ -27,6 +27,7 @@ export default function DateTimeField({
   id,
   min,
   max,
+  step = 60,
   disabled,
   required,
   ...inputProps
@@ -91,7 +92,7 @@ export default function DateTimeField({
             max={dateValue && dateValue === maxDate ? maxTime || undefined : undefined}
             disabled={disabled || !dateValue}
             required={required}
-            step={900}
+            step={step}
             onChange={(event) => updateTime(event.target.value)}
             className="hotel-time-input min-h-7 min-w-0 appearance-none bg-transparent text-sm font-bold tabular-nums text-[#0F2A43] outline-none disabled:cursor-not-allowed disabled:text-[#66727C]"
           />

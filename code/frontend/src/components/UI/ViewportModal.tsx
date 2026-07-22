@@ -110,7 +110,7 @@ export default function ViewportModal({
 
   return createPortal(
     <div
-      className={`fixed inset-0 grid place-items-center overflow-hidden p-2 sm:p-4 ${zIndexClassName} ${backdropClassName}`}
+      className={`ux-modal-backdrop fixed inset-0 grid place-items-center overflow-hidden p-2 sm:p-4 ${zIndexClassName} ${backdropClassName}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
@@ -124,7 +124,7 @@ export default function ViewportModal({
         aria-describedby={describedBy}
         aria-busy={busy || undefined}
         tabIndex={-1}
-        className={`flex max-h-[calc(100dvh-1rem)] min-h-0 w-full flex-col overflow-hidden rounded-xl border border-white/20 bg-white shadow-2xl outline-none sm:max-h-[calc(100dvh-2rem)] ${panelClassName}`}
+        className={`ux-modal-panel flex max-h-[calc(100dvh-1rem)] min-h-0 w-full flex-col overflow-hidden rounded-xl border border-white/20 bg-white shadow-2xl outline-none sm:max-h-[calc(100dvh-2rem)] ${panelClassName}`}
       >
         {children}
       </div>

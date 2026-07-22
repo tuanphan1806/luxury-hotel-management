@@ -12,7 +12,6 @@ import {
   BTN_SIGNING,
   TEXT_SIGNUP_PROMPT,
   LINK_SIGNUP,
-  ERROR_REQUIRED,
   FORM_TITLE_LOGIN,
   FORM_SUBTITLE_LOGIN,
   LABEL_LOGIN_IDENTIFIER,
@@ -34,6 +33,7 @@ export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ identifier?: string; password?: string }>({});
   const [verificationResult, setVerificationResult] = useState<"success" | "failed" | null>(null);
 
   useEffect(() => {
@@ -46,12 +46,18 @@ export default function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 1. Kiểm tra để trống
-    if (!email.trim() || !password.trim()) {
-      setError(localize("Vui lòng nhập tên đăng nhập và mật khẩu.", ERROR_REQUIRED));
+    const nextFieldErrors = {
+      ...(!email.trim() ? { identifier: localize("Vui lòng nhập tên đăng nhập hoặc email.", "Enter your username or email.") } : {}),
+      ...(!password.trim() ? { password: localize("Vui lòng nhập mật khẩu.", "Enter your password.") } : {}),
+    };
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors(nextFieldErrors);
+      setError('');
+      window.requestAnimationFrame(() => document.getElementById(nextFieldErrors.identifier ? "login-email" : "login-password")?.focus());
       return;
     }
 
+    setFieldErrors({});
     setError('');
     setIsLoading(true);
 
@@ -100,10 +106,13 @@ export default function LoginForm() {
   return (
     <>
       {/* Title */}
-      <div className="mb-8">
-        <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-[#80632F]">Luxury Hotel</p>
-        <h2 className="font-serif text-4xl font-semibold tracking-tight text-[#0F2A43]">{localize("Chào mừng bạn trở lại", FORM_TITLE_LOGIN)}</h2>
-        <p className="mt-3 text-sm leading-6 text-text-light">{localize("Đăng nhập để tiếp tục quản lý kỳ nghỉ của bạn.", FORM_SUBTITLE_LOGIN)}</p>
+      <div className="mb-5">
+        <div className="mb-3 flex items-center gap-3">
+          <span className="h-px w-9 bg-[#B8944F]" aria-hidden="true" />
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#80632F]">Luxury Hotel</p>
+        </div>
+        <h2 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-[#0F2A43] sm:text-[2.35rem]">{localize("Chào mừng bạn trở lại", FORM_TITLE_LOGIN)}</h2>
+        <p className="mt-2 max-w-md text-sm font-medium leading-6 text-text-light">{localize("Đăng nhập để tiếp tục quản lý kỳ nghỉ của bạn.", FORM_SUBTITLE_LOGIN)}</p>
       </div>
 
       {/* Error */}
@@ -124,9 +133,9 @@ export default function LoginForm() {
       )}
 
       {/* Form */}
-      <form noValidate onSubmit={handleSubmit} className="space-y-5">
+      <form noValidate onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="login-email" className="block text-sm font-medium text-text-dark mb-2">
+          <label htmlFor="login-email" className="mb-2 block text-sm font-semibold text-text-dark">
             {localize("Tên đăng nhập hoặc email", LABEL_LOGIN_IDENTIFIER)}
           </label>
           <div className="relative">
@@ -142,16 +151,22 @@ export default function LoginForm() {
               autoComplete="username"
               autoFocus
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (fieldErrors.identifier) setFieldErrors((current) => ({ ...current, identifier: undefined }));
+              }}
+              aria-invalid={Boolean(fieldErrors.identifier)}
+              aria-describedby={fieldErrors.identifier ? "login-email-error" : undefined}
               placeholder={localize("Nhập tên đăng nhập hoặc email", PLACEHOLDER_EMAIL)}
-              className="min-h-12 w-full rounded-lg border border-border-light bg-white py-3 pl-12 pr-4 text-sm focus:border-accent-gold focus:outline-none focus:ring-2 focus:ring-accent-gold/25"
+              className="min-h-12 w-full rounded-xl border border-[#0F2A43]/14 bg-[#F7F5EF] py-2.5 pl-12 pr-4 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] transition hover:border-[#0F2A43]/24 focus:border-accent-gold focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent-gold/25"
             />
           </div>
+          {fieldErrors.identifier && <p id="login-email-error" className="mt-2 text-xs font-semibold text-rose-700" role="alert">{fieldErrors.identifier}</p>}
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label htmlFor="login-password" className="block text-sm font-medium text-text-dark">
+            <label htmlFor="login-password" className="block text-sm font-semibold text-text-dark">
               {localize("Mật khẩu", LABEL_PASSWORD)}
             </label>
             <Link href="/forgot-password" className="text-xs font-semibold text-[#80632F] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]/60">
@@ -170,14 +185,19 @@ export default function LoginForm() {
               type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (fieldErrors.password) setFieldErrors((current) => ({ ...current, password: undefined }));
+              }}
+              aria-invalid={Boolean(fieldErrors.password)}
+              aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
               placeholder={PLACEHOLDER_PASSWORD}
-              className="min-h-12 w-full rounded-lg border border-border-light bg-white py-3 pl-12 pr-12 text-sm focus:border-accent-gold focus:outline-none focus:ring-2 focus:ring-accent-gold/25"
+              className="min-h-12 w-full rounded-xl border border-[#0F2A43]/14 bg-[#F7F5EF] py-2.5 pl-12 pr-12 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] transition hover:border-[#0F2A43]/24 focus:border-accent-gold focus:bg-white focus:outline-none focus:ring-2 focus:ring-accent-gold/25"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-text-light hover:text-text-dark transition-colors"
+              className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-text-light transition-colors hover:bg-[#0F2A43]/6 hover:text-text-dark"
               aria-label={showPassword ? localize('Ẩn mật khẩu', 'Hide password') : localize('Hiện mật khẩu', 'Show password')}
             >
               {showPassword ? (
@@ -194,14 +214,20 @@ export default function LoginForm() {
               )}
             </button>
           </div>
+          {fieldErrors.password && <p id="login-password-error" className="mt-2 text-xs font-semibold text-rose-700" role="alert">{fieldErrors.password}</p>}
         </div>
 
         <button
           type="submit"
           disabled={isLoading}
-          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#0F2A43] px-4 py-3.5 font-semibold text-white transition hover:bg-[#091E30] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-2"
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0F2A43] px-4 py-3 font-semibold text-white shadow-[0_12px_28px_rgba(15,42,67,0.18)] transition hover:-translate-y-0.5 hover:bg-[#091E30] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-2"
         >
-              {isLoading ? localize("Đang đăng nhập...", BTN_SIGNING) : (
+          {isLoading ? (
+            <>
+              <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
+              {localize("Đang đăng nhập...", BTN_SIGNING)}
+            </>
+          ) : (
             <>
                   {localize("Đăng nhập", BTN_SIGNIN)}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -215,14 +241,14 @@ export default function LoginForm() {
 
       <SocialAuthOptions mode="login" />
 
-      <p className="mt-4 text-center text-sm text-text-light">
+      <p className="mt-3 text-center text-sm text-text-light">
         {localize("Tài khoản chưa được xác thực?", "Account not verified?")}{" "}
         <Link href="/resend-verification" className="font-semibold text-[#80632F] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]/60">
           {localize("Gửi lại email xác thực", "Resend verification email")}
         </Link>
       </p>
 
-      <p className="mt-8 text-center text-sm text-text-light">
+      <p className="mt-5 text-center text-sm text-text-light">
         {localize("Bạn chưa có tài khoản? ", TEXT_SIGNUP_PROMPT)}
         <Link href="/signup" className="text-accent-gold font-semibold hover:underline">
           {localize("Tạo tài khoản", LINK_SIGNUP)}

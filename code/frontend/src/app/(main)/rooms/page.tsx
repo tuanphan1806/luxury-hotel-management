@@ -86,7 +86,8 @@ function RoomsPageContent() {
         imageAlt={localize("Phòng nghỉ tại Luxury Hotel", "A guest room at Luxury Hotel")}
         eyebrow={localize("Danh mục lưu trú", "Accommodation collection")}
         title={localize("Khám phá các loại phòng", "Explore our room types")}
-        description={localize("Xem không gian, tiện ích và đánh giá của từng loại phòng trước khi kiểm tra lịch trống.", "Review each room type's spaces, facilities and ratings before checking availability.")}
+        description={localize("Xem không gian, tiện nghi và đánh giá của từng loại phòng trước khi kiểm tra lịch trống.", "Review each room type's spaces, facilities and ratings before checking availability.")}
+        contentPosition="left"
       />
 
       <div className="relative z-30 mx-auto -mt-12 flex max-w-5xl flex-col items-start justify-between gap-5 rounded-[1.5rem] border border-[#0F2A43]/10 bg-white p-6 shadow-xl md:flex-row md:items-center md:px-8">
@@ -108,7 +109,7 @@ function RoomsPageContent() {
       <section aria-label={localize("Lọc và sắp xếp hạng phòng", "Filter and sort room types")} className="mx-auto max-w-7xl px-6 pb-8">
         <div className="grid gap-4 border-y border-[#0F2A43]/12 bg-[#FBFAF6] py-5 md:grid-cols-[1.35fr_0.65fr_0.8fr_auto] md:items-end md:px-5">
           <label className="grid gap-2 text-xs font-bold text-[#66727C]">
-            {localize("Tên phòng hoặc tiện ích", "Room name or facility")}
+            {localize("Tên phòng hoặc tiện nghi", "Room name or facility")}
             <input
               type="search"
               value={searchTerm}

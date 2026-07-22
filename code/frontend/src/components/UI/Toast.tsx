@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from 'react';
+import React, { type CSSProperties, useEffect } from 'react';
 
 export interface ToastProps {
   message: string;
@@ -41,19 +41,34 @@ export default function Toast({ message, type, onClose, duration = 4000 }: Toast
     ),
   };
 
+  const progressStyles = {
+    success: 'bg-emerald-500',
+    error: 'bg-rose-500',
+    info: 'bg-amber-500',
+  };
+
   return (
-    <div className={`toast-enter fixed bottom-6 right-6 z-50 flex max-w-[calc(100vw-3rem)] items-center gap-3 rounded-xl px-5 py-4 shadow-xl sm:max-w-sm ${bgStyles[type]}`} role="status">
+    <div
+      className={`toast-enter fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-4 z-[100] flex max-w-[calc(100vw-2rem)] items-center gap-3 overflow-hidden rounded-xl px-5 py-4 shadow-xl sm:right-6 sm:max-w-sm ${bgStyles[type]}`}
+      role={type === 'error' ? 'alert' : 'status'}
+      aria-live={type === 'error' ? 'assertive' : 'polite'}
+    >
       <span className="flex-shrink-0">{iconStyles[type]}</span>
       <p className="text-sm font-semibold tracking-wide flex-grow leading-snug">{message}</p>
       <button 
         onClick={onClose} 
-        className="text-gray-400 hover:text-gray-600 transition-colors ml-2 focus:outline-none"
-        aria-label="Close notification"
+        className="ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-black/5 hover:text-gray-700 focus-visible:outline-none"
+        aria-label="Đóng thông báo / Close notification"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
+      <span
+        aria-hidden="true"
+        className={`toast-progress absolute inset-x-0 bottom-0 h-1 ${progressStyles[type]}`}
+        style={{ '--toast-duration': `${duration}ms` } as CSSProperties}
+      />
     </div>
   );
 }

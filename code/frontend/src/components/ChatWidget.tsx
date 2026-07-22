@@ -60,7 +60,7 @@ const INITIAL_BOT_MESSAGE: ChatMessage = {
   id: "welcome",
   role: "bot",
   content:
-    "Xin chào! Tôi là trợ lý AI của Luxury Hotel. Tôi có thể hỗ trợ bạn về phòng, giá, tiện ích và thông tin đặt phòng. Hãy hỏi tôi bất cứ điều gì! 🏨",
+    "Xin chào! Tôi là trợ lý AI của Luxury Hotel. Tôi có thể hỗ trợ bạn về phòng, giá, tiện nghi và thông tin đặt phòng. Hãy hỏi tôi bất cứ điều gì! 🏨",
   // Giá trị ổn định cho SSR/hydration. Các tin nhắn phát sinh trên client vẫn
   // dùng thời gian thực tế; tin chào hiển thị nhãn "Bây giờ".
   timestamp: null,

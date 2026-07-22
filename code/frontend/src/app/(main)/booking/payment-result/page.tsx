@@ -216,7 +216,7 @@ function PaymentResultContent() {
     ? getGuestReservationToken(payment.bookingId)
     : null;
   const reservationHref = verification.state === "unverified"
-    ? "/booking/lookup"
+    ? "/my-bookings"
     : guestReservationToken
       ? `/booking/lookup#token=${encodeURIComponent(guestReservationToken)}`
       : "/my-bookings";
@@ -562,7 +562,7 @@ function PaymentResultContent() {
                       </div>
                       {typeof expectedAmount === "number" && (
                         <button type="button" onClick={() => void handleCopy(String(expectedAmount), "amount")} className="min-h-11 shrink-0 rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] hover:bg-[#0F2A43]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">
-                          {copiedField === "amount" ? localize("Đã chép", "Copied") : localize("Sao chép", "Copy")}
+                          {copiedField === "amount" ? localize("Đã sao chép!", "Copied!") : localize("Sao chép", "Copy")}
                         </button>
                       )}
                     </div>
@@ -590,7 +590,7 @@ function PaymentResultContent() {
                             ? localize("Đã sao chép số tài khoản", "Account number copied")
                             : localize("Sao chép số tài khoản", "Copy account number")}
                         >
-                          {copiedField === "account" ? localize("Đã chép", "Copied") : localize("Sao chép", "Copy")}
+                          {copiedField === "account" ? localize("Đã sao chép!", "Copied!") : localize("Sao chép", "Copy")}
                         </button>
                       </div>
                     </div>
@@ -611,7 +611,7 @@ function PaymentResultContent() {
                             ? localize("Đã sao chép nội dung chuyển khoản", "Transfer content copied")
                             : localize("Sao chép nội dung chuyển khoản", "Copy transfer content")}
                         >
-                          {copiedField === "content" ? localize("Đã chép", "Copied") : localize("Sao chép", "Copy")}
+                          {copiedField === "content" ? localize("Đã sao chép!", "Copied!") : localize("Sao chép", "Copy")}
                         </button>
                       </div>
                     </div>

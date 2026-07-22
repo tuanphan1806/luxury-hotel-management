@@ -25,6 +25,7 @@ import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.PaymentProviderEvent;
 import com.hotel.backend.entity.PaymentRefund;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.PaymentTransactionRepository;
@@ -34,6 +35,7 @@ import com.hotel.backend.repository.ReservationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.PageRequest;
@@ -97,6 +99,7 @@ public class SePayService {
     private final ReservationService reservationService;
     private final PaymentRefundService paymentRefundService;
     private final ReservationAuditService reservationAuditService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public void validateCheckoutConfig() {
         validateQrConfig();
@@ -968,6 +971,8 @@ public class SePayService {
             reservationAuditService.record(transaction.getReservation(),
                     ReservationAuditAction.PAYMENT_RECEIVED,
                     "Nhận " + receivedAmount + " VND qua SePay nhưng không phân bổ; đã tạo nghĩa vụ hoàn");
+            eventPublisher.publishEvent(new CheckoutReconciliationChangedEvent(
+                    transaction.getReservation().getId(), "SEPAY_PAYMENT_RECORDED"));
             markEvent(event, PaymentProviderEventStatus.PROCESSED,
                     transaction.getMessage(), transaction);
             return latePayment ? "late_payment_refund_pending" : "underpayment_refund_pending";
@@ -989,6 +994,8 @@ public class SePayService {
         reservationAuditService.record(transaction.getReservation(),
                 ReservationAuditAction.PAYMENT_RECEIVED,
                 "Nhận " + receivedAmount + " VND qua SePay, phân bổ " + acceptedAmount + " VND");
+        eventPublisher.publishEvent(new CheckoutReconciliationChangedEvent(
+                transaction.getReservation().getId(), "SEPAY_PAYMENT_SUCCEEDED"));
 
         long excess = Math.max(0L, receivedAmount - acceptedAmount);
         if (excess > 0L) {

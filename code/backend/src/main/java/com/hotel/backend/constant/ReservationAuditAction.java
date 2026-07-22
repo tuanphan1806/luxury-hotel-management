@@ -24,6 +24,7 @@ public enum ReservationAuditAction {
     PRICE_OVERRIDDEN,
     CHECKOUT_RECONCILIATION_REQUESTED,
     CHECKOUT_RECONCILIATION_REJECTED,
+    CHECKOUT_RECONCILIATION_RESOLVED_AUTOMATICALLY,
     CHECKOUT_RECONCILIATION_PASSED,
     CHECKOUT_RECONCILIATION_OVERRIDDEN,
     USER_CREATED,
@@ -59,6 +60,7 @@ public enum ReservationAuditAction {
             case PROVIDER_EVENT_IGNORED, PROVIDER_EVENT_REFUND_CREATED,
                     CHECKOUT_RECONCILIATION_REQUESTED,
                     CHECKOUT_RECONCILIATION_REJECTED,
+                    CHECKOUT_RECONCILIATION_RESOLVED_AUTOMATICALLY,
                     ROOM_DELETED, ROOM_TYPE_DELETED,
                     FACILITY_DELETED, GALLERY_DELETED, USER_CREATED,
                     PASSWORD_CHANGED, PASSWORD_RESET_COMPLETED -> AuditRiskLevel.MEDIUM;
@@ -78,6 +80,7 @@ public enum ReservationAuditAction {
             case ROOM_HOLD_RELEASED_MANUALLY, ROOM_HOLD_AUTO_EXPIRED -> AuditCategory.ROOM_HOLD;
             case UPDATE_CHECKOUT_FEE, CHECK_OUT, CHECKOUT_RECONCILIATION_REQUESTED,
                     CHECKOUT_RECONCILIATION_REJECTED,
+                    CHECKOUT_RECONCILIATION_RESOLVED_AUTOMATICALLY,
                     CHECKOUT_RECONCILIATION_PASSED,
                     CHECKOUT_RECONCILIATION_OVERRIDDEN -> AuditCategory.CHECKOUT;
             case USER_CREATED, USER_DEACTIVATED, USER_ROLE_CHANGED, LOGIN_SUCCESS, LOGOUT, PASSWORD_CHANGED,
@@ -88,6 +91,13 @@ public enum ReservationAuditAction {
                     GALLERY_CREATED, GALLERY_UPDATED, GALLERY_DELETED -> AuditCategory.BUSINESS;
             case SESSION_EXPIRED, RESERVATION_AUTO_CANCELLED -> AuditCategory.SYSTEM;
             default -> AuditCategory.RESERVATION;
+        };
+    }
+
+    public AuditScope scope() {
+        return switch (category()) {
+            case BUSINESS, SECURITY -> AuditScope.MANAGEMENT;
+            default -> AuditScope.OPERATION;
         };
     }
 

@@ -342,7 +342,8 @@ export default function DashboardOverview() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-xs font-medium text-[#66727C]">{localize("Cập nhật", "Updated")}: {formatDateTime(summary.generatedAt)}</p>
-          <button type="button" disabled={isRefreshing} onClick={() => void loadDashboard(true)} className="ops-panel-strong min-h-11 rounded-lg border px-4 text-sm font-bold text-[#0F2A43] hover:bg-[var(--ops-surface-muted)] disabled:opacity-50">
+          <button type="button" disabled={isRefreshing} aria-busy={isRefreshing || undefined} onClick={() => void loadDashboard(true)} className="ops-panel-strong inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-bold text-[#0F2A43] hover:bg-[var(--ops-surface-muted)] disabled:opacity-50">
+            {isRefreshing && <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />}
             {isRefreshing ? localize("Đang làm mới...", "Refreshing...") : localize("Làm mới dữ liệu", "Refresh data")}
           </button>
           <Link href="/dashboard/reservations" className="inline-flex min-h-11 items-center rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white hover:bg-[#091E30]">{localize("Mở đặt phòng", "Open reservations")}</Link>

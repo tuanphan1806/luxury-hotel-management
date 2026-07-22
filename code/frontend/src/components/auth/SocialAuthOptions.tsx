@@ -82,7 +82,7 @@ export default function SocialAuthOptions({ mode }: SocialAuthOptionsProps) {
   };
 
   return (
-    <section className="mt-6" aria-label={localize("Đăng nhập bằng mạng xã hội", "Social authentication")}>
+    <section className="mt-5" aria-label={localize("Đăng nhập bằng mạng xã hội", "Social authentication")}>
       <div className="flex items-center gap-3" aria-hidden="true">
         <span className="h-px flex-1 bg-[#0F2A43]/10" />
         <span className="text-xs font-semibold text-[#66727C]">
@@ -92,14 +92,14 @@ export default function SocialAuthOptions({ mode }: SocialAuthOptionsProps) {
       </div>
 
       {isLoading ? (
-        <div className="mt-4 grid grid-cols-2 gap-3" role="status" aria-live="polite">
+        <div className="mt-3 grid grid-cols-2 gap-3" role="status" aria-live="polite">
           <span className="sr-only">{localize("Đang kiểm tra phương thức đăng nhập...", "Checking sign-in options...")}</span>
           <div className="h-12 animate-pulse rounded-xl bg-[#E5E9ED]" />
           <div className="h-12 animate-pulse rounded-xl bg-[#E5E9ED]" />
         </div>
       ) : (
         <>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {SUPPORTED_PROVIDERS.map((provider) => {
             const providerName = provider === "google" ? "Google" : "Facebook";
             const isActive = activeProvider === provider;
@@ -111,7 +111,7 @@ export default function SocialAuthOptions({ mode }: SocialAuthOptionsProps) {
                 onClick={() => startAuthorization(provider)}
                 disabled={activeProvider !== null || !isConfigured}
                 aria-describedby={!isConfigured ? "oauth-provider-status" : undefined}
-                className="flex min-h-12 items-center justify-center gap-3 rounded-lg border border-[#0F2A43]/14 bg-white px-4 text-sm font-semibold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#FBFAF6] active:translate-y-px disabled:cursor-not-allowed disabled:bg-[#F1F0EA] disabled:text-[#66727C] disabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-2"
+                className="flex min-h-12 items-center justify-center gap-3 rounded-xl border border-[#0F2A43]/14 bg-white px-4 text-sm font-semibold text-[#0F2A43] shadow-sm transition hover:-translate-y-0.5 hover:border-[#B8944F] hover:bg-[#FBFAF6] active:translate-y-px disabled:cursor-not-allowed disabled:bg-[#F1F0EA] disabled:text-[#66727C] disabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-2"
               >
                 <ProviderIcon provider={provider} />
                 <span>

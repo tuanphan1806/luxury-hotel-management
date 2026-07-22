@@ -4,5 +4,6 @@ public enum CheckoutReconciliationRequestStatus {
     PENDING,
     APPROVED,
     REJECTED,
+    RESOLVED_AUTOMATICALLY,
     CANCELLED
 }

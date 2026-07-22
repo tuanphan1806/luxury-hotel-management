@@ -253,7 +253,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
   const accountLabel = user?.role === "CUSTOMER"
     ? localize("Thông tin tài khoản", "Account settings")
     : localize("Bảng điều khiển", "Dashboard");
-  const bookingHistoryHref = user?.role === "ADMIN" || user?.role === "STAFF" ? "/dashboard/reservations" : "/my-bookings";
+  const bookingHistoryHref = "/my-bookings";
   const settingsHref = user?.role === "ADMIN" || user?.role === "STAFF" ? "/dashboard/settings" : "/account/settings";
   const accountRoleLabel = user?.role === "ADMIN"
     ? localize("Quản trị viên", "Administrator")
@@ -350,7 +350,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
                 </button>
 
                 {accountMenuOpen && (
-                  <div id="guest-account-menu" className="absolute right-0 top-full z-[80] mt-3 w-[19.5rem] overflow-hidden rounded-[1.25rem] border border-[#0F2A43]/14 bg-[#FBFAF6] shadow-[0_24px_70px_rgba(15,42,67,0.22)]">
+                  <div id="guest-account-menu" className="ux-popover-enter absolute right-0 top-full z-[80] mt-3 w-[19.5rem] overflow-hidden rounded-[1.25rem] border border-[#0F2A43]/14 bg-[#FBFAF6] shadow-[0_24px_70px_rgba(15,42,67,0.22)]">
                     <div className="relative overflow-hidden bg-[#0F2A43] px-5 py-5 text-white">
                       <div aria-hidden="true" className="absolute -right-8 -top-10 h-32 w-32 rounded-full border border-[#B8944F]/24" />
                       <div className="relative flex items-center gap-3">
@@ -366,7 +366,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
                     <div className="space-y-2 px-3 py-3">
                       {[
                         { href: accountHref, label: user.role === "CUSTOMER" ? localize("Thông tin cá nhân", "Personal information") : accountLabel, icon: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="3" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg> },
-                        { href: bookingHistoryHref, label: user.role === "CUSTOMER" ? localize("Lịch sử đặt phòng", "Booking history") : localize("Quản lý đặt phòng", "Manage bookings"), icon: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></svg> },
+                        { href: bookingHistoryHref, label: localize("Lịch sử đặt phòng", "Booking history"), icon: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></svg> },
                         { href: settingsHref, label: localize("Cài đặt tài khoản", "Account settings"), icon: <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.6-1H3v-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.6 1h.09v4H21a1.7 1.7 0 0 0-1.6 1Z" /></svg> },
                       ].map((item, index) => (
                         <Link key={item.href} href={item.href} onClick={() => setAccountMenuOpen(false)} className="group flex min-h-12 items-center gap-3 rounded-xl border border-[#0F2A43]/14 bg-white px-3 text-sm font-semibold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F0EADF]">
@@ -408,7 +408,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
                     {locale.toUpperCase()}
                   </button>
                   {languageMenuOpen && (
-                    <div id="guest-language-menu" className="absolute right-0 top-full z-[80] mt-3 w-48 rounded-xl border border-[#0F2A43]/12 bg-[#FBFAF6] p-2 shadow-[0_20px_55px_rgba(15,42,67,0.2)]">
+                    <div id="guest-language-menu" className="ux-popover-enter absolute right-0 top-full z-[80] mt-3 w-48 rounded-xl border border-[#0F2A43]/12 bg-[#FBFAF6] p-2 shadow-[0_20px_55px_rgba(15,42,67,0.2)]">
                       {(["vi", "en"] as const).map((item) => (
                         <button key={item} type="button" onClick={() => { setLocale(item); setLanguageMenuOpen(false); }} className={`flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-sm font-bold transition ${locale === item ? "bg-[#EAE2D2] text-[#0F2A43]" : "text-[#66727C] hover:bg-[#F0EADF] hover:text-[#0F2A43]"}`}>
                           <span>{item === "vi" ? "Tiếng Việt" : "English"}</span><span className="text-xs uppercase">{item}</span>
@@ -509,7 +509,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
                   </div>
                   <div className="mt-3 grid gap-2">
                     <Link href={accountHref} onClick={closeMobileMenu} className="flex min-h-11 items-center justify-between rounded-lg border border-[#0F2A43]/12 bg-white px-3 text-sm font-bold text-[#0F2A43]"><span>{user.role === "CUSTOMER" ? localize("Thông tin cá nhân", "Personal information") : accountLabel}</span><span aria-hidden="true">›</span></Link>
-                    <Link href={bookingHistoryHref} onClick={closeMobileMenu} className="flex min-h-11 items-center justify-between rounded-lg border border-[#0F2A43]/12 bg-white px-3 text-sm font-bold text-[#0F2A43]"><span>{user.role === "CUSTOMER" ? localize("Lịch sử đặt phòng", "Booking history") : localize("Quản lý đặt phòng", "Manage bookings")}</span><span aria-hidden="true">›</span></Link>
+                    <Link href={bookingHistoryHref} onClick={closeMobileMenu} className="flex min-h-11 items-center justify-between rounded-lg border border-[#0F2A43]/12 bg-white px-3 text-sm font-bold text-[#0F2A43]"><span>{localize("Lịch sử đặt phòng", "Booking history")}</span><span aria-hidden="true">›</span></Link>
                     <Link href={settingsHref} onClick={closeMobileMenu} className="flex min-h-11 items-center justify-between rounded-lg border border-[#0F2A43]/12 bg-white px-3 text-sm font-bold text-[#0F2A43]"><span>{localize("Cài đặt tài khoản", "Account settings")}</span><span aria-hidden="true">›</span></Link>
                   </div>
                   <button type="button" onClick={handleLogout} className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-rose-200 bg-white px-4 text-sm font-bold text-rose-700 transition hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-400">
@@ -583,7 +583,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
               <Link href="/reservation" className="inline-flex min-h-12 items-center justify-center rounded-lg bg-[#FBFAF6] px-6 text-sm font-bold text-[#0F2A43] transition hover:bg-white">
                 {localize("Kiểm tra phòng trống", "Check availability")}
               </Link>
-              <Link href="/booking/lookup" className="inline-flex min-h-12 items-center justify-center rounded-lg border border-white/24 px-6 text-sm font-bold text-white transition hover:border-[#B8944F] hover:bg-white/6">
+              <Link href="/my-bookings" className="inline-flex min-h-12 items-center justify-center rounded-lg border border-white/24 px-6 text-sm font-bold text-white transition hover:border-[#B8944F] hover:bg-white/6">
                 {localize("Tra cứu đơn", "Find a booking")}
               </Link>
             </div>
@@ -605,7 +605,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
             <nav aria-label={localize("Khám phá khách sạn", "Explore the hotel")} className="flex flex-col gap-3">
               <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-[#B8944F]">{localize("Khám phá", "Explore")}</h3>
               <Link href="/rooms" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Hạng phòng", "Room types")}</Link>
-              <Link href="/facilities" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Tiện ích", "Facilities")}</Link>
+              <Link href="/facilities" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Tiện nghi", "Facilities")}</Link>
               <Link href="/about" className="w-fit text-sm text-white/66 transition hover:text-white">{t("about")}</Link>
               <Link href="/#gallery" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Không gian", "Gallery")}</Link>
               <Link href="/contact" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Liên hệ", "Contact")}</Link>
@@ -614,7 +614,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
             <nav aria-label={localize("Hỗ trợ đặt phòng", "Booking support")} className="flex flex-col gap-3">
               <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-[#B8944F]">{localize("Đặt phòng", "Booking")}</h3>
               <Link href="/reservation" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Kiểm tra phòng trống", "Check availability")}</Link>
-              <Link href="/booking/lookup" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Tra cứu đơn", "Find a booking")}</Link>
+              <Link href="/my-bookings" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Tra cứu đơn", "Find a booking")}</Link>
               <Link href="/#booking-guide" className="w-fit text-sm text-white/66 transition hover:text-white">{localize("Hướng dẫn thanh toán", "Payment guide")}</Link>
             </nav>
 

@@ -25,6 +25,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
@@ -46,6 +47,8 @@ class PaymentServiceTest {
     @Mock ReservationService reservationService;
     @Mock ReservationAuditService reservationAuditService;
     @Mock PaymentRefundService paymentRefundService;
+    @Mock PaymentSessionExpiryService paymentSessionExpiryService;
+    @Mock ApplicationEventPublisher eventPublisher;
     @InjectMocks PaymentService paymentService;
 
     @Test
