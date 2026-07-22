@@ -79,7 +79,7 @@ export default function FavoriteRoomsMenu({ open, onClose }: FavoriteRoomsMenuPr
     <section
       id="favorite-rooms-menu"
       aria-label={localize("Phòng yêu thích", "Favorite rooms")}
-      className="absolute right-0 top-full z-[80] mt-3 w-[min(92vw,25rem)] overflow-hidden rounded-[1.35rem] border border-[#0F2A43]/16 bg-[#FBFAF6] shadow-[0_26px_70px_rgba(15,42,67,0.24)]"
+      className="ux-popover-enter absolute right-0 top-full z-[80] mt-3 w-[min(92vw,25rem)] overflow-hidden rounded-[1.35rem] border border-[#0F2A43]/16 bg-[#FBFAF6] shadow-[0_26px_70px_rgba(15,42,67,0.24)]"
     >
       <header className="flex items-end justify-between gap-4 bg-[#0F2A43] px-5 py-5 text-white">
         <div>

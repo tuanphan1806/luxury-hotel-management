@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient, cachedGet } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
+import ViewportModal from "@/components/UI/ViewportModal";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import {
   DashboardFilterPanel,
@@ -289,10 +290,15 @@ export default function ContactMessagesPage() {
       </section>
 
       {selectedMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#091E30]/65 p-4" role="dialog" aria-modal="true" aria-labelledby="contact-detail-title" onMouseDown={(event) => { if (event.target === event.currentTarget && actionId === null) setSelectedMessage(null); }}>
-          <section className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl">
+        <ViewportModal
+          open
+          onClose={() => setSelectedMessage(null)}
+          labelledBy="contact-detail-title"
+          busy={actionId === selectedMessage.id || isReplying}
+          panelClassName="max-w-2xl"
+        >
             <header className="flex items-start justify-between gap-4 border-b border-[#0F2A43]/10 px-6 py-5"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-[#80632F]">#{selectedMessage.id} · {formatDateTime(selectedMessage.createdAt)}</p><h2 id="contact-detail-title" className="mt-2 text-xl font-bold text-[#0F2A43]">{selectedMessage.subject}</h2></div><button type="button" onClick={() => setSelectedMessage(null)} aria-label={localize("Đóng", "Close")} className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#0F2A43]/15 text-lg font-bold text-[#66727C]">×</button></header>
-            <div className="space-y-5 p-6">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
               <div className="grid gap-3 rounded-xl bg-[#FBFAF6] p-4 sm:grid-cols-2"><div><p className="text-xs font-semibold text-[#66727C]">{localize("Người gửi", "Sender")}</p><p className="mt-1 font-bold text-[#0F2A43]">{selectedMessage.name}</p></div><div><p className="text-xs font-semibold text-[#66727C]">{localize("Liên hệ", "Contact")}</p><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm font-semibold"><a className="text-blue-700 hover:underline" href={`mailto:${selectedMessage.email}`}>{selectedMessage.email}</a>{selectedMessage.phone && <a className="text-blue-700 hover:underline" href={`tel:${selectedMessage.phone}`}>{selectedMessage.phone}</a>}</div></div></div>
               <div><p className="text-xs font-semibold text-[#66727C]">{localize("Nội dung yêu cầu", "Message")}</p><p className="mt-2 whitespace-pre-wrap rounded-xl border border-[#0F2A43]/10 p-4 text-sm leading-7 text-[#27445F]">{selectedMessage.message}</p></div>
               <label className="block text-sm font-bold text-[#0F2A43]">{localize("Trạng thái xử lý", "Processing status")}<select value={selectedMessage.status} disabled={actionId === selectedMessage.id} onChange={(event) => void updateStatus(selectedMessage, event.target.value as ContactStatus)} className="mt-2 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3 text-sm font-semibold outline-none focus:border-[#B8944F] disabled:opacity-50"><option value="NEW">{statusLabel("NEW")}</option><option value="READ">{statusLabel("READ")}</option><option value="RESOLVED">{statusLabel("RESOLVED")}</option></select></label>
@@ -314,12 +320,20 @@ export default function ContactMessagesPage() {
               </form>
             </div>
             <footer className="flex flex-wrap justify-between gap-3 border-t border-[#0F2A43]/10 px-6 py-4">{isAdmin ? <button type="button" onClick={() => setDeleteTarget(selectedMessage)} className="min-h-11 rounded-lg border border-rose-200 px-4 text-sm font-bold text-rose-700 hover:bg-rose-50">{localize("Xóa yêu cầu", "Delete message")}</button> : <span />}<div className="flex flex-wrap gap-3"><button type="button" onClick={() => setSelectedMessage(null)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43]">{localize("Đóng", "Close")}</button><button type="submit" form="contact-reply-form" disabled={isReplying || !replySubject.trim() || !replyMessage.trim()} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{isReplying ? localize("Đang gửi...", "Sending...") : localize("Gửi email phản hồi", "Send email reply")}</button></div></footer>
-          </section>
-        </div>
+        </ViewportModal>
       )}
 
       {deleteTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#091E30]/65 p-4" role="dialog" aria-modal="true" aria-labelledby="delete-contact-title" onMouseDown={(event) => { if (event.target === event.currentTarget && actionId !== deleteTarget.id) setDeleteTarget(null); }}><section className="w-full max-w-md rounded-xl bg-white shadow-2xl"><div className="p-6"><h2 id="delete-contact-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa yêu cầu liên hệ?", "Delete contact message?")}</h2><p className="mt-3 text-sm leading-6 text-[#66727C]">{localize("Yêu cầu và toàn bộ nội dung sẽ bị xóa vĩnh viễn. Thao tác này không thể hoàn tác.", "The request and its content will be permanently deleted. This action cannot be undone.")}</p></div><footer className="flex justify-end gap-3 border-t border-[#0F2A43]/10 px-6 py-4"><button type="button" onClick={() => setDeleteTarget(null)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43]">{localize("Hủy", "Cancel")}</button><button type="button" disabled={actionId === deleteTarget.id} onClick={() => void deleteMessage()} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white disabled:opacity-50">{localize("Xác nhận xóa", "Delete")}</button></footer></section></div>
+        <ViewportModal
+          open
+          onClose={() => setDeleteTarget(null)}
+          labelledBy="delete-contact-title"
+          busy={actionId === deleteTarget.id}
+          panelClassName="max-w-md"
+          zIndexClassName="z-[90]"
+        >
+          <div className="p-6"><h2 id="delete-contact-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa yêu cầu liên hệ?", "Delete contact message?")}</h2><p className="mt-3 text-sm leading-6 text-[#66727C]">{localize("Yêu cầu và toàn bộ nội dung sẽ bị xóa vĩnh viễn. Thao tác này không thể hoàn tác.", "The request and its content will be permanently deleted. This action cannot be undone.")}</p></div><footer className="flex justify-end gap-3 border-t border-[#0F2A43]/10 px-6 py-4"><button type="button" onClick={() => setDeleteTarget(null)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43]">{localize("Hủy", "Cancel")}</button><button type="button" disabled={actionId === deleteTarget.id} onClick={() => void deleteMessage()} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white disabled:opacity-50">{actionId === deleteTarget.id ? localize("Đang xóa...", "Deleting...") : localize("Xác nhận xóa", "Delete")}</button></footer>
+        </ViewportModal>
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}

@@ -16,15 +16,29 @@ export interface ApiErrorPayload {
   message?: string;
   error?: string;
   answer?: string;
+  errors?: string[];
   data?: {
     message?: string;
+    errors?: string[];
   };
 }
+
+export const getApiValidationErrors = (error: unknown): string[] => {
+  if (!axios.isAxiosError<ApiErrorPayload>(error)) return [];
+  const payload = error.response?.data;
+  const errors = payload?.errors || payload?.data?.errors;
+  return Array.isArray(errors)
+    ? errors.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+};
 
 export const getApiErrorMessage = (error: unknown, fallback: string): string => {
   if (axios.isAxiosError<ApiErrorPayload>(error)) {
     const payload = error.response?.data;
-    return payload?.message
+    const validationErrors = getApiValidationErrors(error);
+    return validationErrors.length > 0
+      ? validationErrors.join(' · ')
+      : payload?.message
       || payload?.data?.message
       || payload?.error
       || payload?.answer

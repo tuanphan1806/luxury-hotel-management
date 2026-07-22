@@ -138,6 +138,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
         JOIN FETCH r.roomTypes rt
         JOIN FETCH rt.roomType
         LEFT JOIN FETCH rt.roomHold
+        LEFT JOIN FETCH rt.rooms reservationRoom
+        LEFT JOIN FETCH reservationRoom.room physicalRoom
         WHERE r.status <> com.hotel.backend.constant.ReservationStatus.PAYMENT_PENDING
         ORDER BY r.createdAt DESC
     """)

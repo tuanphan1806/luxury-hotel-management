@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.hotel.backend.constant.AuditNotificationStatus;
+import com.hotel.backend.constant.AuditScope;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
@@ -40,11 +41,14 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ReservationAuditService {
     private static final String ALERT_TYPE = "HIGH_RISK_AUDIT";
-    private static final Set<ReservationAuditAction> ROUTINE_AUTH_ACTIONS = Set.of(
+    private static final Set<ReservationAuditAction> HIDDEN_AUDIT_ACTIONS = Set.of(
             ReservationAuditAction.LOGIN_SUCCESS,
             ReservationAuditAction.LOGOUT,
             ReservationAuditAction.PASSWORD_CHANGED,
-            ReservationAuditAction.PASSWORD_RESET_COMPLETED);
+            ReservationAuditAction.PASSWORD_RESET_COMPLETED,
+            // Opening/printing an immutable invoice is a read-only convenience,
+            // not an operation or management mutation worth surfacing here.
+            ReservationAuditAction.PRINT_INVOICE);
 
     private final ReservationAuditLogRepository repository;
     private final AuditNotificationOutboxRepository outboxRepository;
@@ -241,6 +245,7 @@ public class ReservationAuditService {
     @Transactional(readOnly = true)
     public List<ReservationAuditLogResponse> getByReservation(Long reservationId) {
         return repository.findByReservationIdOrderByOccurredAtUtcDescIdDesc(reservationId).stream()
+                .filter(log -> log.getAction() == null || !HIDDEN_AUDIT_ACTIONS.contains(log.getAction()))
                 .map(ReservationAuditLogResponse::from)
                 .toList();
     }
@@ -253,6 +258,7 @@ public class ReservationAuditService {
             String actorRole,
             ReservationAuditAction action,
             com.hotel.backend.constant.AuditCategory category,
+            AuditScope scope,
             com.hotel.backend.constant.AuditRiskLevel riskLevel,
             Instant from,
             Instant to,
@@ -261,10 +267,10 @@ public class ReservationAuditService {
         Specification<ReservationAuditLog> specification =
                 (root, query, builder) -> builder.conjunction();
         // Audit pages are for operation/management mutations. Historical
-        // sign-in/session/self-service password rows remain append-only in the
-        // database but are intentionally excluded from operational queries.
+        // routine authentication and read-only invoice rows remain append-only
+        // in the database but are intentionally excluded from dashboard queries.
         specification = specification.and((root, query, builder) ->
-                builder.not(root.get("action").in(ROUTINE_AUTH_ACTIONS)));
+                builder.not(root.get("action").in(HIDDEN_AUDIT_ACTIONS)));
         if (hasText(targetType)) {
             specification = specification.and((root, query, builder) ->
                     builder.equal(root.get("targetType"), targetType.trim().toUpperCase()));
@@ -292,6 +298,13 @@ public class ReservationAuditService {
                     .toList();
             specification = specification.and((root, query, builder) ->
                     root.get("action").in(actionsInCategory));
+        }
+        if (scope != null) {
+            List<ReservationAuditAction> actionsInScope = Arrays.stream(ReservationAuditAction.values())
+                    .filter(candidate -> candidate.scope() == scope)
+                    .toList();
+            specification = specification.and((root, query, builder) ->
+                    root.get("action").in(actionsInScope));
         }
         if (riskLevel != null) {
             List<ReservationAuditAction> actionsAtRiskLevel = Arrays.stream(ReservationAuditAction.values())

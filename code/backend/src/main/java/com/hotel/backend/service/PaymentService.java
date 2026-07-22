@@ -7,6 +7,7 @@ import com.hotel.backend.dto.response.PaymentRefundResponse;
 import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.constant.PaymentProvider;
@@ -25,6 +26,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -50,6 +52,7 @@ public class PaymentService {
     private final ReservationAuditService reservationAuditService;
     private final PaymentRefundService paymentRefundService;
     private final PaymentSessionExpiryService paymentSessionExpiryService;
+    private final ApplicationEventPublisher eventPublisher;
     // ==================== TẠO GIAO DỊCH MỚI ====================
 
     @Transactional
@@ -237,6 +240,8 @@ public class PaymentService {
 
         transaction = transactionRepository.save(transaction);
         reservationService.convertHoldsAfterPayment(reservation.getId());
+        eventPublisher.publishEvent(new CheckoutReconciliationChangedEvent(
+                reservation.getId(), "CASH_PAYMENT_SUCCEEDED"));
 
         log.info("Tạo giao dịch tiền mặt: txnRef={}, reservationId={}, amount={}",
                 txnRef, reservation.getId(), amount);

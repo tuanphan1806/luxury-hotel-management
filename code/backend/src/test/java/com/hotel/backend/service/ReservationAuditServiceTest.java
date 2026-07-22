@@ -3,6 +3,7 @@ package com.hotel.backend.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotel.backend.constant.AuditCategory;
 import com.hotel.backend.constant.AuditRiskLevel;
+import com.hotel.backend.constant.AuditScope;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
@@ -136,9 +137,36 @@ class ReservationAuditServiceTest {
         ReservationAuditLogResponse response = ReservationAuditLogResponse.from(legacyRow);
 
         assertEquals(AuditCategory.PAYMENT, response.getCategory());
+        assertEquals(AuditScope.OPERATION, response.getScope());
         assertEquals(AuditRiskLevel.HIGH, response.getRiskLevel());
         assertEquals(AuditCategory.BUSINESS, legacyRow.getCategory());
         assertEquals(AuditRiskLevel.NORMAL, legacyRow.getRiskLevel());
+    }
+
+    @Test
+    void canonicalActionsAreSeparatedIntoOperationAndManagementScopes() {
+        assertEquals(AuditScope.OPERATION, ReservationAuditAction.CHECK_IN.scope());
+        assertEquals(AuditScope.OPERATION, ReservationAuditAction.PAYMENT_RECEIVED.scope());
+        assertEquals(AuditScope.OPERATION, ReservationAuditAction.ROOM_HOLD_AUTO_EXPIRED.scope());
+        assertEquals(AuditScope.MANAGEMENT, ReservationAuditAction.ROOM_UPDATED.scope());
+        assertEquals(AuditScope.MANAGEMENT, ReservationAuditAction.USER_ROLE_CHANGED.scope());
+    }
+
+    @Test
+    void reservationTimelineHidesLegacyInvoicePrintRows() {
+        ReservationAuditLog printInvoice = ReservationAuditLog.builder()
+                .action(ReservationAuditAction.PRINT_INVOICE)
+                .build();
+        ReservationAuditLog checkout = ReservationAuditLog.builder()
+                .action(ReservationAuditAction.CHECK_OUT)
+                .build();
+        when(auditRepository.findByReservationIdOrderByOccurredAtUtcDescIdDesc(88L))
+                .thenReturn(List.of(printInvoice, checkout));
+
+        List<ReservationAuditLogResponse> timeline = service.getByReservation(88L);
+
+        assertEquals(1, timeline.size());
+        assertEquals(ReservationAuditAction.CHECK_OUT, timeline.get(0).getAction());
     }
 
     @Test

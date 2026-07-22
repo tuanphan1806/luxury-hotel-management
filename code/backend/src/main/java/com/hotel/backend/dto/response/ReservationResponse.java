@@ -59,6 +59,8 @@ public class ReservationResponse {
     private LocalDateTime noShowEligibleAt;
     private LocalDateTime createdAt;
     private List<ReservationRoomTypeResponse> roomTypes;
+    @Builder.Default
+    private List<ReservationRoomResponse> rooms = List.of();
  
     public static ReservationResponse from(Reservation r) {
         return ReservationResponse.builder()

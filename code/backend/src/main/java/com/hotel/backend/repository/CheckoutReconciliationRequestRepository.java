@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.List;
 import java.time.Instant;
 
 public interface CheckoutReconciliationRequestRepository
@@ -19,6 +20,19 @@ public interface CheckoutReconciliationRequestRepository
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM CheckoutReconciliationRequest r JOIN FETCH r.reservation WHERE r.id = :id")
     Optional<CheckoutReconciliationRequest> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT r
+            FROM CheckoutReconciliationRequest r
+            JOIN FETCH r.reservation
+            LEFT JOIN FETCH r.requestedBy
+            WHERE r.reservation.id = :reservationId
+              AND r.status = com.hotel.backend.constant.CheckoutReconciliationRequestStatus.PENDING
+            ORDER BY r.createdAtUtc ASC, r.id ASC
+            """)
+    List<CheckoutReconciliationRequest> findPendingByReservationIdForUpdate(
+            @Param("reservationId") Long reservationId);
 
     Page<CheckoutReconciliationRequest> findByStatusOrderByCreatedAtUtcAsc(
             CheckoutReconciliationRequestStatus status,

@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Image, { type ImageProps } from "next/image";
 import { resolveMediaSource } from "@/lib/media-url";
 
 type ProgressiveImageProps = ImageProps & {
   loaderClassName?: string;
+  fallbackSrc?: ImageProps["src"];
+};
+
+const mediaSourceKey = (source: ImageProps["src"]) => {
+  if (typeof source === "string") return source;
+  return "src" in source ? source.src : source.default.src;
 };
 
 /**
@@ -24,15 +30,19 @@ export default function ProgressiveImage({
   onLoad,
   onError,
   src,
+  fallbackSrc,
   ...props
 }: ProgressiveImageProps) {
-  const [isLoaded, setIsLoaded] = useState(false);
   const shouldPrioritize = Boolean(priority);
   const resolvedSrc = resolveMediaSource(src);
-
-  useEffect(() => {
-    setIsLoaded(false);
-  }, [resolvedSrc]);
+  const resolvedFallbackSrc = fallbackSrc ? resolveMediaSource(fallbackSrc) : null;
+  const sourceKey = mediaSourceKey(resolvedSrc);
+  const [failedSourceKey, setFailedSourceKey] = useState<string | null>(null);
+  const activeSrc = failedSourceKey === sourceKey && resolvedFallbackSrc ? resolvedFallbackSrc : resolvedSrc;
+  const activeSourceKey = mediaSourceKey(activeSrc);
+  const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
+  const isLoaded = loadedSourceKey === activeSourceKey;
+  const isFallback = activeSrc !== resolvedSrc;
 
   return (
     <>
@@ -41,8 +51,9 @@ export default function ProgressiveImage({
         className={`image-loading-surface absolute inset-0 ${isLoaded ? "image-loading-surface-done" : ""} ${loaderClassName}`}
       />
       <Image
+        key={activeSourceKey}
         {...props}
-        src={resolvedSrc}
+        src={activeSrc}
         alt={alt}
         quality={quality}
         decoding={decoding}
@@ -51,13 +62,19 @@ export default function ProgressiveImage({
         loading={shouldPrioritize ? "eager" : loading}
         data-priority={shouldPrioritize ? "true" : "false"}
         data-loaded={isLoaded ? "true" : "false"}
+        data-fallback={isFallback ? "true" : "false"}
         className={`progressive-media ${className}`}
         onLoad={(event) => {
-          setIsLoaded(true);
+          setLoadedSourceKey(activeSourceKey);
           onLoad?.(event);
         }}
         onError={(event) => {
-          setIsLoaded(true);
+          if (!isFallback && resolvedFallbackSrc) {
+            setLoadedSourceKey(null);
+            setFailedSourceKey(sourceKey);
+            return;
+          }
+          setLoadedSourceKey(activeSourceKey);
           onError?.(event);
         }}
       />

@@ -3,7 +3,7 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { publicApiClient } from "@/lib/api";
 import { saveGuestReservationToken } from "@/lib/guest-reservation-token";
 import RefundRecipientForm, {
@@ -13,6 +13,7 @@ import RefundRecipientForm, {
 import RefundProgressCard, { type CustomerRefund } from "@/components/refunds/RefundProgressCard";
 import { clearIdempotencyKey, getOrCreateIdempotencyKey } from "@/lib/idempotency";
 import BankAccountFields from "@/components/forms/BankAccountFields";
+import ViewportModal from "@/components/UI/ViewportModal";
 
 type ReservationRoomType = {
   roomTypeName?: string;
@@ -43,6 +44,17 @@ type Reservation = {
 
 const formatVND = (value?: number) => Number(value || 0).toLocaleString("vi-VN") + " đ";
 
+const reservationStatusLabel: Record<Reservation["status"], string> = {
+  PAYMENT_PENDING: "Chờ thanh toán",
+  DRAFT: "Chờ khách sạn xác nhận",
+  CONFIRMED: "Đã xác nhận",
+  CANCELLATION_PENDING: "Đang chờ duyệt hủy",
+  CANCELLED: "Đã hủy",
+  CHECKED_IN: "Đã nhận phòng",
+  CHECKED_OUT: "Đã trả phòng",
+  NO_SHOW: "Không đến",
+};
+
 const getApiErrorMessage = (error: unknown, fallback: string) =>
   axios.isAxiosError<{ message?: string }>(error)
     ? error.response?.data?.message || fallback
@@ -61,6 +73,7 @@ const formatDateTime = (value?: string) => {
 };
 
 function GuestBookingLookupContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const legacyToken = searchParams.get("token") || "";
   const [token, setToken] = useState("");
@@ -75,6 +88,7 @@ function GuestBookingLookupContent() {
   const [accountHolderName, setAccountHolderName] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
+  const [isCancelConfirmationOpen, setIsCancelConfirmationOpen] = useState(false);
 
   const canCancel = useMemo(
     () => reservation?.status === "DRAFT" || reservation?.status === "CONFIRMED",
@@ -94,8 +108,7 @@ function GuestBookingLookupContent() {
     const loadReservation = async () => {
       if (!tokenResolved) return;
       if (!token) {
-        setError("Link đặt phòng không hợp lệ hoặc thiếu token.");
-        setIsLoading(false);
+        router.replace("/my-bookings");
         return;
       }
 
@@ -117,7 +130,7 @@ function GuestBookingLookupContent() {
     };
 
     loadReservation();
-  }, [token, tokenResolved]);
+  }, [router, token, tokenResolved]);
 
   const handleCancel = async () => {
     if (!reservation || !token || !canCancel) return;
@@ -128,9 +141,6 @@ function GuestBookingLookupContent() {
       setCancelError("Vui lòng nhập đầy đủ và đúng thông tin tài khoản nhận hoàn tiền.");
       return;
     }
-    const confirmed = window.confirm("Bạn chắc chắn muốn hủy đặt phòng này?");
-    if (!confirmed) return;
-
     setIsCancelling(true);
     setCancelError("");
     const operationScope = `reservation:${reservation.id}:CANCEL_GUEST`;
@@ -156,11 +166,24 @@ function GuestBookingLookupContent() {
       clearIdempotencyKey(operationScope);
       const cancelledReservation = response.data?.data;
       setReservation(cancelledReservation || { ...reservation, status: "CANCELLATION_PENDING", cancellationReason: cancelReason });
+      setIsCancelConfirmationOpen(false);
     } catch (error: unknown) {
       setCancelError(getApiErrorMessage(error, "Không thể hủy đặt phòng. Vui lòng liên hệ lễ tân."));
     } finally {
       setIsCancelling(false);
     }
+  };
+
+  const requestCancelConfirmation = () => {
+    if (!/^[A-Z0-9]{2,20}$/.test(bankCode.trim().toUpperCase())
+      || bankName.trim().length < 2
+      || !/^\d{6,24}$/.test(accountNumber)
+      || accountHolderName.trim().length < 2) {
+      setCancelError("Vui lòng nhập đầy đủ và đúng thông tin tài khoản nhận hoàn tiền.");
+      return;
+    }
+    setCancelError("");
+    setIsCancelConfirmationOpen(true);
   };
 
   return (
@@ -191,7 +214,7 @@ function GuestBookingLookupContent() {
                   <h2 className="mt-2 font-serif text-3xl font-bold">{reservation.reservationCode}</h2>
                 </div>
                 <span className="w-fit border border-white/20 px-3 py-1 text-xs font-bold uppercase tracking-widest">
-                  {reservation.status}
+                  {reservationStatusLabel[reservation.status]}
                 </span>
               </div>
 
@@ -267,9 +290,10 @@ function GuestBookingLookupContent() {
                   />
                 </section>
                 <button
-                  onClick={handleCancel}
+                  type="button"
+                  onClick={requestCancelConfirmation}
                   disabled={isCancelling}
-                  className="bg-rose-700 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white disabled:opacity-60"
+                  className="min-h-11 rounded-lg bg-rose-700 px-5 py-3 text-xs font-bold uppercase tracking-widest text-white transition hover:bg-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2 disabled:opacity-60"
                 >
                   {isCancelling ? "Đang hủy..." : "Hủy đặt phòng"}
                 </button>
@@ -289,7 +313,7 @@ function GuestBookingLookupContent() {
 
             {(reservation.refundRoute === "VNPAY_ORIGINAL" || reservation.refundRoute === "MIXED") && (
               <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                <p className="font-bold">Hoàn theo giao dịch lịch sử</p>
+                <p className="font-bold">Hoàn theo giao dịch trực tuyến ban đầu</p>
                 <p className="mt-1 leading-6">{reservation.refundRoute === "MIXED"
                   ? "Phần giao dịch lịch sử sẽ hoàn theo nguồn gốc; phần hoàn QR thủ công cần tài khoản ngân hàng bên dưới."
                   : "Hệ thống xử lý hoàn tiền trên giao dịch gốc. Bạn không cần cung cấp tài khoản ngân hàng."}</p>
@@ -310,6 +334,26 @@ function GuestBookingLookupContent() {
                 } : current)}
               />
             )}
+
+            <ViewportModal
+              open={isCancelConfirmationOpen}
+              onClose={() => setIsCancelConfirmationOpen(false)}
+              labelledBy="lookup-cancel-confirmation-title"
+              describedBy="lookup-cancel-confirmation-description"
+              busy={isCancelling}
+              panelClassName="max-w-md"
+            >
+              <div className="p-6">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-rose-700">Xác nhận yêu cầu</p>
+                <h2 id="lookup-cancel-confirmation-title" className="mt-2 font-serif text-2xl font-bold text-[#0F2A43]">Gửi yêu cầu hủy đặt phòng?</h2>
+                <p id="lookup-cancel-confirmation-description" className="mt-3 text-sm leading-6 text-[#66727C]">Phòng vẫn được giữ cho đến khi nhân viên xét duyệt. Thông tin tài khoản đã nhập chỉ được dùng nếu phát sinh hoàn tiền qua QR.</p>
+                {cancelError && <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-700">{cancelError}</p>}
+              </div>
+              <footer className="flex flex-col-reverse gap-3 border-t border-[#0F2A43]/10 px-6 py-4 sm:flex-row sm:justify-end">
+                <button type="button" disabled={isCancelling} onClick={() => setIsCancelConfirmationOpen(false)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:opacity-50">Quay lại kiểm tra</button>
+                <button type="button" disabled={isCancelling} onClick={() => void handleCancel()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white transition hover:bg-rose-800 disabled:cursor-wait disabled:opacity-50">{isCancelling && <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />}{isCancelling ? "Đang gửi..." : "Gửi yêu cầu hủy"}</button>
+              </footer>
+            </ViewportModal>
           </div>
         ) : null}
       </div>

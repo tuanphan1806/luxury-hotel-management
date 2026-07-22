@@ -46,13 +46,27 @@ export default function SupportCenter() {
         actions={(
           <>
             <Link href="/contact" className="inline-flex min-h-12 items-center rounded-lg bg-[#D8C398] px-6 text-sm font-bold text-[#091E30] transition hover:bg-[#C8A35B]">{localize("Gửi yêu cầu hỗ trợ", "Send a support request")}</Link>
-            <Link href="/booking/lookup" className="inline-flex min-h-12 items-center rounded-lg border border-white/30 bg-white/6 px-6 text-sm font-bold text-white transition hover:border-[#D8C398] hover:bg-white/10">{localize("Tra cứu đơn", "Find a booking")}</Link>
+            <Link href="/my-bookings" className="inline-flex min-h-12 items-center rounded-lg border border-white/30 bg-white/6 px-6 text-sm font-bold text-white transition hover:border-[#D8C398] hover:bg-white/10">{localize("Tra cứu đơn", "Find a booking")}</Link>
           </>
         )}
+        contentPosition="center"
         className="min-h-[58dvh] md:min-h-[570px]"
       />
 
-      <section className="px-5 py-16 md:px-8 md:py-20" aria-labelledby="support-faq-title">
+      <section className="deferred-section px-5 py-16 md:px-8 md:py-20" aria-labelledby="support-faq-title">
+        <div className="motion-stagger mx-auto mb-12 grid max-w-6xl gap-3 sm:grid-cols-3">
+          {[
+            ["/my-bookings", localize("Tra cứu đơn", "Find a booking"), localize("Xem lịch sử, trạng thái thanh toán và bước tiếp theo của đơn.", "Review booking history, payment status, and next actions.")],
+            ["/my-bookings", localize("Lịch sử đặt phòng", "Booking history"), localize("Xem các kỳ lưu trú và hành động tiếp theo trong tài khoản.", "Review stays and next actions from your account.")],
+            ["/contact", localize("Gửi yêu cầu", "Send a request"), localize("Chuyển đúng thông tin đến bộ phận vận hành khách sạn.", "Send the right details to hotel operations.")],
+          ].map(([href, title, detail]) => (
+            <Link key={href} href={href} className="group rounded-[1.25rem] border border-[#0F2A43]/12 bg-[#FBFAF6] p-5 transition hover:-translate-y-1 hover:border-[#B8944F] hover:shadow-[0_16px_40px_rgba(15,42,67,0.08)]">
+              <span className="text-sm font-bold text-[#0F2A43]">{title}</span>
+              <span className="mt-3 block text-xs font-medium leading-6 text-[#66727C]">{detail}</span>
+              <span aria-hidden="true" className="mt-5 block text-lg text-[#80632F] transition group-hover:translate-x-1">→</span>
+            </Link>
+          ))}
+        </div>
         <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Câu hỏi thường gặp", "Frequently asked questions")}</p>

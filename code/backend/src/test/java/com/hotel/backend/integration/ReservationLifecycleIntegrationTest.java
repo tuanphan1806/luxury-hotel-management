@@ -147,6 +147,8 @@ class ReservationLifecycleIntegrationTest {
         ReservationResponse checkedOut = reservationService.checkOut(reservation.getId());
         assertEquals(ReservationStatus.CHECKED_OUT, checkedOut.getStatus());
 
+        long auditCountBeforeInvoice = auditLogRepository
+                .findByReservationIdOrderByCreatedAtDesc(reservation.getId()).size();
         ReservationInvoiceResponse invoice = reservationService.getInvoice(reservation.getId(), staff);
         assertEquals(reservation.getReservationCode(), invoice.getReservationCode());
         assertEquals(2, invoice.getGuestCount());
@@ -156,7 +158,11 @@ class ReservationLifecycleIntegrationTest {
         assertEquals(invoice.getRoomCharge(), invoice.getActualRoomCharge());
         assertEquals(invoice.getRefundedAmount(), invoice.getCompletedRefundAmount());
         assertEquals(invoice.getBalanceAmount(), invoice.getRemainingAmount());
-        assertTrue(auditLogRepository.findByReservationIdOrderByCreatedAtDesc(reservation.getId()).size() >= 5);
+        long auditCountAfterInvoice = auditLogRepository
+                .findByReservationIdOrderByCreatedAtDesc(reservation.getId()).size();
+        assertEquals(auditCountBeforeInvoice, auditCountAfterInvoice,
+                "Mở hoặc in hóa đơn không được tạo thêm audit log vận hành");
+        assertTrue(auditCountAfterInvoice >= 5);
     }
 
     @Test
