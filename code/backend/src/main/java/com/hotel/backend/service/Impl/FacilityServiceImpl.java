@@ -18,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -81,22 +84,27 @@ public class FacilityServiceImpl implements FacilityService {
             throw new DuplicateResourceException("Facility", "facilityName", request.getFacilityName());
         }
 
+        List<String> requestedImages = requestedImagesForCreate(request);
         Facility facility = Facility.builder()
                 .facilityName(request.getFacilityName())
                 .facilityNameEn(request.getFacilityNameEn())
                 .type(request.getType())
                 .description(request.getDescription())
                 .descriptionEn(request.getDescriptionEn())
-                .imageUrl(request.getImageUrl()) 
+                .imageUrl(primaryImage(requestedImages))
+                .imageUrls(new ArrayList<>(requestedImages))
                 .build();
 
         Facility saved = facilityRepository.save(facility);
-        saved.setImageUrl(mediaAssetService.replaceReference(
-                null,
-                saved.getImageUrl(),
+        List<String> claimedImages = mediaAssetService.replaceReferences(
+                List.of(),
+                requestedImages,
                 UploadFolder.FACILITIES,
                 MediaAssetOwnerType.FACILITY,
-                saved.getId()));
+                saved.getId(),
+                2);
+        saved.setImageUrls(new ArrayList<>(claimedImages));
+        saved.setImageUrl(primaryImage(claimedImages));
         auditFacility(saved, ReservationAuditAction.FACILITY_CREATED,
                 "Tạo tiện nghi", null, facilitySnapshot(saved));
         log.info("Đã tạo facility id={}", saved.getId());
@@ -110,7 +118,8 @@ public class FacilityServiceImpl implements FacilityService {
 
         Facility facility = findOrThrow(id);
         Map<String, Object> oldValue = facilitySnapshot(facility);
-        String previousImageUrl = facility.getImageUrl();
+        List<String> previousImages = currentImages(facility);
+        List<String> requestedImages = requestedImagesForUpdate(previousImages, request);
 
         if (facilityRepository.existsByFacilityNameIgnoreCaseAndIdNot(request.getFacilityName(), id)) {
             throw new DuplicateResourceException("Facility", "facilityName", request.getFacilityName());
@@ -121,12 +130,15 @@ public class FacilityServiceImpl implements FacilityService {
         facility.setType(request.getType());
         facility.setDescription(request.getDescription());
         facility.setDescriptionEn(request.getDescriptionEn());
-        facility.setImageUrl(mediaAssetService.replaceReference(
-                previousImageUrl,
-                request.getImageUrl(),
+        List<String> claimedImages = mediaAssetService.replaceReferences(
+                previousImages,
+                requestedImages,
                 UploadFolder.FACILITIES,
                 MediaAssetOwnerType.FACILITY,
-                facility.getId()));
+                facility.getId(),
+                2);
+        facility.setImageUrls(new ArrayList<>(claimedImages));
+        facility.setImageUrl(primaryImage(claimedImages));
         Facility saved = facilityRepository.save(facility);
         auditFacility(saved, ReservationAuditAction.FACILITY_UPDATED,
                 "Cập nhật tiện nghi", oldValue, facilitySnapshot(saved));
@@ -141,8 +153,8 @@ public class FacilityServiceImpl implements FacilityService {
         Facility facility = findOrThrow(id);
         Map<String, Object> oldValue = facilitySnapshot(facility);
 
-        mediaAssetService.releaseReference(
-                facility.getImageUrl(),
+        mediaAssetService.releaseReferences(
+                currentImages(facility),
                 MediaAssetOwnerType.FACILITY,
                 facility.getId());
 
@@ -187,6 +199,7 @@ public class FacilityServiceImpl implements FacilityService {
         value.put("facilityNameEn", facility.getFacilityNameEn());
         value.put("type", facility.getType());
         value.put("imageUrl", facility.getImageUrl());
+        value.put("imageUrls", currentImages(facility));
         return value;
     }
 
@@ -200,7 +213,64 @@ public class FacilityServiceImpl implements FacilityService {
                 .type(entity.getType())
                 .description(entity.getDescription())
                 .descriptionEn(entity.getDescriptionEn())
-                .imageUrl(entity.getImageUrl()) 
+                .imageUrl(entity.getImageUrl())
+                .imageUrls(currentImages(entity))
                 .build();
+    }
+
+    private List<String> requestedImagesForCreate(FacilityRequest request) {
+        if (request.getImageUrls() != null) {
+            return normalizeImages(request.getImageUrls());
+        }
+        return normalizeImages(List.of(request.getImageUrl() == null ? "" : request.getImageUrl()));
+    }
+
+    private List<String> requestedImagesForUpdate(
+            List<String> current,
+            FacilityRequest request) {
+        if (request.getImageUrls() != null) {
+            return normalizeImages(request.getImageUrls());
+        }
+        if (request.getImageUrl() == null) {
+            return current;
+        }
+
+        List<String> updated = new ArrayList<>(current);
+        String primary = request.getImageUrl().trim();
+        if (primary.isEmpty()) {
+            if (!updated.isEmpty()) {
+                updated.remove(0);
+            }
+        } else if (updated.isEmpty()) {
+            updated.add(primary);
+        } else {
+            updated.set(0, primary);
+        }
+        return normalizeImages(updated);
+    }
+
+    private List<String> currentImages(Facility facility) {
+        List<String> images = normalizeImages(facility.getImageUrls());
+        if (!images.isEmpty()) {
+            return images;
+        }
+        return normalizeImages(List.of(
+                facility.getImageUrl() == null ? "" : facility.getImageUrl()));
+    }
+
+    private List<String> normalizeImages(Collection<String> images) {
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        if (images != null) {
+            images.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .forEach(normalized::add);
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private String primaryImage(List<String> images) {
+        return images == null || images.isEmpty() ? null : images.get(0);
     }
 }

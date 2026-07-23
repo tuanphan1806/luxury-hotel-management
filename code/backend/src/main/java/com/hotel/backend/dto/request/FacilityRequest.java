@@ -4,6 +4,8 @@ package com.hotel.backend.dto.request;
 import jakarta.validation.constraints.*;
 import lombok.*;
 
+import java.util.List;
+
 /**
  * Payload gửi lên khi tạo mới / cập nhật Facility.
  */
@@ -33,4 +35,10 @@ public class FacilityRequest {
 
     @Size(max = 500, message = "Đường dẫn ảnh tối đa 500 ký tự")
     private String imageUrl;
+
+    @Size(max = 2, message = "Mỗi tiện nghi có tối đa 2 ảnh")
+    private List<
+            @NotBlank(message = "URL ảnh không được để trống")
+            @Size(max = 500, message = "Đường dẫn ảnh tối đa 500 ký tự")
+            String> imageUrls;
 }

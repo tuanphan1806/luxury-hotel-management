@@ -60,6 +60,7 @@ interface RoomFacilityPayload {
   facilityName?: string;
   facilityNameEn?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   type?: string;
 }
 
@@ -72,6 +73,7 @@ interface RoomTypePayload {
   price?: number;
   maxGuests?: number;
   imageUrl?: string;
+  imageUrls?: string[];
   facilities?: RoomFacilityPayload[];
   averageRating?: number;
   totalReviews?: number;
@@ -235,7 +237,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
             maxGuests: dbData.maxGuests || 2,
             imageUrl: dbData.imageUrl || "",
             specs,
-            gallery: getRoomGalleryImages(dbData.typeName, dbData.typeNameEn, dbData.imageUrl),
+            gallery: getRoomGalleryImages(dbData.typeName, dbData.typeNameEn, dbData.imageUrl, dbData.imageUrls),
             amenities: (dbData.facilities || []).map((facility) => {
               const detail = facility.id ? facilityById.get(Number(facility.id)) : undefined;
               const facilityName = facility.facilityName || detail?.facilityName || detail?.name;
@@ -247,6 +249,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
                 facilityNameEn,
                 name: localize(facilityName, facilityNameEn) || localize("Tiện nghi", "Amenity"),
                 imageUrl: facility.imageUrl || detail?.imageUrl || detail?.image,
+                imageUrls: facility.imageUrls?.length ? facility.imageUrls : detail?.imageUrls,
                 type: facility.type || detail?.type,
               };
             })

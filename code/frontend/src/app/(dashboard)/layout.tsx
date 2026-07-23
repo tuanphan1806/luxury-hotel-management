@@ -455,9 +455,9 @@ export default function DashboardLayout({
               <Link href="/dashboard/settings" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
                 <span>{localize("Cài đặt tài khoản", "Account settings")}</span><span aria-hidden="true">›</span>
               </Link>
-              {user.role === "ADMIN" && <Link href="/dashboard/reconciliation-requests" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
-                <span>{localize("Ngoại lệ đối soát", "Reconciliation exceptions")}</span><span aria-hidden="true">›</span>
-              </Link>}
+              <Link href="/" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
+                <span>{localize("Trang khách sạn", "Hotel website")}</span><span aria-hidden="true">↗</span>
+              </Link>
               <div className="rounded-lg bg-[#F1F0EA] p-2"><LanguageSwitcher /></div>
             </div>
             <button type="button" onClick={() => void handleSignOut()} className="flex min-h-12 w-full items-center gap-3 border-t border-[#0F2A43]/10 px-4 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50">

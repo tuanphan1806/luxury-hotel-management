@@ -29,6 +29,7 @@ export interface ReservationRoomFacilityItem {
   facilityName?: string;
   facilityNameEn?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   type?: string;
 }
 
@@ -210,8 +211,8 @@ export default function ReservationRoomQuickViewModal({
                   return (
                     <li key={facility.id ?? `${facilityName}-${index}`} className="flex min-h-11 items-center gap-2.5 rounded-xl bg-[#F1F0EA] p-2 text-xs font-bold text-[#0F2A43]">
                       <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-lg bg-[#E5E9ED]">
-                        {facility.imageUrl ? (
-                          <ProgressiveImage src={facility.imageUrl} alt="" fill sizes="36px" className="object-cover" />
+                        {(facility.imageUrls?.[0] || facility.imageUrl) ? (
+                          <ProgressiveImage src={facility.imageUrls?.[0] || facility.imageUrl || ""} alt="" fill sizes="36px" className="object-cover" />
                         ) : (
                           <span aria-hidden="true" className="grid h-full w-full place-items-center text-[#80632F]">✓</span>
                         )}
