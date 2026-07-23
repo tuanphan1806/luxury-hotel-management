@@ -4,6 +4,7 @@ import lombok.*;
  
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
  
 @Data
 @Builder
@@ -20,6 +21,7 @@ public class AvailabilityResponse {
     private BigDecimal estimatedPricePerRoom;
     private int maxGuestsPerRoom;
     private String imageUrl;
+    private List<String> imageUrls;
     private LocalDateTime checkIn;
     private LocalDateTime checkOut;
     private long totalHours;           // tổng số giờ thuê

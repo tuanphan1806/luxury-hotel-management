@@ -27,6 +27,7 @@ interface FacilityItem {
   description?: string;
   descriptionEn?: string;
   imageUrl?: string;
+  imageUrls?: string[];
 }
 
 const emptyForm = {
@@ -36,6 +37,14 @@ const emptyForm = {
   description: "",
   descriptionEn: "",
   imageUrl: "",
+  imageUrls: ["", ""] as string[],
+};
+
+const normalizeImageSlots = (imageUrls: string[] | undefined, fallbackImage?: string, maxImages = 2) => {
+  const normalized = Array.from(
+    new Set([...(imageUrls || []), fallbackImage || ""].map((image) => image.trim()).filter(Boolean)),
+  ).slice(0, maxImages);
+  return [...normalized, ...Array(Math.max(0, maxImages - normalized.length)).fill("")];
 };
 
 export default function DashboardFacilitiesPage() {
@@ -44,16 +53,27 @@ export default function DashboardFacilitiesPage() {
   const [facilities, setFacilities] = useState<FacilityItem[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [imageFilter, setImageFilter] = useState<FacilityImageFilter>("ALL");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(() => new Set());
   const [deleteTarget, setDeleteTarget] = useState<FacilityItem | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const isUploading = uploadingSlots.size > 0;
+
+  const setSlotUploading = (index: number, uploading: boolean) => {
+    setUploadingSlots((current) => {
+      const next = new Set(current);
+      if (uploading) next.add(index);
+      else next.delete(index);
+      return next;
+    });
+  };
 
   const showToast = useCallback((message: string, type: "success" | "error" | "info") => {
     setToast({ message, type });
@@ -94,7 +114,7 @@ export default function DashboardFacilitiesPage() {
         (facility.descriptionEn || "").toLowerCase().includes(keyword)
       );
       const matchesType = typeFilter === "ALL" || facility.type === typeFilter;
-      const hasImage = Boolean(facility.imageUrl?.trim());
+      const hasImage = Boolean(facility.imageUrls?.some((image) => image?.trim()) || facility.imageUrl?.trim());
       const matchesImage = imageFilter === "ALL"
         || (imageFilter === "WITH_IMAGE" && hasImage)
         || (imageFilter === "WITHOUT_IMAGE" && !hasImage);
@@ -106,6 +126,8 @@ export default function DashboardFacilitiesPage() {
     setForm(emptyForm);
     setEditingId(null);
     setFormErrors({});
+    setUploadingSlots(new Set());
+    setIsFormOpen(false);
   };
 
   const clearFormError = (key: string) => {
@@ -142,13 +164,15 @@ export default function DashboardFacilitiesPage() {
     setFormErrors({});
 
     setIsSaving(true);
+    const imageUrls = Array.from(new Set(form.imageUrls.map((image) => image.trim()).filter(Boolean))).slice(0, 2);
     const payload = {
       facilityName: form.facilityName.trim(),
       facilityNameEn: form.facilityNameEn.trim(),
       type: form.type.trim(),
       description: form.description.trim(),
       descriptionEn: form.descriptionEn.trim(),
-      imageUrl: form.imageUrl.trim(),
+      imageUrl: imageUrls[0] || "",
+      imageUrls,
     };
 
     try {
@@ -173,6 +197,7 @@ export default function DashboardFacilitiesPage() {
   const handleEdit = (facility: FacilityItem) => {
     setEditingId(facility.id);
     setFormErrors({});
+    setUploadingSlots(new Set());
     setForm({
       facilityName: facility.facilityName || "",
       facilityNameEn: facility.facilityNameEn || "",
@@ -180,8 +205,9 @@ export default function DashboardFacilitiesPage() {
       description: facility.description || "",
       descriptionEn: facility.descriptionEn || "",
       imageUrl: facility.imageUrl || "",
+      imageUrls: normalizeImageSlots(facility.imageUrls, facility.imageUrl),
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setIsFormOpen(true);
   };
 
   const handleDelete = async () => {
@@ -209,9 +235,21 @@ export default function DashboardFacilitiesPage() {
           <p className="mt-1.5 text-sm font-semibold text-[#66727C]">{localize(`${facilities.length} tiện nghi đang hiển thị trên website`, `${facilities.length} facilities displayed on the website`)}</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                resetForm();
+                setIsFormOpen(true);
+              }}
+              className="self-start rounded-xl bg-[#0F2A43] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#091E30]"
+            >
+              {localize("Thêm tiện nghi", "Add facility")}
+            </button>
+          )}
           <Link
             href="/facilities"
-            className="self-start rounded-xl bg-[#0F2A43] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#091E30]"
+            className="self-start rounded-xl border border-[#0F2A43]/10 bg-white px-5 py-2.5 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:text-[#80632F]"
           >
             {localize("Xem trang công khai", "View public page")}
           </Link>
@@ -229,9 +267,16 @@ export default function DashboardFacilitiesPage() {
         <div className="rounded-xl border border-[#B8944F]/30 bg-[#F0EADF] px-4 py-3 text-sm font-semibold text-[#80632F]">{localize("Bạn đang xem dữ liệu quản lý. Chỉ quản trị viên được thêm, sửa hoặc xóa tiện nghi.", "You have read-only access. Only administrators can add, edit or delete facilities.")}</div>
       )}
 
-      {isAdmin && <form noValidate onSubmit={handleSubmit} className="rounded-[1.5rem] border border-[#0F2A43]/10 bg-[#FBFAF6] p-5 shadow-sm">
+      {isAdmin && <ViewportModal
+        open={isFormOpen}
+        onClose={resetForm}
+        labelledBy="facility-form-title"
+        busy={isSaving || isUploading}
+        panelClassName="max-w-5xl"
+      >
+      <form noValidate onSubmit={handleSubmit} className="lux-scrollbar min-h-0 w-full overflow-y-auto p-5 sm:p-7">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-[#0F2A43]/10 pb-4">
-          <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F]">{editingId ? localize("Chỉnh sửa tiện nghi", "Edit facility") : localize("Tiện nghi mới", "New facility")}</p><h2 className="mt-1 font-serif text-xl font-bold text-[#0F2A43]">{localize("Thông tin hiển thị", "Display information")}</h2></div>
+          <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F]">{editingId ? localize("Chỉnh sửa tiện nghi", "Edit facility") : localize("Tiện nghi mới", "New facility")}</p><h2 id="facility-form-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">{localize("Thông tin hiển thị", "Display information")}</h2></div>
           <p className="text-xs text-[#66727C]">{localize("Điền nội dung ngắn gọn để thẻ tiện nghi dễ đọc.", "Keep content concise for readable facility cards.")}</p>
         </div>
         {formErrors.form && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formErrors.form}</p>}
@@ -240,6 +285,7 @@ export default function DashboardFacilitiesPage() {
           <label htmlFor="facility-facilityName" className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#66727C]">{localize("Tên tiện nghi (VI)", "Facility name (VI)")} *</label>
           <input
             id="facility-facilityName"
+            data-modal-autofocus
             maxLength={255}
             value={form.facilityName}
             onChange={(event) => { setForm({ ...form, facilityName: event.target.value }); clearFormError("facilityName"); }}
@@ -279,17 +325,33 @@ export default function DashboardFacilitiesPage() {
           <p className="mt-1.5 text-[11px] text-[#66727C]">{localize("Hệ thống dùng phân loại này để tự nhóm tiện nghi khi hiển thị.", "The system uses this value to group facilities automatically.")}</p>
           {formErrors.type && <p className="mt-1 text-xs font-semibold text-rose-700">{formErrors.type}</p>}
         </div>
-        <div className="min-w-0 rounded-xl border border-[#0F2A43]/8 bg-white p-3 xl:col-span-4">
-          <ImageUploadField
-            id="facility-image-upload"
-            folder="FACILITIES"
-            value={form.imageUrl}
-            label={localize("Ảnh tiện nghi", "Facility image")}
-            alt={localize(`Ảnh xem trước tiện nghi ${form.facilityName || "mới"}`, `Preview of ${form.facilityNameEn || form.facilityName || "new facility"}`)}
-            description={localize("Ảnh ngang JPEG, PNG hoặc WebP · tối đa 5 MB.", "Landscape JPEG, PNG or WebP · up to 5 MB.")}
-            onUploadingChange={setIsUploading}
-            onUploaded={(image) => setForm((current) => ({ ...current, imageUrl: image.url }))}
-          />
+        <div className="grid min-w-0 gap-3 rounded-xl border border-[#0F2A43]/8 bg-white p-3 md:grid-cols-2 xl:col-span-8">
+          {form.imageUrls.map((value, index) => (
+            <ImageUploadField
+              key={`facility-image-${index}`}
+              id={`facility-image-upload-${index}`}
+              folder="FACILITIES"
+              value={value}
+              label={index === 0
+                ? localize("Ảnh đại diện", "Cover image")
+                : localize("Ảnh chi tiết", "Detail image")}
+              alt={localize(
+                `${index === 0 ? "Ảnh đại diện" : "Ảnh chi tiết"} tiện nghi ${form.facilityName || "mới"}`,
+                `${index === 0 ? "Cover" : "Detail"} image of ${form.facilityNameEn || form.facilityName || "new facility"}`,
+              )}
+              description={localize("Ảnh ngang JPEG, PNG hoặc WebP · tối đa 5 MB.", "Landscape JPEG, PNG or WebP · up to 5 MB.")}
+              onUploadingChange={(uploading) => setSlotUploading(index, uploading)}
+              onUploaded={(image) => setForm((current) => {
+                const imageUrls = [...current.imageUrls];
+                imageUrls[index] = image.url;
+                return {
+                  ...current,
+                  imageUrl: index === 0 ? image.url : current.imageUrl,
+                  imageUrls,
+                };
+              })}
+            />
+          ))}
         </div>
         <div className="min-w-0 xl:col-span-4">
           <label htmlFor="facility-description" className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#66727C]">{localize("Mô tả (VI)", "Description (VI)")}</label>
@@ -334,18 +396,17 @@ export default function DashboardFacilitiesPage() {
                   ? localize("Cập nhật tiện nghi", "Update facility")
                   : localize("Thêm tiện nghi", "Add facility")}
           </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={resetForm}
-              disabled={isUploading}
-              className="rounded-xl border border-[#0F2A43]/10 bg-white px-5 py-2.5 text-sm font-bold text-[#66727C] transition hover:text-[#0F2A43] disabled:cursor-not-allowed disabled:opacity-55"
-            >
-              {localize("Hủy chỉnh sửa", "Cancel edit")}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={resetForm}
+            disabled={isSaving || isUploading}
+            className="rounded-xl border border-[#0F2A43]/10 bg-white px-5 py-2.5 text-sm font-bold text-[#66727C] transition hover:text-[#0F2A43] disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {localize("Hủy", "Cancel")}
+          </button>
         </div>
-      </form>}
+      </form>
+      </ViewportModal>}
 
       <DashboardFilterPanel
         title={localize("Bộ lọc danh mục tiện nghi", "Facility catalogue filters")}
@@ -405,9 +466,9 @@ export default function DashboardFacilitiesPage() {
           {filteredFacilities.map((facility) => (
             <article key={facility.id} className="overflow-hidden rounded-[1.5rem] border border-[#0F2A43]/10 bg-[#FBFAF6] shadow-sm transition hover:border-[#B8944F]/50 even:bg-[#EAE2D2]">
               <div className="relative aspect-[16/10] overflow-hidden bg-[#EAE2D2]">
-                {facility.imageUrl ? (
+                {(facility.imageUrls?.[0] || facility.imageUrl) ? (
                   <Image
-                    src={resolveMediaSource(facility.imageUrl)}
+                    src={resolveMediaSource(facility.imageUrls?.[0] || facility.imageUrl || "")}
                     alt={localize(facility.facilityName, facility.facilityNameEn)}
                     fill
                     sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw"

@@ -20,6 +20,7 @@ public class RoomTypeResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private String imageUrl;
+    private List<String> imageUrls;
     private List<FacilityResponse.Summary> facilities;
     private Double averageRating;
     private Long totalReviews;

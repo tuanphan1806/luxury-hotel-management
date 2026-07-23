@@ -38,8 +38,16 @@ interface RoomType {
   price: number;
   maxGuests: number;
   imageUrl: string;
+  imageUrls?: string[];
   facilities: Facility[];
 }
+
+const normalizeImageSlots = (imageUrls: string[] | undefined, fallbackImage?: string, maxImages = 3) => {
+  const normalized = Array.from(
+    new Set([...(imageUrls || []), fallbackImage || ""].map((image) => image.trim()).filter(Boolean)),
+  ).slice(0, maxImages);
+  return [...normalized, ...Array(Math.max(0, maxImages - normalized.length)).fill("")];
+};
 
 const getApiErrorMessage = (error: unknown, fallback: string) => {
   if (typeof error !== "object" || error === null || !("response" in error)) return fallback;
@@ -56,8 +64,18 @@ export default function RoomTypesManagement() {
   const [searchQuery, setSearchQuery] = useState("");
   const [capacityFilter, setCapacityFilter] = useState<CapacityFilter>("ALL");
   const [sortOrder, setSortOrder] = useState<RoomTypeSort>("DEFAULT");
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(() => new Set());
   const [isSaving, setIsSaving] = useState(false);
+  const isUploading = uploadingSlots.size > 0;
+
+  const setSlotUploading = (index: number, uploading: boolean) => {
+    setUploadingSlots((current) => {
+      const next = new Set(current);
+      if (uploading) next.add(index);
+      else next.delete(index);
+      return next;
+    });
+  };
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -70,6 +88,7 @@ export default function RoomTypesManagement() {
     price: "",
     maxGuests: "2",
     imageUrl: "",
+    imageUrls: ["", "", ""] as string[],
     description: "",
     descriptionEn: "",
     facilityIds: [] as number[],
@@ -135,6 +154,7 @@ export default function RoomTypesManagement() {
   }, [capacityFilter, roomTypes, searchQuery, sortOrder]);
 
   const openCreateModal = () => {
+    setUploadingSlots(new Set());
     setFormData({
       id: 0,
       typeName: "",
@@ -142,6 +162,7 @@ export default function RoomTypesManagement() {
       price: "",
       maxGuests: "2",
       imageUrl: "",
+      imageUrls: ["", "", ""],
       description: "",
       descriptionEn: "",
       facilityIds: [],
@@ -162,12 +183,14 @@ export default function RoomTypesManagement() {
 
     setIsSaving(true);
     try {
+      const imageUrls = Array.from(new Set(formData.imageUrls.map((image) => image.trim()).filter(Boolean))).slice(0, 3);
       await apiClient.post("/api/room-types", {
         typeName: formData.typeName,
         typeNameEn: formData.typeNameEn,
         price: Number(formData.price),
         maxGuests: Number(formData.maxGuests),
-        imageUrl: formData.imageUrl,
+        imageUrl: imageUrls[0] || "",
+        imageUrls,
         description: formData.description,
         descriptionEn: formData.descriptionEn,
         facilityIds: formData.facilityIds,
@@ -186,6 +209,7 @@ export default function RoomTypesManagement() {
   };
 
   const openEditModal = (type: RoomType) => {
+    setUploadingSlots(new Set());
     setSelectedRoomType(type);
     setFormData({
       id: type.id,
@@ -194,6 +218,7 @@ export default function RoomTypesManagement() {
       price: String(type.price),
       maxGuests: String(type.maxGuests || 2),
       imageUrl: type.imageUrl || "",
+      imageUrls: normalizeImageSlots(type.imageUrls, type.imageUrl),
       description: type.description || "",
       descriptionEn: type.descriptionEn || "",
       facilityIds: type.facilities ? type.facilities.map((f) => f.id) : [],
@@ -214,12 +239,14 @@ export default function RoomTypesManagement() {
 
     setIsSaving(true);
     try {
+      const imageUrls = Array.from(new Set(formData.imageUrls.map((image) => image.trim()).filter(Boolean))).slice(0, 3);
       await apiClient.put(`/api/room-types/${formData.id}`, {
         typeName: formData.typeName,
         typeNameEn: formData.typeNameEn,
         price: Number(formData.price),
         maxGuests: Number(formData.maxGuests),
-        imageUrl: formData.imageUrl,
+        imageUrl: imageUrls[0] || "",
+        imageUrls,
         description: formData.description,
         descriptionEn: formData.descriptionEn,
         facilityIds: formData.facilityIds,
@@ -345,9 +372,9 @@ export default function RoomTypesManagement() {
             {filteredRoomTypes.map((type) => (
               <div key={type.id} className="bg-white border border-[#0F2A43]/10 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between hover:border-[#B8944F]/40 transition-all duration-300 group">
                 <div className="relative h-48 bg-gray-100 overflow-hidden">
-                  {type.imageUrl ? (
+                  {(type.imageUrls?.[0] || type.imageUrl) ? (
                     <Image
-                      src={resolveMediaSource(type.imageUrl)}
+                      src={resolveMediaSource(type.imageUrls?.[0] || type.imageUrl || "")}
                       alt={localize(type.typeName, type.typeNameEn)}
                       fill
                       sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"
@@ -409,7 +436,7 @@ export default function RoomTypesManagement() {
           onClose={() => setIsCreateOpen(false)}
           labelledBy="create-room-type-title"
           busy={isSaving || isUploading}
-          panelClassName="max-w-lg"
+          panelClassName="max-w-4xl"
         >
           <div className="min-h-0 w-full space-y-6 overflow-y-auto p-5 sm:p-8">
             <h3 id="create-room-type-title" className="text-xl font-bold text-[#0F2A43]">{localize("Thêm loại phòng", "Add room type")}</h3>
@@ -461,16 +488,34 @@ export default function RoomTypesManagement() {
 
               </div>
 
-              <ImageUploadField
-                id="create-room-type-image"
-                folder="ROOM_TYPES"
-                value={formData.imageUrl}
-                label={localize("Ảnh đại diện loại phòng", "Room type cover image")}
-                alt={localize(`Ảnh xem trước loại phòng ${formData.typeName || "mới"}`, `Preview of ${formData.typeNameEn || formData.typeName || "new room type"}`)}
-                description={localize("Ảnh ngang JPEG, PNG hoặc WebP · tối đa 5 MB.", "Landscape JPEG, PNG or WebP · up to 5 MB.")}
-                onUploadingChange={setIsUploading}
-                onUploaded={(image) => setFormData((current) => ({ ...current, imageUrl: image.url }))}
-              />
+              <div className="grid gap-3 rounded-xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-3 lg:grid-cols-3">
+                {formData.imageUrls.map((value, index) => (
+                  <ImageUploadField
+                    key={`create-room-type-image-${index}`}
+                    id={`create-room-type-image-${index}`}
+                    folder="ROOM_TYPES"
+                    value={value}
+                    label={index === 0
+                      ? localize("Ảnh đại diện", "Cover image")
+                      : localize(`Ảnh chi tiết ${index}`, `Detail image ${index}`)}
+                    alt={localize(
+                      `Ảnh ${index + 1} của loại phòng ${formData.typeName || "mới"}`,
+                      `Image ${index + 1} of ${formData.typeNameEn || formData.typeName || "new room type"}`,
+                    )}
+                    description={localize("Ảnh ngang · tối đa 5 MB.", "Landscape image · up to 5 MB.")}
+                    onUploadingChange={(uploading) => setSlotUploading(index, uploading)}
+                    onUploaded={(image) => setFormData((current) => {
+                      const imageUrls = [...current.imageUrls];
+                      imageUrls[index] = image.url;
+                      return {
+                        ...current,
+                        imageUrl: index === 0 ? image.url : current.imageUrl,
+                        imageUrls,
+                      };
+                    })}
+                  />
+                ))}
+              </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Mô tả (VI)", "Description (VI)")}</label>
@@ -535,7 +580,7 @@ export default function RoomTypesManagement() {
           onClose={() => setIsEditOpen(false)}
           labelledBy="edit-room-type-title"
           busy={isSaving || isUploading}
-          panelClassName="max-w-lg"
+          panelClassName="max-w-4xl"
         >
           <div className="min-h-0 w-full space-y-6 overflow-y-auto p-5 sm:p-8">
             <h3 id="edit-room-type-title" className="text-xl font-bold text-[#0F2A43]">{localize("Chỉnh sửa loại phòng", "Edit room type")}</h3>
@@ -585,16 +630,34 @@ export default function RoomTypesManagement() {
 
               </div>
 
-              <ImageUploadField
-                id="edit-room-type-image"
-                folder="ROOM_TYPES"
-                value={formData.imageUrl}
-                label={localize("Ảnh đại diện loại phòng", "Room type cover image")}
-                alt={localize(`Ảnh xem trước loại phòng ${formData.typeName}`, `Preview of ${formData.typeNameEn || formData.typeName}`)}
-                description={localize("Chọn ảnh mới để thay ảnh hiện tại · JPEG, PNG hoặc WebP · tối đa 5 MB.", "Choose a new image to replace the current one · JPEG, PNG or WebP · up to 5 MB.")}
-                onUploadingChange={setIsUploading}
-                onUploaded={(image) => setFormData((current) => ({ ...current, imageUrl: image.url }))}
-              />
+              <div className="grid gap-3 rounded-xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-3 lg:grid-cols-3">
+                {formData.imageUrls.map((value, index) => (
+                  <ImageUploadField
+                    key={`edit-room-type-image-${index}`}
+                    id={`edit-room-type-image-${index}`}
+                    folder="ROOM_TYPES"
+                    value={value}
+                    label={index === 0
+                      ? localize("Ảnh đại diện", "Cover image")
+                      : localize(`Ảnh chi tiết ${index}`, `Detail image ${index}`)}
+                    alt={localize(
+                      `Ảnh ${index + 1} của loại phòng ${formData.typeName}`,
+                      `Image ${index + 1} of ${formData.typeNameEn || formData.typeName}`,
+                    )}
+                    description={localize("Chọn ảnh mới để thay ảnh hiện tại · tối đa 5 MB.", "Choose a replacement image · up to 5 MB.")}
+                    onUploadingChange={(uploading) => setSlotUploading(index, uploading)}
+                    onUploaded={(image) => setFormData((current) => {
+                      const imageUrls = [...current.imageUrls];
+                      imageUrls[index] = image.url;
+                      return {
+                        ...current,
+                        imageUrl: index === 0 ? image.url : current.imageUrl,
+                        imageUrls,
+                      };
+                    })}
+                  />
+                ))}
+              </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Mô tả (VI)", "Description (VI)")}</label>
