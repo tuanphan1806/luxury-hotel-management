@@ -2,7 +2,11 @@ package com.hotel.backend.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
+
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.io.Serializable;
 @Entity
@@ -37,4 +41,18 @@ public class Facility extends AbstractEntity<Long> implements Serializable {
 
     @Column(name = "image_url", length = 500)
     private String imageUrl;
+
+    /**
+     * Ordered catalogue images. imageUrl remains the compatibility alias for
+     * the first item while older clients are being phased out.
+     */
+    @Builder.Default
+    @ElementCollection
+    @CollectionTable(
+            name = "facility_images",
+            joinColumns = @JoinColumn(name = "facility_id"))
+    @OrderColumn(name = "display_order")
+    @Column(name = "image_url", nullable = false, length = 500)
+    @BatchSize(size = 50)
+    private List<String> imageUrls = new ArrayList<>();
 }

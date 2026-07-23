@@ -25,6 +25,9 @@ import org.springframework.util.StringUtils;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 
@@ -132,10 +135,47 @@ public class MediaAssetService {
         // Cùng transaction: nếu claim file mới thất bại, thay đổi ORPHANED
         // của file cũ cũng rollback.
         orphanOwnedReference(previous, ownerType, ownerId);
-        // Nhả unique(owner_type, owner_id) trước khi claim asset thay thế.
+        // Flush trạng thái ORPHANED trước khi claim asset thay thế.
         mediaAssetRepository.flush();
         claimManagedReference(requested, purpose, ownerType, ownerId);
         return requested;
+    }
+
+    /**
+     * Atomically replaces an ordered set of media references for one owner.
+     * Existing legacy/static URLs may remain unchanged, while every newly
+     * introduced URL must have been validated by /files/upload.
+     */
+    @Transactional
+    public List<String> replaceReferences(
+            Collection<String> previousUrls,
+            Collection<String> requestedUrls,
+            UploadFolder purpose,
+            MediaAssetOwnerType ownerType,
+            Long ownerId,
+            int maxImages) {
+        validateOwnerContract(purpose, ownerType, ownerId);
+        if (maxImages < 1) {
+            throw new InvalidDataException("Giới hạn số ảnh không hợp lệ");
+        }
+
+        List<String> previous = normalizeReferences(previousUrls);
+        List<String> requested = normalizeReferences(requestedUrls);
+        if (requested.size() > maxImages) {
+            throw new InvalidDataException("Số lượng ảnh vượt quá giới hạn " + maxImages);
+        }
+        if (previous.equals(requested)) {
+            return List.copyOf(requested);
+        }
+
+        previous.stream()
+                .filter(url -> !requested.contains(url))
+                .forEach(url -> orphanOwnedReference(url, ownerType, ownerId));
+        mediaAssetRepository.flush();
+        requested.stream()
+                .filter(url -> !previous.contains(url))
+                .forEach(url -> claimManagedReference(url, purpose, ownerType, ownerId));
+        return List.copyOf(requested);
     }
 
     @Transactional
@@ -144,6 +184,18 @@ public class MediaAssetService {
             throw new InvalidDataException("Chủ sở hữu file không hợp lệ");
         }
         orphanOwnedReference(normalizeNullable(url), ownerType, ownerId);
+    }
+
+    @Transactional
+    public void releaseReferences(
+            Collection<String> urls,
+            MediaAssetOwnerType ownerType,
+            Long ownerId) {
+        if (ownerType == null || ownerId == null) {
+            throw new InvalidDataException("Chủ sở hữu file không hợp lệ");
+        }
+        normalizeReferences(urls)
+                .forEach(url -> orphanOwnedReference(url, ownerType, ownerId));
     }
 
     /**
@@ -333,6 +385,20 @@ public class MediaAssetService {
 
     private String normalizeNullable(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private List<String> normalizeReferences(Collection<String> urls) {
+        if (urls == null || urls.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String url : urls) {
+            String value = normalizeNullable(url);
+            if (value != null) {
+                normalized.add(value);
+            }
+        }
+        return new ArrayList<>(normalized);
     }
 
     private String requireText(String value, String message) {

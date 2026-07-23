@@ -22,6 +22,7 @@ interface AvailabilityRoomOption {
   description?: string;
   descriptionEn?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   price?: number;
   pricePerNight?: number;
   pricePerHour?: number;
@@ -36,12 +37,15 @@ interface RoomTypeFacilityOption {
   facilityName?: string;
   facilityNameEn?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   type?: string;
 }
 
 interface RoomTypeCatalogOption {
   id: number;
   maxGuests?: number;
+  imageUrl?: string;
+  imageUrls?: string[];
   facilities?: RoomTypeFacilityOption[];
 }
 
@@ -59,7 +63,12 @@ const mapAvailabilityOptions = (
       description: room.description,
       descriptionEn: room.descriptionEn,
       imageUrl: room.imageUrl,
-      gallery: getRoomGalleryImages(room.roomTypeName, room.roomTypeNameEn, room.imageUrl),
+      gallery: getRoomGalleryImages(
+        room.roomTypeName,
+        room.roomTypeNameEn,
+        room.imageUrl || catalogRoom?.imageUrl,
+        room.imageUrls?.length ? room.imageUrls : catalogRoom?.imageUrls,
+      ),
       price: room.estimatedPricePerRoom ?? room.price ?? room.pricePerNight ?? room.pricePerHour,
       pricePerHour: room.pricePerHour,
       estimatedPricePerRoom: room.estimatedPricePerRoom,

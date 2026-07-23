@@ -585,9 +585,17 @@ public class ChatBotService {
     private List<String> collectRoomTypeImageUrls(RoomTypeResponse roomType) {
         List<String> imageUrls = new ArrayList<>();
 
-        Optional.ofNullable(roomType.getImageUrl())
-                .filter(url -> !url.isBlank())
-                .ifPresent(imageUrls::add);
+        if (roomType.getImageUrls() != null) {
+            roomType.getImageUrls().stream()
+                    .filter(Objects::nonNull)
+                    .filter(url -> !url.isBlank())
+                    .forEach(imageUrls::add);
+        }
+        if (imageUrls.isEmpty()) {
+            Optional.ofNullable(roomType.getImageUrl())
+                    .filter(url -> !url.isBlank())
+                    .ifPresent(imageUrls::add);
+        }
 
         String normalizedRoomTypeName = normalizeForMatching(roomType.getTypeName());
 

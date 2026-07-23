@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "8";
+    private static final String LATEST_VERSION = "10";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -56,6 +56,8 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "audit_notification_outbox");
             assertTableExists(connection, "oauth_login_tickets");
             assertTableExists(connection, "oauth_profile_completion_tickets");
+            assertTableExists(connection, "facility_images");
+            assertTableExists(connection, "room_type_images");
             assertColumn(connection, "payment_provider_events", "bank_reference_code");
             assertColumn(connection, "payment_refunds", "completion_provider_event_id");
             assertColumn(connection, "payment_refunds", "refund_detail_json");
@@ -84,11 +86,19 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_oauth_login_tickets_expiry");
             assertIndex(connection, "idx_oauth_profile_completion_expiry");
             assertIndex(connection, "idx_oauth_profile_completion_identity");
+            assertIndex(connection, "idx_facility_images_facility_order");
+            assertIndex(connection, "idx_room_type_images_room_type_order");
+            assertIndex(connection, "idx_media_assets_owner");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
             assertConstraint(connection, "uk_oauth_login_tickets_token_hash");
             assertConstraint(connection, "fk_oauth_login_tickets_user");
             assertConstraint(connection, "uk_oauth_profile_completion_token_hash");
+            assertConstraint(connection, "uk_facility_images_url");
+            assertConstraint(connection, "uk_room_type_images_url");
+            assertConstraint(connection, "chk_facility_images_max_order");
+            assertConstraint(connection, "chk_room_type_images_max_order");
+            assertConstraintAbsent(connection, "uk_media_assets_owner");
             assertColumnDefault(connection, "rooms", "sellable", "true");
         }
 
@@ -137,6 +147,67 @@ class FlywayPostgresMigrationIT {
                 assertThat(resultSet.getObject("old_value_json")).isNull();
                 assertThat(resultSet.getObject("new_value_json")).isNull();
                 assertThat(resultSet.getObject("detail_json")).isNull();
+            }
+        }
+    }
+
+    @Test
+    void existingV8CatalogueBackfillsOrderedMultiImageRows() throws Exception {
+        Flyway v8 = flyway("8");
+        v8.clean();
+        v8.migrate();
+
+        try (Connection connection = POSTGRES.createConnection("");
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO facilities (
+                        facility_name, facility_name_en, type, image_url
+                    ) VALUES
+                        ('Hồ bơi', 'Swimming Pool', 'PUBLIC',
+                         'https://cdn.example/static/facilities/fasilitas-1.jpg'),
+                        ('Spa & chăm sóc sức khỏe', 'Spa & Wellness', 'PUBLIC',
+                         'https://cdn.example/facilities/spa-managed.webp')
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO room_types (
+                        type_name, type_name_en, price, max_guests, image_url
+                    ) VALUES
+                        ('Phòng tiêu chuẩn', 'Standard', 50000, 2,
+                         'https://cdn.example/static/room_types/room-standard-main.webp'),
+                        ('Phòng Executive', 'Executive Room', 65000, 2,
+                         'https://cdn.example/room_types/executive-managed.webp')
+                    """);
+        }
+
+        Flyway latest = flyway();
+        latest.migrate();
+
+        try (Connection connection = POSTGRES.createConnection("")) {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT string_agg(fi.image_url, '|' ORDER BY fi.display_order)
+                    FROM facility_images fi
+                    JOIN facilities f ON f.id = fi.facility_id
+                    WHERE f.facility_name = 'Spa & chăm sóc sức khỏe'
+                    """);
+                 ResultSet resultSet = statement.executeQuery()) {
+                assertThat(resultSet.next()).isTrue();
+                assertThat(resultSet.getString(1)).isEqualTo(
+                        "https://cdn.example/facilities/spa-managed.webp"
+                                + "|https://cdn.example/static/facilities/facility-spa-detail.webp");
+            }
+
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT string_agg(rti.image_url, '|' ORDER BY rti.display_order)
+                    FROM room_type_images rti
+                    JOIN room_types rt ON rt.id = rti.room_type_id
+                    WHERE rt.type_name = 'Phòng Executive'
+                    """);
+                 ResultSet resultSet = statement.executeQuery()) {
+                assertThat(resultSet.next()).isTrue();
+                assertThat(resultSet.getString(1)).isEqualTo(
+                        "https://cdn.example/room_types/executive-managed.webp"
+                                + "|https://cdn.example/static/room_types/room-executive-work.webp"
+                                + "|https://cdn.example/static/room_types/room-executive-bathroom.webp");
             }
         }
     }
@@ -381,6 +452,16 @@ class FlywayPostgresMigrationIT {
             statement.setString(1, constraintName);
             try (ResultSet resultSet = statement.executeQuery()) {
                 assertThat(resultSet.next()).as("constraint %s exists", constraintName).isTrue();
+            }
+        }
+    }
+
+    private void assertConstraintAbsent(Connection connection, String constraintName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM pg_constraint WHERE connamespace = 'public'::regnamespace AND conname = ?")) {
+            statement.setString(1, constraintName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                assertThat(resultSet.next()).as("constraint %s is absent", constraintName).isFalse();
             }
         }
     }
