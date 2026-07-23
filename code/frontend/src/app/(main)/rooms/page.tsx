@@ -19,6 +19,7 @@ interface RoomType {
   description: string;
   descriptionEn?: string;
   imageUrl: string;
+  imageUrls?: string[];
   facilities?: Array<{ id?: number; facilityName: string; facilityNameEn?: string }>;
   averageRating?: number;
   totalReviews?: number;
@@ -185,7 +186,7 @@ function RoomsPageContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredRoomTypes.map((room, index) => {
             const title = localize(room.typeName, room.typeNameEn);
-            const image = room.imageUrl;
+            const image = room.imageUrls?.[0] || room.imageUrl;
             const price = room.price;
             const detailHref = room.id ? `/rooms/${room.id}` : "/rooms";
             const roomRating = {

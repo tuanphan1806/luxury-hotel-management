@@ -22,6 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -83,6 +86,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
             throw new DuplicateResourceException("RoomType", "typeName", request.getTypeName());
         }
 
+        List<String> requestedImages = requestedImagesForCreate(request);
         RoomType roomType = RoomType.builder()
                 .typeName(request.getTypeName())
                 .typeNameEn(request.getTypeNameEn())
@@ -90,18 +94,22 @@ public class RoomTypeServiceImpl implements RoomTypeService {
                 .descriptionEn(request.getDescriptionEn())
                 .price(request.getPrice())
                 .maxGuests(request.getMaxGuests())
-                .imageUrl(request.getImageUrl())
+                .imageUrl(primaryImage(requestedImages))
+                .imageUrls(new ArrayList<>(requestedImages))
                 .build();
 
         resolveAndAssignFacilities(roomType, request.getFacilityIds());
 
         RoomType saved = roomTypeRepository.save(roomType);
-        saved.setImageUrl(mediaAssetService.replaceReference(
-                null,
-                saved.getImageUrl(),
+        List<String> claimedImages = mediaAssetService.replaceReferences(
+                List.of(),
+                requestedImages,
                 UploadFolder.ROOM_TYPES,
                 MediaAssetOwnerType.ROOM_TYPE,
-                saved.getId()));
+                saved.getId(),
+                3);
+        saved.setImageUrls(new ArrayList<>(claimedImages));
+        saved.setImageUrl(primaryImage(claimedImages));
         auditRoomType(saved, ReservationAuditAction.ROOM_TYPE_CREATED,
                 "Tạo hạng phòng", null, roomTypeSnapshot(saved));
         log.info("Đã tạo room type id={}", saved.getId());
@@ -115,7 +123,8 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 
         RoomType roomType = findOrThrow(id);
         Map<String, Object> oldValue = roomTypeSnapshot(roomType);
-        String previousImageUrl = roomType.getImageUrl();
+        List<String> previousImages = currentImages(roomType);
+        List<String> requestedImages = requestedImagesForUpdate(previousImages, request);
 
         if (roomTypeRepository.existsByTypeNameIgnoreCaseAndIdNot(request.getTypeName(), id)) {
             throw new DuplicateResourceException("RoomType", "typeName", request.getTypeName());
@@ -127,12 +136,15 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         roomType.setDescriptionEn(request.getDescriptionEn());
         roomType.setPrice(request.getPrice());
         roomType.setMaxGuests(request.getMaxGuests());
-        roomType.setImageUrl(mediaAssetService.replaceReference(
-                previousImageUrl,
-                request.getImageUrl(),
+        List<String> claimedImages = mediaAssetService.replaceReferences(
+                previousImages,
+                requestedImages,
                 UploadFolder.ROOM_TYPES,
                 MediaAssetOwnerType.ROOM_TYPE,
-                roomType.getId()));
+                roomType.getId(),
+                3);
+        roomType.setImageUrls(new ArrayList<>(claimedImages));
+        roomType.setImageUrl(primaryImage(claimedImages));
 
         // Xóa toàn bộ facilities cũ, gán lại từ request
       roomType.getFacilities().clear();
@@ -151,8 +163,8 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         log.info("Xóa room type id={}", id);
         RoomType roomType = findOrThrow(id);
         Map<String, Object> oldValue = roomTypeSnapshot(roomType);
-        mediaAssetService.releaseReference(
-                roomType.getImageUrl(),
+        mediaAssetService.releaseReferences(
+                currentImages(roomType),
                 MediaAssetOwnerType.ROOM_TYPE,
                 roomType.getId());
      roomType.getFacilities().clear();  // dọn bảng room_type_facilities trước
@@ -226,6 +238,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         value.put("price", roomType.getPrice());
         value.put("maxGuests", roomType.getMaxGuests());
         value.put("imageUrl", roomType.getImageUrl());
+        value.put("imageUrls", currentImages(roomType));
         value.put("facilityIds", roomType.getFacilities().stream()
                 .map(Facility::getId)
                 .sorted()
@@ -244,6 +257,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
                         .facilityNameEn(f.getFacilityNameEn())
                         .type(f.getType())
                         .imageUrl(f.getImageUrl())
+                        .imageUrls(facilityImages(f))
                         .build())
                 .collect(Collectors.toList());
 
@@ -256,6 +270,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
                 .price(entity.getPrice())
                 .maxGuests(entity.getMaxGuests())
                 .imageUrl(entity.getImageUrl())
+                .imageUrls(currentImages(entity))
                 .facilities(facilitySummaries)
                 .averageRating(rating != null && rating.getAverageRating() != null
                         ? Math.round(rating.getAverageRating() * 10.0) / 10.0
@@ -266,5 +281,70 @@ public class RoomTypeServiceImpl implements RoomTypeService {
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();
+    }
+
+    private List<String> requestedImagesForCreate(RoomTypeRequest request) {
+        if (request.getImageUrls() != null) {
+            return normalizeImages(request.getImageUrls());
+        }
+        return normalizeImages(List.of(request.getImageUrl() == null ? "" : request.getImageUrl()));
+    }
+
+    private List<String> requestedImagesForUpdate(
+            List<String> current,
+            RoomTypeRequest request) {
+        if (request.getImageUrls() != null) {
+            return normalizeImages(request.getImageUrls());
+        }
+        if (request.getImageUrl() == null) {
+            return current;
+        }
+
+        List<String> updated = new ArrayList<>(current);
+        String primary = request.getImageUrl().trim();
+        if (primary.isEmpty()) {
+            if (!updated.isEmpty()) {
+                updated.remove(0);
+            }
+        } else if (updated.isEmpty()) {
+            updated.add(primary);
+        } else {
+            updated.set(0, primary);
+        }
+        return normalizeImages(updated);
+    }
+
+    private List<String> currentImages(RoomType roomType) {
+        List<String> images = normalizeImages(roomType.getImageUrls());
+        if (!images.isEmpty()) {
+            return images;
+        }
+        return normalizeImages(List.of(
+                roomType.getImageUrl() == null ? "" : roomType.getImageUrl()));
+    }
+
+    private List<String> facilityImages(Facility facility) {
+        List<String> images = normalizeImages(facility.getImageUrls());
+        if (!images.isEmpty()) {
+            return images;
+        }
+        return normalizeImages(List.of(
+                facility.getImageUrl() == null ? "" : facility.getImageUrl()));
+    }
+
+    private List<String> normalizeImages(Collection<String> images) {
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        if (images != null) {
+            images.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .forEach(normalized::add);
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private String primaryImage(List<String> images) {
+        return images == null || images.isEmpty() ? null : images.get(0);
     }
 }

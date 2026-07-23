@@ -15,6 +15,7 @@ export interface FacilityDetailItem {
   description?: string;
   descriptionEn?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   icon?: string;
   image?: string;
   type?: string;
@@ -24,24 +25,6 @@ interface FacilityDetailModalProps {
   facility: FacilityDetailItem | null;
   onClose: () => void;
 }
-
-const getFacilityDetailImage = (facility: FacilityDetailItem) => {
-  const name = `${facility.facilityName || facility.name || ""} ${facility.facilityNameEn || ""}`
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-  if (/spa|massage/.test(name)) return "/backend_proxy/facilities/facility-spa-detail.webp";
-  if (/fitness|the hinh|gym/.test(name)) return "/backend_proxy/facilities/facility-fitness-detail.webp";
-  if (/swimming pool|ho boi/.test(name)) return "/backend_proxy/facilities/facility-pool-detail.webp";
-  if (/library|thu vien/.test(name)) return "/backend_proxy/facilities/facility-library-detail.webp";
-  if (/marketplace|khu mua sam/.test(name)) return "/backend_proxy/facilities/facility-marketplace-detail.webp";
-  if (/kitchen|bep rieng/.test(name)) return "/backend_proxy/facilities/facility-kitchen-detail.webp";
-  if (/cafe|ca phe/.test(name)) return "/backend_proxy/facilities/facility-cafe-detail.webp";
-  if (/bathroom|phong tam/.test(name)) return "/backend_proxy/facilities/facility-bathroom-detail.webp";
-  if (/living room|phong khach/.test(name)) return "/backend_proxy/facilities/facility-living-room-detail.webp";
-  return null;
-};
 
 const focusableSelector = [
   "a[href]",
@@ -106,8 +89,11 @@ export default function FacilityDetailModal({ facility, onClose }: FacilityDetai
   if (!facility || !portalRoot) return null;
 
   const name = localize(facility.facilityName || facility.name, facility.facilityNameEn);
-  const image = facility.imageUrl || facility.icon || facility.image || FACILITIES_CONTENT.hero.bg;
-  const detailImage = getFacilityDetailImage(facility);
+  const persistedImages = Array.from(
+    new Set((facility.imageUrls || []).map((item) => item?.trim()).filter((item): item is string => Boolean(item))),
+  ).slice(0, 2);
+  const image = persistedImages[0] || facility.imageUrl || facility.icon || facility.image || FACILITIES_CONTENT.hero.bg;
+  const detailImage = persistedImages[1];
   const isRoomFacility = facility.type?.toUpperCase() === "ROOM";
 
   return createPortal(

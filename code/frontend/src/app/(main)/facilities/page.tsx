@@ -31,7 +31,7 @@ export default function FacilitiesPage() {
 
   const visibleFacilities = useMemo(() => facilities
     .filter((facility) => {
-      const image = facility.imageUrl || facility.icon || facility.image;
+      const image = facility.imageUrls?.[0] || facility.imageUrl || facility.icon || facility.image;
       return image && image !== "wifi-icon";
     })
     .sort((left, right) => {
@@ -138,7 +138,7 @@ export default function FacilitiesPage() {
         <div className="motion-stagger grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {filteredFacilities.map((facility, index) => {
           const name = localize(facility.facilityName || facility.name, facility.facilityNameEn);
-          const image = facility.imageUrl || facility.icon || facility.image;
+          const image = facility.imageUrls?.[0] || facility.imageUrl || facility.icon || facility.image;
           // Skip utility/service facilities like FREE WIFI from rendering on facilities list if they don't have custom image
           if (image === 'wifi-icon' || !image) return null;
           

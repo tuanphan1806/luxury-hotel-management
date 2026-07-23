@@ -171,6 +171,48 @@ class MediaAssetServiceTest {
         assertThat(asset.getClaimedAt()).isNotNull();
     }
 
+    /** Nhiều ảnh của cùng Facility được claim theo đúng thứ tự và URL lặp bị loại bỏ. */
+    @Test
+    void claimsOrderedMultipleAssetsForOneOwner() {
+        authenticate(1L, UserType.ADMIN);
+        MediaAsset cover = temporaryAsset(1L, UploadFolder.FACILITIES, "facilities/cover.webp");
+        MediaAsset detail = temporaryAsset(1L, UploadFolder.FACILITIES, "facilities/detail.webp");
+        when(mediaAssetRepository.findByUrlForUpdate(cover.getUrl())).thenReturn(Optional.of(cover));
+        when(mediaAssetRepository.findByUrlForUpdate(detail.getUrl())).thenReturn(Optional.of(detail));
+
+        List<String> result = mediaAssetService.replaceReferences(
+                List.of(),
+                List.of(cover.getUrl(), " " + detail.getUrl() + " ", cover.getUrl()),
+                UploadFolder.FACILITIES,
+                MediaAssetOwnerType.FACILITY,
+                21L,
+                2);
+
+        assertThat(result).containsExactly(cover.getUrl(), detail.getUrl());
+        assertThat(cover.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        assertThat(detail.getStatus()).isEqualTo(MediaAssetStatus.ACTIVE);
+        assertThat(cover.getOwnerType()).isEqualTo(MediaAssetOwnerType.FACILITY);
+        assertThat(detail.getOwnerType()).isEqualTo(MediaAssetOwnerType.FACILITY);
+        assertThat(cover.getOwnerId()).isEqualTo(21L);
+        assertThat(detail.getOwnerId()).isEqualTo(21L);
+    }
+
+    /** Service chặn dữ liệu vượt giới hạn trước khi ghi/claim bất kỳ media asset nào. */
+    @Test
+    void rejectsImageCollectionAboveOwnerLimit() {
+        assertThatThrownBy(() -> mediaAssetService.replaceReferences(
+                List.of(),
+                List.of("https://cdn.test/1.webp", "https://cdn.test/2.webp", "https://cdn.test/3.webp"),
+                UploadFolder.FACILITIES,
+                MediaAssetOwnerType.FACILITY,
+                21L,
+                2))
+                .isInstanceOf(InvalidDataException.class)
+                .hasMessageContaining("vượt quá giới hạn 2");
+
+        verify(mediaAssetRepository, never()).findByUrlForUpdate(any());
+    }
+
     /** Không thể upload vào thư mục avatar rồi tái sử dụng file cho gallery. */
     @Test
     void rejectsAssetWithWrongPurpose() {

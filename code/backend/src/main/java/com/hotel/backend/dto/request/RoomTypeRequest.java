@@ -4,6 +4,7 @@ import jakarta.validation.constraints.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -39,6 +40,12 @@ public class RoomTypeRequest {
 
     @Size(max = 500, message = "URL ảnh tối đa 500 ký tự")
     private String imageUrl;
+
+    @Size(max = 3, message = "Mỗi loại phòng có tối đa 3 ảnh")
+    private List<
+            @NotBlank(message = "URL ảnh không được để trống")
+            @Size(max = 500, message = "URL ảnh tối đa 500 ký tự")
+            String> imageUrls;
 
     /**
      * Tập ID các tiện nghi cần gán.

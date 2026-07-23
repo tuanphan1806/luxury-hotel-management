@@ -22,6 +22,7 @@ interface RoomTypeItem {
   descriptionEn?: string;
   price?: number | string;
   imageUrl?: string;
+  imageUrls?: string[];
   image?: string;
 }
 
@@ -421,7 +422,7 @@ export default function HomePage() {
             <div className="motion-stagger flex snap-x snap-mandatory items-stretch gap-6">
             {visibleFacilities.map((facility, index) => {
               const name = localize(facility.facilityName || facility.name, facility.facilityNameEn) || localize("Tiện nghi khách sạn", "Hotel facility");
-              const image = facility.imageUrl || facility.image || facility.icon;
+              const image = facility.imageUrls?.[0] || facility.imageUrl || facility.image || facility.icon;
               const description = localize(facility.description, facility.descriptionEn) || localize("Thông tin tiện nghi đang được cập nhật.", "Facility information is being updated.");
               if (!image) return null;
               return (
@@ -525,7 +526,7 @@ export default function HomePage() {
         <div className="motion-stagger grid gap-10">
           {favoriteRooms.map((room, index) => {
             const title = localize(room.typeName || room.title, room.typeNameEn) || localize("Phòng nghỉ cao cấp", "Luxury room");
-            const image = room.imageUrl || room.image;
+            const image = room.imageUrls?.[0] || room.imageUrl || room.image;
             return (
               <article key={`${title}-${index}`} className="grid gap-6 md:grid-cols-[4rem_22rem_1fr] md:items-center">
                 <span className="hidden font-serif text-5xl text-[#0F2A43]/70 md:block">{String(index + 1).padStart(2, "0")}</span>

@@ -2,6 +2,8 @@ package com.hotel.backend.dto.response;
 
 import lombok.*;
 
+import java.util.List;
+
 
 /**
  * Payload trả về cho client sau mọi thao tác với Facility.
@@ -21,6 +23,7 @@ public class FacilityResponse {
     private String descriptionEn;
     private String icon;
     private String imageUrl;
+    private List<String> imageUrls;
 
     /** Dạng rút gọn — nhúng trong RoomTypeResponse.facilities. */
     @Getter
@@ -34,5 +37,6 @@ public class FacilityResponse {
         private String facilityNameEn;
         private String type;
         private String imageUrl;
+        private List<String> imageUrls;
     }
 }
