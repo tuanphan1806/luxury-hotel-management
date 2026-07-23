@@ -34,6 +34,7 @@ import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.RefundRecipient;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
 import com.hotel.backend.event.VNPayRefundRequestedEvent;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
@@ -1733,6 +1734,11 @@ public class PaymentRefundService {
         syncLegacyPaymentStateIfPresent(refund.getPaymentTransaction());
         auditRefund(refund, ReservationAuditAction.REFUND, auditDetails);
         finalizeReservationAfterCancellationRefund(refund);
+        if (refund.getReservation() != null) {
+            eventPublisher.publishEvent(new CheckoutReconciliationChangedEvent(
+                    refund.getReservation().getId(),
+                    "REFUND_COMPLETED_" + method.name()));
+        }
         return refund;
     }
 

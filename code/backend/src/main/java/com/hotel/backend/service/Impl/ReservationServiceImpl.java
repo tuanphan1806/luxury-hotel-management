@@ -32,6 +32,7 @@ import com.hotel.backend.dto.request.GuestRequest;
 import com.hotel.backend.dto.request.WalkInPriceOverrideRequest;
 import com.hotel.backend.dto.response.*;
 import com.hotel.backend.entity.*;
+import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
 import com.hotel.backend.event.GuestBookingCreatedEvent;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
@@ -544,6 +545,8 @@ public class ReservationServiceImpl implements ReservationService {
             throw new AppException(ErrorCode.INVALID_REQUEST,
                     "Chỉ Staff/Admin được tạo walk-in");
         }
+
+        validateWalkInInputDetails(request);
 
         LocalDateTime actualCheckIn = LocalDateTime.now();
         validateInterval(actualCheckIn, request.getCheckOut());
@@ -1581,6 +1584,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                         "reason", request.getReason().trim()),
                 correlationId,
                 null);
+        eventPublisher.publishEvent(new CheckoutReconciliationChangedEvent(
+                reservationId, "CHECKOUT_FEE_UPDATED"));
         return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
     }
 
@@ -1684,6 +1689,13 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                                 return res;
                             }).toList();
                     ReservationResponse response = ReservationResponse.fromWithDetails(reservation, roomTypeResponses);
+                    response.setRooms(reservation.getRoomTypes().stream()
+                            .flatMap(roomType -> roomType.getRooms().stream())
+                            .map(ReservationRoomResponse::from)
+                            .sorted(Comparator.comparing(
+                                    ReservationRoomResponse::getRoomName,
+                                    Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                            .toList());
                     response.setPaidAmount(BigDecimal.valueOf(getNetPaidAmount(reservation.getId())));
                     LocalDateTime eligibleAt = noShowEligibleAt(reservation);
                     response.setNoShowEligibleAt(eligibleAt);
@@ -1793,7 +1805,6 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         ReservationInvoiceResponse invoice = reservationInvoiceRepository.findByReservationId(reservationId)
                 .map(snapshot -> readInvoiceSnapshot(snapshot.getSnapshotJson()))
                 .orElseGet(() -> createInvoiceSnapshot(reservation));
-        auditService.record(reservation, ReservationAuditAction.PRINT_INVOICE, "Mở hoặc in lại hóa đơn");
         return invoice;
     }
 
@@ -2168,6 +2179,73 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         if (hasText(customer.getIdCardNumber()) && customer.getIdCardNumber().trim().length() > 50) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Số giấy tờ không được quá 50 ký tự");
         }
+    }
+
+    private void validateWalkInInputDetails(CreateWalkInCheckedInRequest request) {
+        if (request == null) {
+            throw new AppException(ErrorCode.INVALID_REQUEST,
+                    "Thiếu dữ liệu tạo walk-in");
+        }
+        if (request.getCustomerProfileId() == null) {
+            CustomerProfileRequest customer = request.getCustomer();
+            validateCustomerProfile(customer,
+                    "Họ tên khách đại diện không được để trống");
+            if (customer.getFullName().trim().length() < 2) {
+                throw new AppException(ErrorCode.INVALID_REQUEST,
+                        "Họ tên khách đại diện phải có ít nhất 2 ký tự");
+            }
+            if (!hasText(customer.getPhone()) || !isValidVietnamesePhone(customer.getPhone())) {
+                throw new AppException(ErrorCode.INVALID_REQUEST,
+                        "Số điện thoại khách đại diện phải bắt đầu bằng 0 hoặc +84 và có 9-10 chữ số phía sau");
+            }
+            if (!hasText(customer.getIdCardNumber())
+                    || customer.getIdCardNumber().trim().length() < 4) {
+                throw new AppException(ErrorCode.INVALID_REQUEST,
+                        "Số giấy tờ khách đại diện phải có ít nhất 4 ký tự");
+            }
+        }
+
+        if (request.getRooms() == null) return;
+        for (int roomIndex = 0; roomIndex < request.getRooms().size(); roomIndex++) {
+            AssignRoomRequest assignment = request.getRooms().get(roomIndex);
+            if (assignment == null || assignment.getGuests() == null) continue;
+            for (int guestIndex = 0; guestIndex < assignment.getGuests().size(); guestIndex++) {
+                GuestRequest guest = assignment.getGuests().get(guestIndex);
+                String position = "khách " + (guestIndex + 1)
+                        + " của phòng thứ " + (roomIndex + 1);
+                if (guest == null || !hasText(guest.getFullName())
+                        || guest.getFullName().trim().length() < 2) {
+                    throw new AppException(ErrorCode.INVALID_REQUEST,
+                            "Họ tên " + position + " phải có ít nhất 2 ký tự");
+                }
+                if (hasText(guest.getPhone()) && !isValidVietnamesePhone(guest.getPhone())) {
+                    throw new AppException(ErrorCode.INVALID_REQUEST,
+                            "Số điện thoại " + position + " không hợp lệ");
+                }
+                if (hasText(guest.getEmail()) && !isValidEmail(guest.getEmail())) {
+                    throw new AppException(ErrorCode.INVALID_REQUEST,
+                            "Email " + position + " không đúng định dạng");
+                }
+                if (hasText(guest.getIdCardNumber())
+                        && guest.getIdCardNumber().trim().length() < 4) {
+                    throw new AppException(ErrorCode.INVALID_REQUEST,
+                            "Số giấy tờ " + position + " phải có ít nhất 4 ký tự");
+                }
+            }
+        }
+    }
+
+    private boolean isValidVietnamesePhone(String value) {
+        if (!hasText(value)) return false;
+        String normalized = value.trim().replaceAll("[\\s().-]", "");
+        return normalized.matches("^(0|\\+84)[0-9]{9,10}$");
+    }
+
+    private boolean isValidEmail(String value) {
+        if (!hasText(value)) return true;
+        String normalized = value.trim();
+        return normalized.length() <= 254
+                && normalized.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
     }
 
     private void validateCheckInTime(Reservation reservation) {

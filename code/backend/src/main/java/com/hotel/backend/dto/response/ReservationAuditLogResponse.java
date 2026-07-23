@@ -3,6 +3,7 @@ package com.hotel.backend.dto.response;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hotel.backend.constant.AuditCategory;
 import com.hotel.backend.constant.AuditRiskLevel;
+import com.hotel.backend.constant.AuditScope;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.entity.ReservationAuditLog;
 import lombok.Builder;
@@ -28,6 +29,7 @@ public class ReservationAuditLogResponse {
     private JsonNode detail;
     private AuditRiskLevel riskLevel;
     private AuditCategory category;
+    private AuditScope scope;
     private String correlationId;
     private Instant occurredAtUtc;
 
@@ -51,8 +53,16 @@ public class ReservationAuditLogResponse {
                 // derive presentation metadata without mutating audit history.
                 .riskLevel(action != null ? action.riskLevel() : log.getRiskLevel())
                 .category(action != null ? action.category() : log.getCategory())
+                .scope(action != null ? action.scope() : scopeFromCategory(log.getCategory()))
                 .correlationId(log.getCorrelationId())
                 .occurredAtUtc(log.getOccurredAtUtc())
                 .build();
+    }
+
+    private static AuditScope scopeFromCategory(AuditCategory category) {
+        if (category == null) return null;
+        return category == AuditCategory.BUSINESS || category == AuditCategory.SECURITY
+                ? AuditScope.MANAGEMENT
+                : AuditScope.OPERATION;
     }
 }

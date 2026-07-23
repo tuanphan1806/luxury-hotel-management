@@ -10,7 +10,7 @@ export const GALLERY_HERO_IMAGES = {
   reservation: galleryAsset('g-3.jpg'),
   facilities: galleryAsset('g-6.jpg'),
   about: galleryAsset('g-7.jpg'),
-  bookings: galleryAsset('g-1.jpg'),
+  bookings: galleryAsset('g-9.jpg'),
   support: galleryAsset('g-12.jpg'),
   contact: galleryAsset('g-11.jpg'),
   information: galleryAsset('g-8.jpg'),

@@ -10,7 +10,6 @@ import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.request.CheckoutReconciliationEscalationRequest;
 import com.hotel.backend.dto.request.CheckoutReconciliationResolutionRequest;
-import com.hotel.backend.dto.request.CheckoutRefundRequest;
 import com.hotel.backend.dto.request.ManualPaymentReconciliationRequest;
 import com.hotel.backend.dto.response.CheckoutReconciliationRequestResponse;
 import com.hotel.backend.dto.response.CheckoutReconciliationResponse;
@@ -25,12 +24,16 @@ import com.hotel.backend.repository.MediaAssetRepository;
 import com.hotel.backend.repository.ReservationRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -112,10 +115,26 @@ public class CheckoutReconciliationRequestService {
         return toResponse(requireRequest(id));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public Page<CheckoutReconciliationRequestResponse> list(
             CheckoutReconciliationRequestStatus status,
-            Pageable pageable) {
+            Pageable pageable,
+            User admin) {
+        requireAdmin(admin);
+        if (status == CheckoutReconciliationRequestStatus.PENDING) {
+            // Safety-net reconciliation for events created before the
+            // auto-resolution listener existed, or for a transient listener
+            // failure. This only closes requests whose canonical calculation
+            // is already MATCHED; it never mutates money or reservation state.
+            Set<Long> reservationIds = new LinkedHashSet<>();
+            requestRepository.findByStatusOrderByCreatedAtUtcAsc(
+                            CheckoutReconciliationRequestStatus.PENDING,
+                            PageRequest.of(0, 100))
+                    .forEach(item -> reservationIds.add(item.getReservation().getId()));
+            reservationIds.forEach(reservationId ->
+                    resolvePendingAutomaticallyInternal(
+                            reservationId, "ADMIN_EXCEPTION_QUEUE_REFRESH", admin));
+        }
         if (status == null) {
             return requestRepository.findAll(pageable).map(this::toResponse);
         }
@@ -139,6 +158,14 @@ public class CheckoutReconciliationRequestService {
         Reservation reservation = reservationRepository
                 .findByIdForUpdate(entity.getReservation().getId())
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
+        CheckoutReconciliationResponse current = reservationService
+                .getCheckoutReconciliation(reservation.getId(), admin);
+        if (current.getStatus() == CheckoutReconciliationStatus.MATCHED) {
+            markAutomaticallyResolved(
+                    List.of(entity), reservation, current,
+                    "ADMIN_EXCEPTION_RECHECK");
+            return toResponse(entity);
+        }
         MediaAsset evidence = resolution.getEvidenceAssetId() == null
                 ? null
                 : mediaAssetRepository.findById(resolution.getEvidenceAssetId())
@@ -180,8 +207,9 @@ public class CheckoutReconciliationRequestService {
         ObjectNode correctionDetail = objectMapper.createObjectNode();
         correctionDetail.put("correctionType", correctionType.name());
         switch (correctionType) {
-            case FEE_CORRECTION -> applyFeeCorrection(
-                    reservation.getId(), resolution, correctionDetail);
+            case FEE_CORRECTION -> throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Không được sửa số tiền trong hàng đợi ngoại lệ; hãy sửa phụ phí tại màn hình reservation");
             case LINK_EXISTING_PAYMENT -> applyPaymentLink(
                     resolution, admin, correctionDetail);
         }
@@ -220,20 +248,83 @@ public class CheckoutReconciliationRequestService {
         return toResponse(entity);
     }
 
-    private void applyFeeCorrection(
+    /**
+     * Closes stale PENDING exception requests after a legitimate payment,
+     * refund or fee operation has already made the canonical reconciliation
+     * MATCHED. No ledger, fee, debt or reservation status is changed here.
+     */
+    @Transactional
+    public int resolvePendingAutomatically(Long reservationId, String source) {
+        return resolvePendingAutomaticallyInternal(reservationId, source, null);
+    }
+
+    private int resolvePendingAutomaticallyInternal(
             Long reservationId,
-            CheckoutReconciliationResolutionRequest resolution,
-            ObjectNode detail) {
-        if (resolution.getCorrectedAdditionalFee() == null) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Phải nhập phụ phí mới cho FEE_CORRECTION");
+            String source,
+            User fallbackUser) {
+        List<CheckoutReconciliationRequest> pending = requestRepository
+                .findPendingByReservationIdForUpdate(reservationId);
+        if (pending.isEmpty()) return 0;
+
+        User accessUser = pending.stream()
+                .map(CheckoutReconciliationRequest::getRequestedBy)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(fallbackUser);
+        if (accessUser == null) return 0;
+
+        CheckoutReconciliationResponse current = reservationService
+                .getCheckoutReconciliation(reservationId, accessUser);
+        if (current.getStatus() != CheckoutReconciliationStatus.MATCHED) return 0;
+
+        Reservation reservation = pending.get(0).getReservation();
+        markAutomaticallyResolved(pending, reservation, current, source);
+        return pending.size();
+    }
+
+    private void markAutomaticallyResolved(
+            List<CheckoutReconciliationRequest> pending,
+            Reservation reservation,
+            CheckoutReconciliationResponse reconciliation,
+            String source) {
+        Instant resolvedAt = Instant.now();
+        String safeSource = hasText(source) ? source.trim() : "VALID_OPERATION";
+        for (CheckoutReconciliationRequest entity : pending) {
+            ObjectNode detail = objectMapper.createObjectNode();
+            detail.put("source", safeSource);
+            detail.put("moneyMutatedByAutoResolution", false);
+            detail.put("checkoutTriggered", false);
+            detail.set("reconciliationAfter", objectMapper.valueToTree(reconciliation));
+
+            entity.setStatus(CheckoutReconciliationRequestStatus.RESOLVED_AUTOMATICALLY);
+            entity.setCorrectionType(null);
+            entity.setCorrectionDetailJson(detail);
+            entity.setResolutionReasonCode("MATCHED_BY_VALID_OPERATION");
+            entity.setResolutionNote(
+                    "Đối soát đã tự khớp sau payment/refund/điều chỉnh phí hợp lệ");
+            entity.setResolvedBy(null);
+            entity.setResolvedByName("SYSTEM");
+            entity.setResolvedByRole("SYSTEM");
+            entity.setResolvedAtUtc(resolvedAt);
+            requestRepository.save(entity);
+
+            auditService.record(
+                    reservation,
+                    "CHECKOUT_RECONCILIATION_REQUEST",
+                    String.valueOf(entity.getId()),
+                    ReservationAuditAction.CHECKOUT_RECONCILIATION_RESOLVED_AUTOMATICALLY,
+                    "SYSTEM tự đóng yêu cầu vì đối soát đã khớp qua nghiệp vụ hợp lệ",
+                    Map.of("status", CheckoutReconciliationRequestStatus.PENDING.name()),
+                    Map.of("status", CheckoutReconciliationRequestStatus.RESOLVED_AUTOMATICALLY.name()),
+                    Map.of(
+                            "source", safeSource,
+                            "requiredAmount", reconciliation.getRequiredAmount(),
+                            "acceptedAmount", reconciliation.getAcceptedAmount(),
+                            "checkoutTriggered", false,
+                            "moneyMutatedByAutoResolution", false),
+                    entity.getCorrelationId(),
+                    "CHECKOUT_RECONCILIATION_RESOLVED_AUTOMATICALLY:" + entity.getId());
         }
-        CheckoutRefundRequest request = new CheckoutRefundRequest();
-        request.setAdditionalFee(resolution.getCorrectedAdditionalFee());
-        request.setReasonCode(resolution.getReasonCode().trim());
-        request.setReason(resolution.getNote().trim());
-        reservationService.updateCheckoutAdditionalFee(reservationId, request);
-        detail.put("correctedAdditionalFee", resolution.getCorrectedAdditionalFee());
     }
 
     private void applyPaymentLink(

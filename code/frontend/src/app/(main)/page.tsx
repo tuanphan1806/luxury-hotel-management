@@ -3,24 +3,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { HOME_CONTENT } from "@/constants/content";
+import { GALLERY_HERO_IMAGES, HOME_CONTENT } from "@/constants/content";
 import Toast from "@/components/UI/Toast";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import DateTimeField from "@/components/forms/DateTimeField";
 import { getPublicFacilities, getPublicGalleries, getPublicRoomTypes } from "@/lib/public-catalog";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
+import FacilityDetailModal, { type FacilityDetailItem } from "@/components/guest/FacilityDetailModal";
 
-interface FacilityItem {
-  id?: number;
-  facilityName?: string;
-  facilityNameEn?: string;
-  name?: string;
-  description?: string;
-  descriptionEn?: string;
-  imageUrl?: string;
-  image?: string;
-  icon?: string;
-}
+type FacilityItem = FacilityDetailItem;
 
 interface RoomTypeItem {
   id?: number;
@@ -78,6 +69,7 @@ export default function HomePage() {
   const [checkOut, setCheckOut] = useState("");
   const [guestCount, setGuestCount] = useState("2");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [selectedFacility, setSelectedFacility] = useState<FacilityItem | null>(null);
   const facilityScrollerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -132,6 +124,29 @@ export default function HomePage() {
     if (!galleryImages.length) return [];
     return Array.from({ length: Math.min(3, galleryImages.length) }, (_, index) => galleryImages[(galleryStart + index) % galleryImages.length]);
   }, [galleryImages, galleryStart]);
+  const stayIntents = [
+    {
+      href: "/reservation",
+      image: GALLERY_HERO_IMAGES.reservation,
+      eyebrow: localize("Theo giờ", "By the hour"),
+      title: localize("Nghỉ ngắn linh hoạt", "A flexible short stay"),
+      description: localize("Chọn chính xác giờ nhận, giờ trả và xem giá trước khi tiếp tục.", "Choose exact arrival and departure times and review the price before continuing."),
+    },
+    {
+      href: "/rooms",
+      image: GALLERY_HERO_IMAGES.rooms,
+      eyebrow: localize("Khám phá", "Discover"),
+      title: localize("Cuối tuần thư thái", "A slower weekend"),
+      description: localize("So sánh không gian, tiện nghi và đánh giá của từng hạng phòng.", "Compare the space, facilities, and reviews for every room type."),
+    },
+    {
+      href: "/reservation",
+      image: GALLERY_HERO_IMAGES.facilities,
+      eyebrow: localize("Đi cùng nhau", "Stay together"),
+      title: localize("Gia đình hoặc nhóm nhỏ", "Families and small groups"),
+      description: localize("Chọn nhiều hạng phòng và số lượng trong cùng một đơn đặt phòng.", "Choose several room types and quantities in a single reservation."),
+    },
+  ];
   const moveGallery = (direction: "previous" | "next") => {
     if (galleryImages.length <= 1) return;
     setGalleryDirection(direction);
@@ -231,15 +246,15 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <dl data-testid="home-hero-features" className="mt-9 hidden max-w-2xl grid-cols-3 divide-x divide-white/18 lg:grid">
+            <dl data-testid="home-hero-features" className="mt-9 hidden max-w-2xl grid-cols-3 divide-x divide-white/28 overflow-hidden rounded-xl border border-white/18 bg-[#091E30]/26 px-2 py-4 shadow-[0_14px_38px_rgba(3,12,28,0.16)] backdrop-blur-[2px] lg:grid">
               {[
                 [localize("Rõ ràng", "Transparent"), localize("Lịch trống và giá", "Availability and pricing")],
                 [localize("Linh hoạt", "Flexible"), localize("Khung giờ lưu trú", "Stay time windows")],
                 [localize("Chu đáo", "Attentive"), localize("Hỗ trợ tại quầy", "Front desk support")],
               ].map(([title, detail]) => (
                 <div key={title} className="px-5 first:pl-0">
-                  <dt className="font-serif text-2xl font-semibold text-[#F2D89A] drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)]">{title}</dt>
-                  <dd className="mt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white/92 drop-shadow-[0_1px_7px_rgba(0,0,0,0.5)]">{detail}</dd>
+                  <dt className="font-serif text-2xl font-bold text-[#FFE5A8] drop-shadow-[0_1px_8px_rgba(0,0,0,0.5)]">{title}</dt>
+                  <dd className="mt-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[#FFFDF8] drop-shadow-[0_1px_7px_rgba(0,0,0,0.58)]">{detail}</dd>
                 </div>
               ))}
             </dl>
@@ -281,37 +296,75 @@ export default function HomePage() {
         </form>
       </div>
 
-      <section id="gallery" data-testid="home-gallery-section" className="home-section-ivory deferred-section scroll-mt-24 pb-8 pt-16 md:pb-10 md:pt-20">
-        <div className="mx-auto max-w-7xl px-6 md:px-10">
-          <div className="mb-10 grid gap-5 lg:grid-cols-[1fr_0.58fr] lg:items-end">
+      <section className="home-section-surface deferred-section px-6 pb-10 pt-16 md:px-10 md:pb-14 md:pt-20" aria-labelledby="stay-intent-title">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-9 grid gap-4 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
             <div>
-              <p className="mb-4 text-xs font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Không gian khách sạn", "Inside Luxury Hotel")}</p>
-              <h2 className="max-w-3xl font-serif text-4xl font-bold text-[#0F2A43] md:text-5xl">{localize("Những khoảng nghỉ được thiết kế để bạn chậm lại.", "Spaces designed to help you slow down.")}</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Chọn theo nhịp chuyến đi", "Choose your stay rhythm")}</p>
+              <h2 id="stay-intent-title" className="mt-4 font-serif text-4xl font-bold leading-tight text-[#0F2A43] md:text-5xl">{localize("Bắt đầu từ điều bạn thực sự cần.", "Start with what you actually need.")}</h2>
+            </div>
+            <p className="max-w-2xl text-sm font-medium leading-7 text-[#66727C] lg:justify-self-end">{localize("Đây là các lối khám phá, không phải gói giá cố định. Tồn phòng và tổng tiền luôn được tính lại theo ngày giờ, số khách và số lượng bạn chọn.", "These are discovery paths, not fixed packages. Availability and totals are always recalculated from your dates, guests, and quantities.")}</p>
+          </div>
+
+          <div className="motion-stagger grid gap-4 md:grid-cols-3">
+            {stayIntents.map((intent) => (
+              <Link key={intent.title} href={intent.href} className="guest-media-lift group relative min-h-[21rem] overflow-hidden rounded-[1.75rem] bg-[#E5E9ED]">
+                <ProgressiveImage src={intent.image} fallbackSrc={HOME_CONTENT.hero.bg} alt={intent.title} fill sizes="(min-width: 768px) 33vw, 100vw" className="object-cover group-hover:scale-[1.035]" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#091E30]/92 via-[#0F2A43]/24 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 p-6 text-white">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D8C398]">{intent.eyebrow}</p>
+                  <h3 className="mt-2 font-serif text-2xl font-bold">{intent.title}</h3>
+                  <p className="mt-3 text-sm font-medium leading-6 text-white/80">{intent.description}</p>
+                  <span className="mt-5 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#E4C77F]">{localize("Khám phá", "Explore")} <span aria-hidden="true" className="transition group-hover:translate-x-1">→</span></span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="gallery" data-testid="home-gallery-section" className="home-section-ivory deferred-section scroll-mt-24 border-y border-[#0F2A43]/8 px-4 py-14 sm:px-6 md:py-20 lg:py-24">
+        <div className="mx-auto max-w-[1400px]">
+          <div className="mb-9 grid gap-7 border-b border-[#0F2A43]/12 pb-8 lg:mb-12 lg:grid-cols-[1fr_0.55fr] lg:items-end lg:pb-10">
+            <div className="max-w-4xl">
+              <div className="mb-5 flex items-center gap-3">
+                <span aria-hidden="true" className="h-px w-10 bg-[#B8944F]" />
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Không gian khách sạn", "Inside Luxury Hotel")}</p>
+              </div>
+              <h2 className="font-serif text-4xl font-bold leading-[1.08] text-[#0F2A43] md:text-5xl lg:text-[3.5rem]">{localize("Những khoảng nghỉ được thiết kế để bạn chậm lại.", "Spaces designed to help you slow down.")}</h2>
             </div>
             <div className="grid gap-5 lg:justify-items-end">
-              <p className="max-w-xl text-sm leading-7 text-[#66727C]">{localize("Khám phá phòng nghỉ, tiện ích và các không gian chung trước khi chọn hạng phòng phù hợp.", "Explore rooms, facilities, and shared spaces before choosing the stay that fits you.")}</p>
-              {galleryImages.length > 0 && <span data-testid="home-gallery-count" aria-live="polite" className="text-xs font-bold tabular-nums text-[#66727C]"><span className="text-[#0F2A43]">{String(galleryStart + 1).padStart(2, "0")}</span> / {String(galleryImages.length).padStart(2, "0")}</span>}
+              <p className="max-w-xl text-sm font-medium leading-7 text-[#66727C]">{localize("Khám phá phòng nghỉ, tiện nghi và các không gian chung trước khi chọn hạng phòng phù hợp.", "Explore rooms, facilities, and shared spaces before choosing the stay that fits you.")}</p>
+              <div className="flex w-full items-center justify-between gap-4 lg:w-auto lg:justify-end">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F] md:hidden">{localize("Vuốt để xem thêm", "Swipe to explore")}</span>
+                {galleryImages.length > 0 && (
+                  <span data-testid="home-gallery-count" aria-live="polite" className="inline-flex min-h-11 items-center rounded-full border border-[#0F2A43]/12 bg-[#FBFAF6] px-4 text-xs font-bold tabular-nums text-[#66727C]">
+                    <span className="mr-1 text-[#0F2A43]">{String(galleryStart + 1).padStart(2, "0")}</span> / {String(galleryImages.length).padStart(2, "0")}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          <div data-testid="home-gallery-frame" className="relative md:-mx-10 md:px-10">
+          <div data-testid="home-gallery-frame" className="relative md:px-12 lg:px-14">
             <div
               data-testid="home-gallery-mobile-scroller"
               onScroll={handleGalleryScroll}
               role="region"
               tabIndex={0}
               aria-label={localize("Thư viện ảnh, vuốt sang trái hoặc phải để xem thêm", "Photo gallery, swipe left or right to see more")}
-              className="guest-horizontal-scroller flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain scroll-smooth touch-pan-x outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-2 motion-reduce:scroll-auto md:hidden"
+              className="guest-horizontal-scroller flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain scroll-smooth touch-pan-x rounded-[1.5rem] outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-4 motion-reduce:scroll-auto md:hidden"
             >
               {galleryImages.map((image, index) => {
                 const src = image.imageUrl || image.image;
                 if (!src) return null;
                 return (
-                  <figure data-gallery-slide key={`${src}-${index}`} className="group relative aspect-[4/3] w-full shrink-0 snap-center overflow-hidden rounded-[1.5rem] bg-[#E5E9ED]">
+                  <figure data-gallery-slide key={`${src}-${index}`} className="group relative aspect-[4/3] w-full shrink-0 snap-center overflow-hidden rounded-[1.5rem] border border-[#0F2A43]/10 bg-[#E5E9ED] shadow-[0_20px_55px_rgba(15,42,67,0.13)]">
                     <ProgressiveImage src={src} alt={localize(image.title, image.titleEn) || localize("Không gian khách sạn", "Hotel interior")} fill sizes="100vw" className="object-cover" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0F2A43]/72 via-transparent to-transparent" />
-                    <figcaption className="absolute inset-x-0 bottom-0 p-5 text-sm font-semibold text-white">
-                      {localize(image.title, image.titleEn) || localize("Không gian tại khách sạn", "A space at Luxury Hotel")}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#091E30]/82 via-[#0F2A43]/5 to-transparent" />
+                    <figcaption className="absolute inset-x-0 bottom-0 flex items-end gap-3 p-5 text-white">
+                      <span className="text-[10px] font-bold tabular-nums tracking-[0.16em] text-[#E4C77F]">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="text-sm font-semibold">{localize(image.title, image.titleEn) || localize("Không gian tại khách sạn", "A space at Luxury Hotel")}</span>
                     </figcaption>
                   </figure>
                 );
@@ -323,19 +376,21 @@ export default function HomePage() {
               )}
             </div>
 
-            <div className="hidden gap-4 md:grid md:grid-cols-12 md:grid-rows-2" aria-live="polite">
+            <div className="hidden gap-5 md:grid md:grid-cols-12 md:grid-rows-2" aria-live="polite">
               {visibleGalleryImages.map((image, index) => {
                 const src = image.imageUrl || image.image;
                 if (!src) return null;
+                const itemIndex = galleryImages.length ? (galleryStart + index) % galleryImages.length : index;
                 const layoutClass = index === 0
-                  ? "md:col-span-7 md:row-span-2 md:min-h-[34rem]"
-                  : "md:col-span-5 md:min-h-[16.5rem]";
+                  ? "md:col-span-7 md:row-span-2 md:min-h-[36rem] lg:col-span-8 lg:min-h-[39rem]"
+                  : "md:col-span-5 md:min-h-[17.5rem] lg:col-span-4 lg:min-h-[19rem]";
                 return (
-                  <figure key={`${galleryStart}-${src}-${index}`} style={{ animationDelay: `${index * 85}ms` }} className={`home-carousel-card ${galleryDirection === "next" ? "home-carousel-card-next" : "home-carousel-card-previous"} group relative min-h-[19rem] overflow-hidden rounded-[1.75rem] bg-[#E5E9ED] ${layoutClass}`}>
+                  <figure key={`${galleryStart}-${src}-${index}`} style={{ animationDelay: `${index * 85}ms` }} className={`home-carousel-card ${galleryDirection === "next" ? "home-carousel-card-next" : "home-carousel-card-previous"} group relative min-h-[19rem] overflow-hidden border border-[#0F2A43]/10 bg-[#E5E9ED] shadow-[0_20px_55px_rgba(15,42,67,0.12)] ${index === 0 ? "rounded-[2rem]" : "rounded-[1.5rem]"} ${layoutClass}`}>
                     <ProgressiveImage src={src} alt={localize(image.title, image.titleEn) || localize("Không gian khách sạn", "Hotel interior")} fill sizes={index === 0 ? "(min-width: 768px) 58vw, 100vw" : "(min-width: 768px) 42vw, 100vw"} className="object-cover group-hover:scale-[1.035]" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0F2A43]/72 via-transparent to-transparent" />
-                    <figcaption className="absolute inset-x-0 bottom-0 p-5 text-sm font-semibold text-white md:p-6">
-                      {localize(image.title, image.titleEn) || localize(index === 0 ? "Không gian nghỉ dưỡng" : "Một góc tại khách sạn", index === 0 ? "A restful setting" : "A corner of Luxury Hotel")}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#091E30]/84 via-[#0F2A43]/4 to-transparent" />
+                    <figcaption className={`absolute inset-x-0 bottom-0 flex items-end gap-3 text-white ${index === 0 ? "p-7 lg:p-8" : "p-5 lg:p-6"}`}>
+                      <span className="mb-0.5 text-[10px] font-bold tabular-nums tracking-[0.16em] text-[#E4C77F]">{String(itemIndex + 1).padStart(2, "0")}</span>
+                      <span className={index === 0 ? "font-serif text-xl font-bold lg:text-2xl" : "text-sm font-semibold lg:text-base"}>{localize(image.title, image.titleEn) || localize(index === 0 ? "Không gian nghỉ dưỡng" : "Một góc tại khách sạn", index === 0 ? "A restful setting" : "A corner of Luxury Hotel")}</span>
                     </figcaption>
                   </figure>
                 );
@@ -348,37 +403,37 @@ export default function HomePage() {
             </div>
             {galleryImages.length > 3 && <CarouselControls testIdPrefix="home-gallery" previousLabel={localize("Ảnh trước", "Previous images")} nextLabel={localize("Ảnh tiếp theo", "Next images")} onPrevious={() => moveGallery("previous")} onNext={() => moveGallery("next")} />}
           </div>
-
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-[#0F2A43]/10 pt-6">
-            <p className="text-sm text-[#66727C]">{localize("Ảnh được quản lý trực tiếp từ hệ thống khách sạn.", "Images are managed directly by the hotel team.")}</p>
-            <Link href="/facilities" className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-[#0F2A43] transition hover:text-[#80632F]">
-              {localize("Khám phá tiện ích", "Explore facilities")} <span aria-hidden="true">→</span>
-            </Link>
-          </div>
         </div>
       </section>
 
       <section className="home-section-navy-soft deferred-section mx-auto max-w-[1400px] rounded-[2rem] px-6 pb-16 pt-8 md:px-10 md:pb-20 md:pt-10">
         <div className="mb-10 flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
-            <p className="mb-4 text-xs font-bold uppercase tracking-[0.25em] text-[#80632F]">{localize("Tiện ích nổi bật", "Our best facilities")}</p>
+            <p className="mb-4 text-xs font-bold uppercase tracking-[0.25em] text-[#80632F]">{localize("Tiện nghi nổi bật", "Our best facilities")}</p>
             <h2 className="max-w-3xl font-serif text-4xl font-bold text-[#0F2A43] md:text-5xl">{localize("Mọi dịch vụ cần thiết đều rõ ràng ngay từ cái nhìn đầu tiên.", "Services guests can understand at a glance.")}</h2>
           </div>
           <div className="flex flex-wrap items-center gap-4 md:justify-end">
-            <Link href="/facilities" className="text-sm font-bold uppercase tracking-[0.18em] text-[#80632F] hover:underline">{localize("Xem tất cả tiện ích", "View all facilities")}</Link>
+            <Link href="/facilities" className="text-sm font-bold uppercase tracking-[0.18em] text-[#80632F] hover:underline">{localize("Xem tất cả tiện nghi", "View all facilities")}</Link>
           </div>
         </div>
-        <div data-testid="home-facilities-frame" className="relative md:-mx-10 md:px-10">
-          <div ref={facilityScrollerRef} tabIndex={0} aria-label={localize("Danh sách tiện ích nổi bật", "Featured facilities carousel")} className="guest-horizontal-scroller scroll-smooth overflow-x-auto pb-5 outline-none">
+        <div data-testid="home-facilities-frame" className="relative md:px-12">
+          <div ref={facilityScrollerRef} tabIndex={0} aria-label={localize("Danh sách tiện nghi nổi bật", "Featured facilities carousel")} className="guest-horizontal-scroller scroll-smooth overflow-x-auto pb-5 outline-none">
             <div className="motion-stagger flex snap-x snap-mandatory items-stretch gap-6">
             {visibleFacilities.map((facility, index) => {
-              const name = localize(facility.facilityName || facility.name, facility.facilityNameEn) || localize("Tiện ích khách sạn", "Hotel facility");
+              const name = localize(facility.facilityName || facility.name, facility.facilityNameEn) || localize("Tiện nghi khách sạn", "Hotel facility");
               const image = facility.imageUrl || facility.image || facility.icon;
-              const description = localize(facility.description, facility.descriptionEn) || localize("Thông tin tiện ích đang được cập nhật.", "Facility information is being updated.");
+              const description = localize(facility.description, facility.descriptionEn) || localize("Thông tin tiện nghi đang được cập nhật.", "Facility information is being updated.");
               if (!image) return null;
               return (
-                <Link key={`${name}-${index}`} href="/facilities" className="group relative h-[78vw] w-[78vw] shrink-0 snap-start overflow-hidden rounded-[1.75rem] border border-[#0F2A43]/10 bg-[#E5E9ED] shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md sm:h-[21rem] sm:w-[21rem] lg:h-[23rem] lg:w-[23rem]">
-                  <ProgressiveImage src={image} alt={name} fill sizes="(min-width: 1024px) 23rem, (min-width: 640px) 21rem, 78vw" className="object-cover group-hover:scale-105" />
+                <button
+                  key={`${name}-${index}`}
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-label={localize(`Xem chi tiết ${name}`, `View details for ${name}`)}
+                  onClick={() => setSelectedFacility(facility)}
+                  className="group relative h-[78vw] w-[78vw] shrink-0 snap-start overflow-hidden rounded-[1.75rem] border border-[#0F2A43]/10 bg-[#E5E9ED] text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-4 sm:h-[21rem] sm:w-[21rem] lg:h-[23rem] lg:w-[23rem]"
+                >
+                  <ProgressiveImage src={image} fallbackSrc={HOME_CONTENT.hero.bg} alt={name} fill loading={index < 4 ? "eager" : "lazy"} sizes="(min-width: 1024px) 23rem, (min-width: 640px) 21rem, 78vw" className="object-cover group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#0F2A43]/88 via-[#0F2A43]/22 to-transparent" />
                   <div className="absolute inset-x-0 bottom-0 flex min-h-[11.5rem] flex-col justify-end p-5 text-white">
                     <div className="flex items-start justify-between gap-3">
@@ -386,19 +441,19 @@ export default function HomePage() {
                       <span className="mt-1 text-xl text-[#C8A35B] transition group-hover:translate-x-1">→</span>
                     </div>
                     <p className="mt-3 line-clamp-3 text-sm font-medium leading-6 text-white/78">{description}</p>
-                    <span className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-[#C8A35B]">{localize("Xem tiện ích", "View facility")}</span>
+                    <span className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-[#C8A35B]">{localize("Xem tiện nghi", "View facility")}</span>
                   </div>
-                </Link>
+                </button>
               );
             })}
             {!visibleFacilities.length && (
               <div className="flex h-[23rem] w-[78vw] shrink-0 items-center justify-center rounded-[1.75rem] border border-dashed border-[#0F2A43]/15 bg-[#FBFAF6] px-6 text-center text-sm font-semibold text-[#66727C] sm:w-[21rem] lg:w-[23rem]">
-                {localize("Chưa có tiện ích để hiển thị.", "No facilities are available yet.")}
+                {localize("Chưa có tiện nghi để hiển thị.", "No facilities are available yet.")}
               </div>
             )}
             </div>
           </div>
-          {visibleFacilities.length > 1 && <CarouselControls testIdPrefix="home-facilities" previousLabel={localize("Tiện ích trước", "Previous facilities")} nextLabel={localize("Tiện ích tiếp theo", "Next facilities")} onPrevious={() => scrollFacilities("previous")} onNext={() => scrollFacilities("next")} />}
+          {visibleFacilities.length > 1 && <CarouselControls testIdPrefix="home-facilities" previousLabel={localize("Tiện nghi trước", "Previous facilities")} nextLabel={localize("Tiện nghi tiếp theo", "Next facilities")} onPrevious={() => scrollFacilities("previous")} onNext={() => scrollFacilities("next")} />}
         </div>
       </section>
 
@@ -426,7 +481,7 @@ export default function HomePage() {
               <Link href="/reservation" className="inline-flex min-h-12 items-center rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30]">
                 {localize("Bắt đầu đặt phòng", "Start reservation")}
               </Link>
-              <Link href="/booking/lookup" className="inline-flex min-h-12 items-center rounded-lg border border-[#0F2A43]/18 bg-[#FBFAF6] px-6 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F]">
+              <Link href="/my-bookings" className="inline-flex min-h-12 items-center rounded-lg border border-[#0F2A43]/18 bg-[#FBFAF6] px-6 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F]">
                 {localize("Tra cứu đơn", "Find a booking")}
               </Link>
             </div>
@@ -515,7 +570,7 @@ export default function HomePage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             {[
-              ["/booking/lookup", localize("Tra cứu đơn", "Find a booking"), localize("Mã đơn và trạng thái thanh toán", "Booking code and payment status")],
+              ["/my-bookings", localize("Tra cứu đơn", "Find a booking"), localize("Lịch sử và trạng thái thanh toán", "History and payment status")],
               ["/my-bookings", localize("Đơn của tôi", "My bookings"), localize("Lịch sử và hành động tiếp theo", "History and next actions")],
               ["/contact", localize("Nhờ lễ tân hỗ trợ", "Ask the front desk"), localize("Ngày lưu trú và yêu cầu cụ thể", "Dates and specific requests")],
             ].map(([href, title, detail]) => (
@@ -567,19 +622,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="home-section-navy-mist deferred-section border-t border-[#0F2A43]/8 px-6 py-16 text-center md:px-10">
-        <h2 className="mx-auto max-w-2xl font-serif text-4xl font-bold text-[#0F2A43]">{localize("Đã có ngày lưu trú trong đầu?", "Already have your stay dates?")}</h2>
-        <p className="mx-auto mt-4 max-w-xl leading-7 text-[#66727C]">{localize("Kiểm tra tồn phòng thật, chọn số lượng theo từng hạng và tiếp tục thanh toán bằng QR.", "Check live inventory, choose quantities by room type, and continue with QR payment.")}</p>
-        <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-          <Link href="/reservation" className="inline-flex min-h-12 items-center justify-center rounded-lg bg-[#0F2A43] px-8 text-sm font-bold text-white transition hover:bg-[#091E30]">
-            {localize("Kiểm tra phòng trống", "Check availability")}
-          </Link>
-          <Link href="/rooms" className="inline-flex min-h-12 items-center justify-center rounded-lg border border-[#0F2A43]/18 bg-[#FBFAF6] px-8 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F]">
-            {localize("Xem hạng phòng", "Browse room types")}
-          </Link>
-        </div>
-      </section>
-
+      <FacilityDetailModal facility={selectedFacility} onClose={() => setSelectedFacility(null)} />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );

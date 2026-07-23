@@ -1,37 +1,55 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FACILITIES_CONTENT } from "@/constants/content";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import { getPublicFacilities } from "@/lib/public-catalog";
 import GuestPageHero from "@/components/guest/GuestPageHero";
+import FacilityDetailModal, { type FacilityDetailItem } from "@/components/guest/FacilityDetailModal";
 
-interface FacilityItem {
-  id?: number;
-  facilityName?: string;
-  facilityNameEn?: string;
-  name?: string;
-  description?: string;
-  descriptionEn?: string;
-  imageUrl?: string;
-  icon?: string;
-  image?: string;
-}
+type FacilityItem = FacilityDetailItem;
+
+type FacilityFilter = "ALL" | "PUBLIC" | "ROOM";
 
 export default function FacilitiesPage() {
   const { locale, localize } = useLanguage();
   const [facilities, setFacilities] = useState<FacilityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<FacilityFilter>("ALL");
+  const [selectedFacility, setSelectedFacility] = useState<FacilityItem | null>(null);
   const highlights = locale === "vi" ? [
-    { title: "Hồ bơi và thư giãn", detail: "Không gian thư giãn với thời gian phục vụ được lễ tân quản lý." },
-    { title: "Dịch vụ bữa sáng", detail: "Bữa sáng tiện lợi cho chuyến công tác và kỳ nghỉ gia đình." },
-    { title: "Góc yên tĩnh", detail: "Không gian đọc sách, làm việc và chờ dành cho những phút thư thả." },
+    { title: "Thư giãn & phục hồi", detail: "Hồ bơi và spa theo lịch hẹn giúp bạn chủ động sắp xếp thời gian nghỉ." },
+    { title: "Vận động mỗi ngày", detail: "Không gian thể hình hiện đại phục vụ khách trong suốt kỳ lưu trú." },
+    { title: "Không gian dùng chung", detail: "Thư viện, quán cà phê và khu mua sắm cho từng nhịp nghỉ khác nhau." },
   ] : [
-    { title: "Pool & wellness", detail: "Relaxation spaces with schedules managed by the front desk." },
-    { title: "Breakfast service", detail: "A practical morning setup for business trips and family stays." },
-    { title: "Quiet corners", detail: "Reading, work, and waiting spaces for slower moments." },
+    { title: "Rest & recovery", detail: "Pool and scheduled spa services help guests plan time to recharge." },
+    { title: "Move every day", detail: "A modern fitness space is available throughout the stay." },
+    { title: "Shared spaces", detail: "Library, cafe, and marketplace spaces support different rhythms of travel." },
+  ];
+
+  const visibleFacilities = useMemo(() => facilities
+    .filter((facility) => {
+      const image = facility.imageUrl || facility.icon || facility.image;
+      return image && image !== "wifi-icon";
+    })
+    .sort((left, right) => {
+      const priority = (facility: FacilityItem) => /spa|fitness|thể hình/i.test(`${facility.facilityName || ""} ${facility.facilityNameEn || ""}`) ? 0 : 1;
+      return priority(left) - priority(right);
+    }), [facilities]);
+
+  const filteredFacilities = useMemo(
+    () => activeFilter === "ALL"
+      ? visibleFacilities
+      : visibleFacilities.filter((facility) => facility.type?.toUpperCase() === activeFilter),
+    [activeFilter, visibleFacilities],
+  );
+
+  const filters: Array<{ value: FacilityFilter; label: string }> = [
+    { value: "ALL", label: localize("Tất cả", "All") },
+    { value: "PUBLIC", label: localize("Không gian chung", "Shared spaces") },
+    { value: "ROOM", label: localize("Trong phòng", "In-room") },
   ];
 
   useEffect(() => {
@@ -51,7 +69,7 @@ export default function FacilitiesPage() {
       <GuestPageHero
         imageSrc={FACILITIES_CONTENT.hero.bg}
         imageAlt={localize("Hồ bơi và không gian thư giãn tại Luxury Hotel", "Pool and relaxation spaces at Luxury Hotel")}
-        eyebrow={localize("Tiện ích", "Facilities")}
+        eyebrow={localize("Tiện nghi", "Facilities")}
         title={localize("Không gian nâng tầm kỳ nghỉ.", "Spaces designed to elevate your stay.")}
         description={localize("Từ hồ bơi, bữa sáng đến những góc yên tĩnh, bạn có thể hình dung đầy đủ trải nghiệm khách sạn trước khi đặt phòng.", "From the pool to breakfast and quiet corners, guests can understand the hotel experience before they book.")}
         actions={(
@@ -71,7 +89,7 @@ export default function FacilitiesPage() {
         <div>
         <p className="mb-4 text-xs font-bold uppercase tracking-[0.25em] text-[#80632F]">{localize("Dịch vụ dành cho khách", "Guest services")}</p>
         <h2 className="font-serif text-4xl md:text-5xl font-bold text-primary-navy mb-6">
-          {localize("TIỆN ÍCH", FACILITIES_CONTENT.hero.title)}
+          {localize("TIỆN NGHI", FACILITIES_CONTENT.hero.title)}
         </h2>
         <p className="text-text-dark text-sm md:text-base leading-loose max-w-xl">
           {localize("Chúng tôi chú trọng từng nhu cầu để kỳ nghỉ của bạn thật trọn vẹn, từ không gian thư giãn đến các dịch vụ thiết yếu trong khuôn viên.", FACILITIES_CONTENT.hero.subtitle)}
@@ -89,6 +107,27 @@ export default function FacilitiesPage() {
 
       {/* Facilities Grid */}
       <section className="deferred-section max-w-7xl mx-auto px-6 pb-24 md:px-10">
+        <div className="mb-8 flex flex-col gap-4 border-y border-[#0F2A43]/12 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#80632F]">{localize("Khám phá theo nhu cầu", "Browse by need")}</p>
+            <p className="mt-1 text-sm font-semibold text-[#66727C]" aria-live="polite">
+              {localize(`${filteredFacilities.length} tiện nghi phù hợp`, `${filteredFacilities.length} matching facilities`)}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2" role="group" aria-label={localize("Lọc tiện nghi", "Filter facilities")}>
+            {filters.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                aria-pressed={activeFilter === filter.value}
+                onClick={() => setActiveFilter(filter.value)}
+                className={`min-h-10 rounded-full border px-4 text-xs font-bold transition ${activeFilter === filter.value ? "border-[#0F2A43] bg-[#0F2A43] text-white" : "border-[#0F2A43]/16 bg-[#FBFAF6] text-[#0F2A43] hover:border-[#B8944F] hover:bg-[#EAE2D2]"}`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </div>
         {isLoading ? (
           <div className="grid gap-6 md:grid-cols-3">
             {[0, 1, 2].map((item) => (
@@ -97,43 +136,54 @@ export default function FacilitiesPage() {
           </div>
         ) : (
         <div className="motion-stagger grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {facilities.map((facility, index) => {
+        {filteredFacilities.map((facility, index) => {
           const name = localize(facility.facilityName || facility.name, facility.facilityNameEn);
           const image = facility.imageUrl || facility.icon || facility.image;
           // Skip utility/service facilities like FREE WIFI from rendering on facilities list if they don't have custom image
           if (image === 'wifi-icon' || !image) return null;
           
           return (
-            <article key={index} className={`group flex h-full min-h-[27rem] flex-col overflow-hidden rounded-[1.75rem] shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl ${index % 2 === 0 ? "bg-[#FBFAF6]" : "bg-[#EAE2D2]"}`}>
+            <button
+              key={facility.id || `${name}-${index}`}
+              type="button"
+              aria-haspopup="dialog"
+              aria-label={localize(`Xem chi tiết ${name}`, `View details for ${name}`)}
+              onClick={() => setSelectedFacility(facility)}
+              className={`guest-media-lift group flex h-full min-h-[27rem] flex-col overflow-hidden rounded-[1.75rem] text-left shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-4 ${index % 2 === 0 ? "bg-[#FBFAF6]" : "bg-[#EAE2D2]"}`}
+            >
               <div className="relative aspect-square w-full shrink-0 overflow-hidden bg-[#E5E9ED]">
               <ProgressiveImage
                 src={image}
+                fallbackSrc={FACILITIES_CONTENT.hero.bg}
                 alt={name}
                 fill
+                loading={index < 6 ? "eager" : "lazy"}
+                fetchPriority={index < 2 ? "high" : "auto"}
                 sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                 className="object-cover group-hover:scale-105"
               />
               </div>
-              <div className="flex min-h-[8.5rem] flex-1 items-center justify-between gap-4 p-5">
+              <div className="flex min-h-[9.5rem] flex-1 items-center justify-between gap-4 p-5">
                 <div>
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F]">{localize("Tiện ích", "Facility")}</p>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F]">
+                  {facility.type?.toUpperCase() === "ROOM" ? localize("Tiện nghi trong phòng", "In-room facility") : localize("Tiện nghi chung", "Shared facility")}
+                </p>
                 <h3 className="font-serif text-2xl font-bold text-primary-navy">
                   {name}
                 </h3>
                 <p className="mt-2 line-clamp-2 text-sm font-medium leading-6 text-[#66727C]">{localize(facility.description, facility.descriptionEn) || localize("Thông tin đang được cập nhật.", "Information is being updated.")}</p>
                 </div>
-                <span className="text-2xl text-accent-gold transition-transform duration-300 group-hover:translate-x-1">→</span>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#0F2A43]/14 bg-white/70 text-xl text-[#80632F] transition group-hover:translate-x-1 group-hover:border-[#B8944F] group-hover:bg-white" aria-hidden="true">
+                  →
+                </span>
               </div>
-            </article>
+            </button>
           );
         })}
-        {!facilities.filter((facility) => {
-          const image = facility.imageUrl || facility.icon || facility.image;
-          return image && image !== "wifi-icon";
-        }).length && (
+        {!filteredFacilities.length && (
           <div className="col-span-full rounded-[1.75rem] border border-dashed border-[#0F2A43]/15 bg-[#FBFAF6] p-10 text-center">
-            <h3 className="font-serif text-2xl font-bold text-primary-navy">{localize("Chưa có tiện ích để hiển thị", "No facilities to display")}</h3>
-            <p className="mt-3 text-sm font-semibold text-[#66727C]">{localize("Thêm tiện ích trong Dashboard để hiển thị tại đây.", "Add facilities in the Dashboard to display them here.")}</p>
+            <h3 className="font-serif text-2xl font-bold text-primary-navy">{localize("Chưa có tiện nghi phù hợp", "No matching facilities")}</h3>
+            <p className="mt-3 text-sm font-semibold text-[#66727C]">{localize("Chọn nhóm khác hoặc bổ sung tiện nghi trong Dashboard.", "Choose another group or add facilities in the Dashboard.")}</p>
           </div>
         )}
         </div>
@@ -144,9 +194,9 @@ export default function FacilitiesPage() {
         <div className="grid overflow-hidden rounded-[2rem] bg-[#0F2A43] text-white md:grid-cols-[1fr_0.85fr]">
           <div className="p-8 md:p-12">
             <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#C8A35B]">{localize("Lên kế hoạch lưu trú", "Plan the stay")}</p>
-            <h2 className="mt-4 font-serif text-4xl font-bold md:text-5xl">{localize("Chọn tiện ích phù hợp, sau đó chọn phòng.", "Choose the right facilities, then find your room.")}</h2>
+            <h2 className="mt-4 font-serif text-4xl font-bold md:text-5xl">{localize("Chọn tiện nghi phù hợp, sau đó chọn phòng.", "Choose the right facilities, then find your room.")}</h2>
             <p className="mt-5 max-w-xl text-sm font-medium leading-7 text-white/70">
-              {localize("Thông tin tiện ích giúp bạn lựa chọn loại phòng phù hợp thay vì chỉ là một danh sách hình ảnh.", "Facility details help guests choose the right room instead of serving as a static image list.")}
+              {localize("Thông tin tiện nghi giúp bạn lựa chọn hạng phòng phù hợp thay vì chỉ xem một danh sách hình ảnh.", "Facility details help guests choose the right room instead of serving as a static image list.")}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/rooms" className="rounded-[1.1rem] bg-[#C8A35B] px-6 py-3 text-xs font-bold uppercase tracking-[0.18em] text-[#0F2A43] transition hover:bg-[#d4aa62]">
@@ -159,8 +209,9 @@ export default function FacilitiesPage() {
           </div>
           <div className="relative min-h-72 overflow-hidden bg-[#091E30]">
             <ProgressiveImage
-              src={facilities.find((item) => item.imageUrl || item.image)?.imageUrl || facilities.find((item) => item.imageUrl || item.image)?.image || FACILITIES_CONTENT.hero.bg}
-              alt={localize("Không gian tiện ích khách sạn", "Hotel facility space")}
+              src={visibleFacilities[0]?.imageUrl || visibleFacilities[0]?.image || FACILITIES_CONTENT.hero.bg}
+              fallbackSrc={FACILITIES_CONTENT.hero.bg}
+              alt={localize("Không gian tiện nghi khách sạn", "Hotel facility space")}
               fill
               sizes="(min-width: 768px) 42vw, 100vw"
               className="object-cover"
@@ -168,6 +219,8 @@ export default function FacilitiesPage() {
           </div>
         </div>
       </section>
+
+      <FacilityDetailModal facility={selectedFacility} onClose={() => setSelectedFacility(null)} />
     </div>
   );
 }

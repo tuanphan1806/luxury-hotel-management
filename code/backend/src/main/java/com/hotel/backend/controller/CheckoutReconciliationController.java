@@ -58,12 +58,14 @@ public class CheckoutReconciliationController {
     public ApiResponse<Page<CheckoutReconciliationRequestResponse>> list(
             @RequestParam(required = false) CheckoutReconciliationRequestStatus status,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal User currentUser) {
         int safeSize = Math.min(Math.max(size, 1), 100);
         return ApiResponse.success(requestService.list(
                 status,
                 PageRequest.of(Math.max(page, 0), safeSize,
-                        Sort.by(Sort.Direction.DESC, "createdAtUtc"))));
+                        Sort.by(Sort.Direction.DESC, "createdAtUtc")),
+                currentUser));
     }
 
     @PatchMapping("/api/admin/checkout-reconciliation-requests/{id}/resolve")

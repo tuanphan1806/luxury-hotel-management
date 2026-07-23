@@ -364,7 +364,7 @@ export default function DashboardLayout({
       ),
     }, {
       href: "/dashboard/reconciliation-requests",
-      label: localize("Yêu cầu đối soát", "Reconciliation requests"),
+      label: localize("Ngoại lệ đối soát", "Reconciliation exceptions"),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full">
           <path d="M4 4h16v16H4z" />
@@ -420,8 +420,8 @@ export default function DashboardLayout({
       {/* Main Nav Links */}
       <nav aria-label={localize("Điều hướng dashboard", "Dashboard navigation")} className="lux-scrollbar flex-1 space-y-1.5 overflow-y-auto px-4 py-6">
         {[
-          { title: t("operations"), items: navigationItems.filter((item) => ["/dashboard", "/dashboard/rooms", "/dashboard/reservations", "/dashboard/reconciliation-requests", "/dashboard/contact-messages", "/dashboard/guest"].includes(item.href)) },
-          { title: t("management"), items: navigationItems.filter((item) => ["/dashboard/users", "/dashboard/facilities", "/dashboard/room-types", "/dashboard/audit-logs"].includes(item.href)) },
+          { title: t("operations"), items: navigationItems.filter((item) => ["/dashboard", "/dashboard/rooms", "/dashboard/reservations", "/dashboard/contact-messages", "/dashboard/guest"].includes(item.href)) },
+          { title: t("management"), items: navigationItems.filter((item) => ["/dashboard/users", "/dashboard/facilities", "/dashboard/room-types", "/dashboard/audit-logs", "/dashboard/reconciliation-requests"].includes(item.href)) },
         ].map((group, groupIndex) => (
           <div key={group.title} className={groupIndex ? "pt-5" : ""}>
             {!collapsed && <p className="mb-2 px-4 text-[0.6rem] font-bold uppercase tracking-[0.24em] text-[#B8944F]/75">{group.title}</p>}
@@ -446,7 +446,7 @@ export default function DashboardLayout({
       {/* Compact account menu — personal actions stay out of operations nav. */}
       <div data-dashboard-account-menu className="relative border-t border-[#F1F0EA]/12 p-4">
         {isAccountMenuOpen && (
-          <div className={`absolute bottom-full z-[70] mb-3 overflow-hidden rounded-xl border border-[#0F2A43]/14 bg-[#FBFAF6] text-[#0F2A43] shadow-[0_22px_60px_rgba(4,15,25,0.32)] ${collapsed ? "left-3 w-64" : "inset-x-4"}`}>
+          <div className={`ux-popover-enter absolute bottom-full z-[70] mb-3 overflow-hidden rounded-xl border border-[#0F2A43]/14 bg-[#FBFAF6] text-[#0F2A43] shadow-[0_22px_60px_rgba(4,15,25,0.32)] ${collapsed ? "left-3 w-64" : "inset-x-4"}`}>
             <div className="bg-[#0F2A43] px-4 py-4 text-white">
               <p className="truncate text-sm font-bold">{user.fullName}</p>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#D8C398]">{displayedRole}</p>
@@ -455,9 +455,9 @@ export default function DashboardLayout({
               <Link href="/dashboard/settings" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
                 <span>{localize("Cài đặt tài khoản", "Account settings")}</span><span aria-hidden="true">›</span>
               </Link>
-              <Link href="/" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
-                <span>{localize("Trang khách sạn", "Guest website")}</span><span aria-hidden="true">↗</span>
-              </Link>
+              {user.role === "ADMIN" && <Link href="/dashboard/reconciliation-requests" onClick={() => { setIsAccountMenuOpen(false); if (closeOnNavigate) setIsMobileOpen(false); }} className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm font-bold transition hover:bg-[#F0EADF]">
+                <span>{localize("Ngoại lệ đối soát", "Reconciliation exceptions")}</span><span aria-hidden="true">›</span>
+              </Link>}
               <div className="rounded-lg bg-[#F1F0EA] p-2"><LanguageSwitcher /></div>
             </div>
             <button type="button" onClick={() => void handleSignOut()} className="flex min-h-12 w-full items-center gap-3 border-t border-[#0F2A43]/10 px-4 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50">

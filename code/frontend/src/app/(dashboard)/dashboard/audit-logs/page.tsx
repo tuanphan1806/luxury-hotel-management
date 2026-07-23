@@ -12,6 +12,7 @@ import {
 } from "@/components/dashboard/DashboardFilterPanel";
 
 type AuditRisk = "NORMAL" | "MEDIUM" | "HIGH" | "CRITICAL";
+type AuditScope = "OPERATION" | "MANAGEMENT";
 
 interface AuditLog {
   id: number;
@@ -28,6 +29,7 @@ interface AuditLog {
   detail?: Record<string, unknown>;
   riskLevel: AuditRisk;
   category?: string;
+  scope?: AuditScope;
   correlationId?: string;
   occurredAtUtc: string;
 }
@@ -47,7 +49,6 @@ const ACTION_LABELS: Record<string, string> = {
   CHECK_OUT: "Hoàn tất trả phòng",
   CANCEL: "Hủy đặt phòng",
   MARK_NO_SHOW: "Ghi nhận khách không đến",
-  PRINT_INVOICE: "In hóa đơn",
   UPDATE_CHECKOUT_FEE: "Điều chỉnh phụ phí checkout",
   REFUND: "Xử lý hoàn tiền",
   PAYMENT_RECEIVED: "Ghi nhận tiền vào",
@@ -67,6 +68,7 @@ const ACTION_LABELS: Record<string, string> = {
   PRICE_OVERRIDDEN: "Áp dụng giá walk-in khác giá hệ thống",
   CHECKOUT_RECONCILIATION_REQUESTED: "Gửi yêu cầu xử lý lệch checkout",
   CHECKOUT_RECONCILIATION_REJECTED: "Từ chối yêu cầu lệch checkout",
+  CHECKOUT_RECONCILIATION_RESOLVED_AUTOMATICALLY: "Tự đóng ngoại lệ khi đối soát đã khớp",
   CHECKOUT_RECONCILIATION_PASSED: "Đối soát checkout đã khớp",
   CHECKOUT_RECONCILIATION_OVERRIDDEN: "ADMIN duyệt ngoại lệ đối soát",
   USER_CREATED: "ADMIN tạo tài khoản vận hành",
@@ -79,9 +81,9 @@ const ACTION_LABELS: Record<string, string> = {
   ROOM_TYPE_CREATED: "Tạo hạng phòng",
   ROOM_TYPE_UPDATED: "Cập nhật hạng phòng",
   ROOM_TYPE_DELETED: "Xóa hạng phòng",
-  FACILITY_CREATED: "Tạo tiện ích",
-  FACILITY_UPDATED: "Cập nhật tiện ích",
-  FACILITY_DELETED: "Xóa tiện ích",
+  FACILITY_CREATED: "Tạo tiện nghi",
+  FACILITY_UPDATED: "Cập nhật tiện nghi",
+  FACILITY_DELETED: "Xóa tiện nghi",
   GALLERY_CREATED: "Tạo ảnh thư viện",
   GALLERY_UPDATED: "Cập nhật ảnh thư viện",
   GALLERY_DELETED: "Xóa ảnh thư viện",
@@ -95,7 +97,7 @@ const TARGET_LABELS: Record<string, string> = {
   ROOM_HOLD: "Giữ phòng",
   ROOM: "Phòng",
   ROOM_TYPE: "Hạng phòng",
-  FACILITY: "Tiện ích",
+  FACILITY: "Tiện nghi",
   GALLERY: "Thư viện ảnh",
   USER: "Tài khoản vận hành",
   SEPAY_WEBHOOK: "Webhook SePay",
@@ -108,10 +110,41 @@ const CATEGORY_LABELS: Record<string, string> = {
   REFUND: "Hoàn tiền",
   ROOM_HOLD: "Giữ phòng",
   CHECKOUT: "Checkout",
-  BUSINESS: "Danh mục & vận hành",
-  SECURITY: "Quản trị truy cập",
+  BUSINESS: "Danh mục khách sạn",
+  SECURITY: "Quản trị tài khoản",
   SYSTEM: "Tự động hệ thống",
 };
+
+const SCOPE_LABELS: Record<AuditScope, string> = {
+  OPERATION: "Vận hành",
+  MANAGEMENT: "Quản lý",
+};
+
+const CATEGORY_SCOPES: Record<string, AuditScope> = {
+  RESERVATION: "OPERATION",
+  PAYMENT: "OPERATION",
+  REFUND: "OPERATION",
+  ROOM_HOLD: "OPERATION",
+  CHECKOUT: "OPERATION",
+  SYSTEM: "OPERATION",
+  BUSINESS: "MANAGEMENT",
+  SECURITY: "MANAGEMENT",
+};
+
+const MANAGEMENT_ACTIONS = new Set([
+  "USER_CREATED", "USER_DEACTIVATED", "USER_ROLE_CHANGED", "PASSWORD_RESET_BY_ADMIN",
+  "ROOM_CREATED", "ROOM_UPDATED", "ROOM_DELETED",
+  "ROOM_TYPE_CREATED", "ROOM_TYPE_UPDATED", "ROOM_TYPE_DELETED",
+  "FACILITY_CREATED", "FACILITY_UPDATED", "FACILITY_DELETED",
+  "GALLERY_CREATED", "GALLERY_UPDATED", "GALLERY_DELETED",
+]);
+
+const MANAGEMENT_TARGETS = new Set(["USER", "ROOM", "ROOM_TYPE", "FACILITY", "GALLERY"]);
+
+function belongsToScope(value: string, scope: "" | AuditScope, managementValues: Set<string>) {
+  if (!value || !scope) return true;
+  return scope === "MANAGEMENT" ? managementValues.has(value) : !managementValues.has(value);
+}
 
 const RISK_LABELS: Record<AuditRisk, string> = {
   NORMAL: "Thông thường",
@@ -160,6 +193,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const EMPTY_FILTERS = {
+  scope: "",
   targetType: "",
   targetId: "",
   actor: "",
@@ -263,6 +297,37 @@ export default function AuditLogsPage() {
     setFilters((current) => ({ ...current, [key]: value }));
   };
 
+  const setScopeFilter = (scope: "" | AuditScope) => {
+    setPage(0);
+    setFilters((current) => {
+      const categoryMatchesScope = !current.category
+        || !scope
+        || CATEGORY_SCOPES[current.category] === scope;
+      return {
+        ...current,
+        scope,
+        category: categoryMatchesScope ? current.category : "",
+        action: belongsToScope(current.action, scope, MANAGEMENT_ACTIONS) ? current.action : "",
+        targetType: belongsToScope(current.targetType, scope, MANAGEMENT_TARGETS) ? current.targetType : "",
+      };
+    });
+  };
+
+  const toggleScope = (scope: AuditScope) => {
+    setScopeFilter(filters.scope === scope ? "" : scope);
+  };
+
+  const togglePaymentFilter = () => {
+    setPage(0);
+    setFilters((current) => ({
+      ...current,
+      scope: "OPERATION",
+      category: current.scope === "OPERATION" && current.category === "PAYMENT" ? "" : "PAYMENT",
+      action: belongsToScope(current.action, "OPERATION", MANAGEMENT_ACTIONS) ? current.action : "",
+      targetType: belongsToScope(current.targetType, "OPERATION", MANAGEMENT_TARGETS) ? current.targetType : "",
+    }));
+  };
+
   const resetFilters = () => {
     setPage(0);
     setFilters(EMPTY_FILTERS);
@@ -274,6 +339,12 @@ export default function AuditLogsPage() {
   );
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
+  const visibleCategories = Object.entries(CATEGORY_LABELS).filter(([category]) =>
+    !filters.scope || CATEGORY_SCOPES[category] === filters.scope);
+  const visibleActions = Object.entries(ACTION_LABELS).filter(([action]) =>
+    belongsToScope(action, filters.scope as "" | AuditScope, MANAGEMENT_ACTIONS));
+  const visibleTargets = Object.entries(TARGET_LABELS).filter(([target]) =>
+    belongsToScope(target, filters.scope as "" | AuditScope, MANAGEMENT_TARGETS));
   const changeKeys = selected ? Array.from(new Set([
     ...Object.keys(selected.oldValue || {}),
     ...Object.keys(selected.newValue || {}),
@@ -299,20 +370,25 @@ export default function AuditLogsPage() {
         onReset={resetFilters}
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={<>
-          <FilterQuickButton active={filters.category === "RESERVATION"} onClick={() => changeFilter("category", filters.category === "RESERVATION" ? "" : "RESERVATION")}>{localize("Đặt phòng", "Reservations")}</FilterQuickButton>
-          <FilterQuickButton active={filters.category === "PAYMENT"} onClick={() => changeFilter("category", filters.category === "PAYMENT" ? "" : "PAYMENT")}>{localize("Thanh toán", "Payments")}</FilterQuickButton>
-          <FilterQuickButton active={filters.category === "BUSINESS"} onClick={() => changeFilter("category", filters.category === "BUSINESS" ? "" : "BUSINESS")}>{localize("Danh mục", "Catalogue")}</FilterQuickButton>
+          <FilterQuickButton active={filters.scope === "OPERATION" && !filters.category} onClick={() => toggleScope("OPERATION")}>{localize("Vận hành", "Operations")}</FilterQuickButton>
+          <FilterQuickButton active={filters.scope === "MANAGEMENT" && !filters.category} onClick={() => toggleScope("MANAGEMENT")}>{localize("Quản lý", "Management")}</FilterQuickButton>
+          <FilterQuickButton active={filters.scope === "OPERATION" && filters.category === "PAYMENT"} onClick={togglePaymentFilter}>{localize("Thanh toán", "Payments")}</FilterQuickButton>
           <FilterQuickButton active={filters.riskLevel === "HIGH"} onClick={() => changeFilter("riskLevel", filters.riskLevel === "HIGH" ? "" : "HIGH")}>{localize("Rủi ro cao", "High risk")}</FilterQuickButton>
         </>}
       >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+          <DashboardSelectField id="audit-scope" label={localize("Phạm vi", "Scope")} value={filters.scope} onChange={(event) => setScopeFilter(event.target.value as "" | AuditScope)}>
+            <option value="">{localize("Tất cả vận hành & quản lý", "All operations & management")}</option>
+            <option value="OPERATION">{localize(SCOPE_LABELS.OPERATION, "Operations")}</option>
+            <option value="MANAGEMENT">{localize(SCOPE_LABELS.MANAGEMENT, "Management")}</option>
+          </DashboardSelectField>
           <DashboardSelectField id="audit-target" label={localize("Đối tượng", "Entity")} value={filters.targetType} onChange={(event) => changeFilter("targetType", event.target.value)}>
             <option value="">{localize("Tất cả đối tượng", "All entities")}</option>
-            {Object.entries(TARGET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {visibleTargets.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </DashboardSelectField>
           <DashboardSelectField id="audit-action" label={localize("Hành động", "Action")} value={filters.action} onChange={(event) => changeFilter("action", event.target.value)}>
             <option value="">{localize("Tất cả hành động", "All actions")}</option>
-            {Object.entries(ACTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {visibleActions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </DashboardSelectField>
           <DashboardSelectField id="audit-actor" label={localize("Người thao tác", "Actor")} value={filters.actor} onChange={(event) => changeFilter("actor", event.target.value)}>
             <option value="">{localize("Tất cả nhân sự và hệ thống", "All operators and system")}</option>
@@ -320,7 +396,7 @@ export default function AuditLogsPage() {
           </DashboardSelectField>
           <DashboardSelectField id="audit-category" label={localize("Nhóm nghiệp vụ", "Operation group")} value={filters.category} onChange={(event) => changeFilter("category", event.target.value)}>
             <option value="">{localize("Tất cả nhóm", "All groups")}</option>
-            {Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {visibleCategories.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </DashboardSelectField>
         </div>
 
