@@ -232,7 +232,7 @@ export default function AccountSettings({ variant = "operations", view = "profil
         <label><span className={labelClass}>{localize("Tên đăng nhập", "Username")}</span><input className={`${inputClass} cursor-not-allowed bg-[#F1F0EA] text-[#66727C]`} disabled value={profile.username} /></label>
         <label><span className={labelClass}>Email</span><input className={`${inputClass} cursor-not-allowed bg-[#F1F0EA] text-[#66727C]`} disabled value={profile.email} /></label>
         <label className="md:col-span-2"><span className={labelClass}>{localize("Địa chỉ", "Address")}</span><input className={inputClass} value={profile.address} onChange={(event) => setProfile({ ...profile, address: event.target.value })} placeholder={localize("Nhập địa chỉ liên hệ", "Enter contact address")} /></label>
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#0F2A43]/10 pt-5 md:col-span-2"><p className="text-xs leading-5 text-[#66727C]">{localize("Email và tên đăng nhập cần lễ tân hỗ trợ nếu muốn thay đổi.", "Contact support to change your email or username.")}</p><button disabled={isSaving || isUploading || !profile.id} className="min-h-11 rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30] disabled:cursor-not-allowed disabled:opacity-50">{isSaving ? localize("Đang lưu...", "Saving...") : localize("Lưu thay đổi", "Save changes")}</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#0F2A43]/10 pt-5 md:col-span-2"><p className="text-xs leading-5 text-[#66727C]">{localize("Email và tên đăng nhập cần lễ tân hỗ trợ nếu muốn thay đổi.", "Contact support to change your email or username.")}</p><button disabled={isSaving || isUploading || !profile.id} aria-busy={isSaving || undefined} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30] disabled:cursor-not-allowed disabled:opacity-50">{isSaving && <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />}{isSaving ? localize("Đang lưu...", "Saving...") : localize("Lưu thay đổi", "Save changes")}</button></div>
       </div>
     </form>
   );
@@ -250,7 +250,7 @@ export default function AccountSettings({ variant = "operations", view = "profil
           </ul>
         </div>
       </div>
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#0F2A43]/10 pt-5"><p className="text-xs text-[#66727C]">{localize("Sau khi đổi, phiên đăng nhập hiện tại vẫn được giữ.", "Your current session remains active after the update.")}</p><button disabled={isChangingPassword || !profile.id} className="min-h-11 rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30] disabled:cursor-not-allowed disabled:opacity-50">{isChangingPassword ? localize("Đang cập nhật...", "Updating...") : localize("Cập nhật mật khẩu", "Update password")}</button></div>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#0F2A43]/10 pt-5"><p className="text-xs text-[#66727C]">{localize("Sau khi đổi, phiên đăng nhập hiện tại vẫn được giữ.", "Your current session remains active after the update.")}</p><button disabled={isChangingPassword || !profile.id} aria-busy={isChangingPassword || undefined} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30] disabled:cursor-not-allowed disabled:opacity-50">{isChangingPassword && <span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />}{isChangingPassword ? localize("Đang cập nhật...", "Updating...") : localize("Cập nhật mật khẩu", "Update password")}</button></div>
     </form>
   );
 
@@ -284,6 +284,26 @@ export default function AccountSettings({ variant = "operations", view = "profil
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
           <div className="space-y-5 rounded-xl border border-[#0F2A43]/14 bg-[#FBFAF6] p-6 md:p-8">
             <div><h2 className="font-serif text-3xl font-bold text-[#0F2A43]">{localize("Thiết lập hiển thị", "Display preferences")}</h2><p className="mt-2 text-sm leading-6 text-[#66727C]">{localize("Các lựa chọn được lưu trên trình duyệt này và áp dụng ngay cho toàn bộ website.", "Preferences are stored in this browser and apply to the entire website immediately.")}</p></div>
+            <fieldset className="border-t border-[#0F2A43]/10 pt-5">
+              <legend className="text-sm font-bold text-[#0F2A43]">{localize("Giao diện màu", "Color theme")}</legend>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                {([
+                  ["light", localize("Sáng", "Light"), localize("Nền kem sáng", "Light ivory")],
+                  ["dark", localize("Tối", "Dark"), localize("Nền navy dịu", "Soft navy")],
+                ] as const).map(([theme, label, description]) => (
+                  <button
+                    key={theme}
+                    type="button"
+                    aria-pressed={preferences.theme === theme}
+                    onClick={() => updatePreferences({ theme })}
+                    className={`min-h-20 rounded-xl border p-4 text-left transition ${preferences.theme === theme ? "border-[#B8944F] bg-[#F0EADF] text-[#0F2A43]" : "border-[#0F2A43]/12 bg-white text-[#66727C] hover:border-[#B8944F]/60"}`}
+                  >
+                    <span className="block text-sm font-bold">{label}</span>
+                    <span className="mt-1 block text-xs">{description}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
             <fieldset className="border-t border-[#0F2A43]/10 pt-5"><legend className="text-sm font-bold text-[#0F2A43]">{localize("Cỡ chữ", "Text size")}</legend><div className="mt-3 grid gap-3 sm:grid-cols-2">{(["standard", "large"] as const).map((size) => <button key={size} type="button" aria-pressed={preferences.textSize === size} onClick={() => updatePreferences({ textSize: size })} className={`min-h-20 rounded-xl border p-4 text-left transition ${preferences.textSize === size ? "border-[#B8944F] bg-[#F0EADF] text-[#0F2A43]" : "border-[#0F2A43]/12 bg-white text-[#66727C] hover:border-[#B8944F]/60"}`}><span className={size === "large" ? "text-xl font-bold" : "text-base font-bold"}>{size === "large" ? localize("Chữ lớn", "Large") : localize("Tiêu chuẩn", "Standard")}</span><span className="mt-1 block text-xs">{size === "large" ? localize("Tăng cỡ chữ toàn trang", "Increase text across the site") : localize("Cỡ chữ mặc định", "Default text size")}</span></button>)}</div></fieldset>
             <div className="grid gap-3 border-t border-[#0F2A43]/10 pt-5">
               {[["highContrast", preferences.highContrast, localize("Tăng độ tương phản", "Higher contrast"), localize("Làm đậm chữ phụ và đường viền.", "Darken secondary text and borders.")], ["reduceMotion", preferences.reduceMotion, localize("Giảm chuyển động", "Reduce motion"), localize("Tắt hiệu ứng chuyển trang và chuyển động trang trí.", "Disable page transitions and decorative motion.")], ["underlineLinks", preferences.underlineLinks, localize("Gạch chân liên kết", "Underline links"), localize("Giúp nhận biết liên kết ngoài màu sắc.", "Identify links without relying only on color.")]].map(([key, enabled, label, description]) => <button key={String(key)} type="button" role="switch" aria-checked={Boolean(enabled)} onClick={() => updatePreferences({ [String(key)]: !enabled })} className="flex min-h-16 items-center justify-between gap-5 rounded-xl border border-[#0F2A43]/12 bg-white p-4 text-left transition hover:border-[#B8944F]/60"><span><strong className="block text-sm text-[#0F2A43]">{label}</strong><span className="mt-1 block text-xs leading-5 text-[#66727C]">{description}</span></span><span aria-hidden="true" className={`relative h-7 w-12 shrink-0 rounded-full transition ${enabled ? "bg-[#0F2A43]" : "bg-[#D8DDE1]"}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} /></span></button>)}

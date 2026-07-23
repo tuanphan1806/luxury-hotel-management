@@ -10,11 +10,14 @@ import { apiClient } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import DateTimeField from "@/components/forms/DateTimeField";
-import { getPublicRoomTypes } from "@/lib/public-catalog";
+import { getPublicFacilities, getPublicRoomTypes } from "@/lib/public-catalog";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
+import ViewportModal from "@/components/UI/ViewportModal";
 import GuestPageHero from "@/components/guest/GuestPageHero";
+import FacilityDetailModal, { type FacilityDetailItem } from "@/components/guest/FacilityDetailModal";
 import { ROOMS_CONTENT } from "@/constants/content";
 import { useFavorites } from "@/components/favorites/FavoritesProvider";
+import { getRoomGalleryImages, normalizeCatalogText } from "@/lib/room-gallery";
 
 
 interface RoomDetails {
@@ -30,7 +33,11 @@ interface RoomDetails {
     view: string;
   };
   gallery: string[];
-  amenities: string[];
+  amenities: RoomAmenity[];
+}
+
+interface RoomAmenity extends FacilityDetailItem {
+  name: string;
 }
 
 interface ReviewItem {
@@ -49,9 +56,11 @@ interface RoomTypeRating {
 }
 
 interface RoomFacilityPayload {
+  id?: number;
   facilityName?: string;
   facilityNameEn?: string;
   imageUrl?: string;
+  type?: string;
 }
 
 interface RoomTypePayload {
@@ -111,13 +120,10 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
   const [rating, setRating] = useState<RoomTypeRating | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [galleryStart, setGalleryStart] = useState(0);
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
-  const [galleryDirection, setGalleryDirection] = useState<"previous" | "next">("next");
+  const [selectedFacility, setSelectedFacility] = useState<FacilityDetailItem | null>(null);
   const [selectedImageDirection, setSelectedImageDirection] = useState<"previous" | "next">("next");
   const galleryImages = room?.gallery ?? [];
-  const maxGalleryStart = Math.max(0, galleryImages.length - 3);
-  const visibleImages = galleryImages.slice(galleryStart, galleryStart + 3);
   const selectedGalleryImage = selectedImage === null ? undefined : galleryImages[selectedImage];
 
   const [recommendations, setRecommendations] = useState<RoomRecommendation[]>([]);
@@ -179,18 +185,6 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
     setCheckIn(localValue(defaultCheckIn)); setCheckOut(localValue(defaultCheckOut));
   }, []);
 
-  const showPreviousGallerySet = () => {
-    if (!galleryImages.length) return;
-    setGalleryDirection("previous");
-    setGalleryStart((prev) => (prev <= 0 ? maxGalleryStart : Math.max(prev - 1, 0)));
-  };
-
-  const showNextGallerySet = () => {
-    if (!galleryImages.length) return;
-    setGalleryDirection("next");
-    setGalleryStart((prev) => (prev >= maxGalleryStart ? 0 : Math.min(prev + 1, maxGalleryStart)));
-  };
-
   const showPreviousSelectedImage = () => {
     if (!galleryImages.length) return;
     setSelectedImageDirection("previous");
@@ -212,13 +206,26 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
   useEffect(() => {
 
     // Dùng catalog dùng chung để không gọi lại RoomType cho phần chi tiết và gợi ý.
-    getPublicRoomTypes<RoomTypePayload>()
-      .then((roomTypes) => {
+    Promise.all([
+      getPublicRoomTypes<RoomTypePayload>(),
+      getPublicFacilities<FacilityDetailItem>().catch(() => []),
+    ])
+      .then(([roomTypes, facilityCatalog]) => {
+        const facilityById = new Map(facilityCatalog.map((facility) => [Number(facility.id), facility]));
         const dbData = roomTypes.find((item) => String(item.id) === String(roomId));
         if (dbData) {
-          const facilityImages = (dbData.facilities || [])
-            .map((facility) => facility.imageUrl)
-            .filter((image): image is string => Boolean(image));
+          const normalizedType = normalizeCatalogText(`${dbData.typeName || ""} ${dbData.typeNameEn || ""}`);
+          const specs = normalizedType.includes("presidential") || normalizedType.includes("tong thong")
+            ? { bed: localize("1 giường King + phòng khách", "1 king bed + living room"), size: "90 m²", view: localize("Toàn cảnh thành phố", "Panoramic city view") }
+            : normalizedType.includes("family") || normalizedType.includes("gia dinh")
+              ? { bed: localize("2 giường Queen", "2 queen beds"), size: "62 m²", view: localize("Hướng sân vườn", "Garden view") }
+              : normalizedType.includes("suite")
+                ? { bed: localize("1 giường King", "1 king bed"), size: "55 m²", view: localize("Hướng thành phố", "City view") }
+                : normalizedType.includes("executive")
+                  ? { bed: localize("1 giường King", "1 king bed"), size: "40 m²", view: localize("Hướng thành phố", "City view") }
+                  : normalizedType.includes("deluxe")
+                    ? { bed: localize("1 giường King", "1 king bed"), size: "36 m²", view: localize("Ban công thành phố", "City balcony") }
+                    : { bed: localize("1 giường Queen", "1 queen bed"), size: "28 m²", view: localize("Hướng sân trong", "Courtyard view") };
           // Map backend object format to page expectations
           setRoom({
             id: Number(dbData.id),
@@ -227,15 +234,22 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
             price: dbData.price || 150,
             maxGuests: dbData.maxGuests || 2,
             imageUrl: dbData.imageUrl || "",
-            specs: {
-              bed: localize("1 giường cỡ lớn", "1 king bed"),
-              size: "42 m²",
-              view: localize("Hướng vườn", "Garden view")
-            },
-            gallery: facilityImages,
-            amenities: dbData.facilities?.map((facility) => localize(facility.facilityName, facility.facilityNameEn)) || [
-              localize("Chưa có dữ liệu tiện ích", "No facility data available")
-            ]
+            specs,
+            gallery: getRoomGalleryImages(dbData.typeName, dbData.typeNameEn, dbData.imageUrl),
+            amenities: (dbData.facilities || []).map((facility) => {
+              const detail = facility.id ? facilityById.get(Number(facility.id)) : undefined;
+              const facilityName = facility.facilityName || detail?.facilityName || detail?.name;
+              const facilityNameEn = facility.facilityNameEn || detail?.facilityNameEn;
+              return {
+                ...detail,
+                id: facility.id ?? detail?.id,
+                facilityName,
+                facilityNameEn,
+                name: localize(facilityName, facilityNameEn) || localize("Tiện nghi", "Amenity"),
+                imageUrl: facility.imageUrl || detail?.imageUrl || detail?.image,
+                type: facility.type || detail?.type,
+              };
+            })
           });
           setRating({
             averageRating: Number(dbData.averageRating || 0),
@@ -315,6 +329,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
             {favorite ? localize("Đã lưu yêu thích", "Saved to favorites") : localize("Lưu vào yêu thích", "Save to favorites")}
           </button>
         )}
+        contentPosition="left"
       />
 
       {/* Main Grid Content */}
@@ -324,24 +339,21 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
           {/* Left Details Info */}
           <div className="lg:col-span-2 space-y-10">
             {/* Spec Badges Row */}
-            <div className="flex flex-wrap gap-6 items-center border-b border-gray-100 pb-6 text-sm text-text-light font-medium">
+            <div className="grid gap-3 border-b border-[#0F2A43]/10 pb-6 text-sm font-medium text-text-light sm:grid-cols-2 xl:grid-cols-4">
               <div className="flex items-center gap-2">
-                <span className="text-accent-gold text-lg">🛏</span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EAE2D2] text-[#80632F]"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 19v-8m18 8v-6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v6M3 16h18M6 11V8a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3" /></svg></span>
                 <span>{room.specs.bed}</span>
               </div>
-              <div className="w-1.5 h-1.5 rounded-full bg-gray-300 hidden sm:block"></div>
               <div className="flex items-center gap-2">
-                <span className="text-accent-gold text-lg">📐</span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EAE2D2] text-[#80632F]"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m4 17 13-13 3 3L7 20H4v-3Z" /><path d="m13 8 3 3M9 12l3 3" /></svg></span>
                 <span>{room.specs.size}</span>
               </div>
-              <div className="w-1.5 h-1.5 rounded-full bg-gray-300 hidden sm:block"></div>
               <div className="flex items-center gap-2">
-                <span className="text-accent-gold text-lg">🌅</span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EAE2D2] text-[#80632F]"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14a8 8 0 0 1 16 0M2 18h20M12 2v3M4.9 6.9 7 9m12.1-2.1L17 9" /></svg></span>
                 <span>{room.specs.view}</span>
               </div>
-              <div className="w-1.5 h-1.5 rounded-full bg-gray-300 hidden sm:block"></div>
               <div className="flex items-center gap-2">
-                <span className="text-accent-gold text-lg">●</span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EAE2D2] text-[#80632F]"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg></span>
                 <span>{localize(`Tối đa ${room.maxGuests} khách / phòng`, `Up to ${room.maxGuests} guests / room`)}</span>
               </div>
             </div>
@@ -356,80 +368,118 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
               </p>
             </div>
 
-            {/* Grid of Images */}
-            <div className="flex items-center gap-4">
+            {/* Room-specific editorial gallery */}
+            <div className="space-y-5" data-guest-reveal>
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Hình ảnh hạng phòng", "Room gallery")}</p>
+                  <h3 className="mt-2 font-serif text-2xl font-bold text-primary-navy">{localize("Nhìn rõ từng không gian trước khi chọn", "See each space before you choose")}</h3>
+                </div>
+                <p className="max-w-sm text-sm leading-6 text-[#66727C]">{localize("Mỗi ảnh thể hiện một góc sử dụng khác nhau, không dùng ảnh tiện nghi chung để thay cho ảnh phòng.", "Each image shows a distinct room function; shared amenity photos are kept separate.")}</p>
+              </div>
 
-            {/* Left Arrow */}
-            <button
-                disabled={!galleryImages.length}
-                onClick={showPreviousGallerySet}
-                className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center
-                hover:bg-primary-navy hover:text-white transition
-                disabled:cursor-not-allowed disabled:opacity-40 shrink-0"
-            >
-                ←
-            </button>
-
-            {/* Facility Images */}
-            <div
-              key={`${galleryStart}-${galleryDirection}`}
-              className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3"
-            >
-                {visibleImages.map((img, index) => (
-                    <div
-                        key={`${img}-${galleryStart + index}`}
-                        className={`facility-gallery-card relative h-[250px] cursor-pointer overflow-hidden rounded-sm shadow-sm ${
-                          galleryDirection === "next" ? "facility-gallery-card-next" : "facility-gallery-card-previous"
-                        }`}
-                        style={{
-                          animationDelay: `${(galleryDirection === "next" ? index : visibleImages.length - 1 - index) * 95}ms`,
-                        }}
-                        onClick={() => setSelectedImage(galleryStart + index)}
-                    >
+              {galleryImages.length ? (
+                <div className={galleryImages.length >= 3
+                  ? "grid gap-3 md:grid-cols-[1.45fr_0.85fr] md:grid-rows-2"
+                  : "grid gap-3 md:grid-cols-2"}
+                >
+                  {galleryImages.slice(0, 3).map((img, index) => {
+                    const caption = index === 0
+                      ? localize("Toàn cảnh", "Overview")
+                      : index === 1
+                        ? localize("Không gian chức năng", "Functional space")
+                        : localize("Chi tiết thiết kế", "Design detail");
+                    const featured = galleryImages.length >= 3 && index === 0;
+                    return (
+                      <button
+                        type="button"
+                        key={img}
+                        onClick={() => setSelectedImage(index)}
+                        className={`guest-media-lift group relative overflow-hidden rounded-[1.35rem] bg-[#E5E9ED] text-left shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] ${featured ? "h-[360px] md:row-span-2 md:h-[540px]" : "h-[260px] md:h-auto md:min-h-[260px]"}`}
+                        aria-label={localize(`Mở ảnh ${caption} của ${room.typeName}`, `Open ${caption} image for ${room.typeName}`)}
+                      >
                         <ProgressiveImage
-                            src={img}
-                            alt={`${room.typeName} gallery ${galleryStart + index + 1}`}
-                            fill
-                            sizes="(min-width: 768px) 33vw, 100vw"
-                            className="object-cover hover:scale-105"
+                          src={img}
+                          fallbackSrc={room.imageUrl || ROOMS_CONTENT.hero.bg}
+                          alt={`${room.typeName} — ${caption}`}
+                          fill
+                          sizes={featured ? "(min-width: 1024px) 55vw, 100vw" : "(min-width: 1024px) 30vw, 100vw"}
+                          className="object-cover transition duration-500 group-hover:scale-[1.035]"
+                          priority={index === 0}
                         />
-                    </div>
-                ))}
-                {!visibleImages.length && (
-                  <div className="flex h-[250px] items-center justify-center rounded-sm border border-dashed border-gray-200 bg-[#F1F0EA] text-sm font-semibold text-[#66727C] md:col-span-3">
-                    {localize("Chưa có hình ảnh cho loại phòng này.", "No gallery images are available for this room type.")}
-                  </div>
-                )}
+                        <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#071A2A]/85 via-[#071A2A]/35 to-transparent px-5 pb-4 pt-16 text-sm font-bold text-white">
+                          {caption}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex h-[260px] items-center justify-center rounded-[1.35rem] border border-dashed border-[#0F2A43]/15 bg-[#E5E9ED] text-sm font-semibold text-[#66727C]">
+                  {localize("Chưa có hình ảnh cho loại phòng này.", "No gallery images are available for this room type.")}
+                </div>
+              )}
             </div>
 
-            {/* Right Arrow */}
-            <button
-                disabled={!galleryImages.length}
-                onClick={showNextGallerySet}
-                className="w-10 h-10 rounded-full border border-gray-300 flex items-center justify-center
-                hover:bg-primary-navy hover:text-white transition
-                disabled:cursor-not-allowed disabled:opacity-40 shrink-0"
-            >
-                →
-            </button>
-
-        </div>
-
             {/* Amenities Section */}
-            <div className="bg-[#E5E9ED] p-8 rounded-sm border border-gray-100/50">
-              <h3 className="font-serif text-xl font-bold text-primary-navy mb-6 pb-2 border-b border-gray-200/50">
-                {localize("Tiện ích đi kèm", "Included amenities")}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-8">
-                {room.amenities.map((amenity, idx) => (
-                  <div key={idx} className="flex items-center gap-3 text-sm text-text-dark font-medium">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B8944F" strokeWidth="2.5" className="shrink-0">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <span>{amenity}</span>
-                  </div>
-                ))}
+            <div className="rounded-[1.75rem] border border-[#0F2A43]/10 bg-[#E5E9ED] p-6 md:p-8" data-guest-reveal>
+              <div className="mb-6 flex flex-col justify-between gap-3 border-b border-[#0F2A43]/10 pb-5 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Đi kèm hạng phòng", "Included with this room")}</p>
+                  <h3 className="mt-2 font-serif text-2xl font-bold text-primary-navy">{localize("Tiện nghi có hình ảnh đại diện", "Amenities with representative images")}</h3>
+                </div>
+                <Link href="/facilities" className="text-xs font-bold uppercase tracking-[0.14em] text-[#80632F] hover:underline">
+                  {localize("Xem tất cả tiện nghi", "View all amenities")} →
+                </Link>
               </div>
+              {room.amenities.length ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {room.amenities.map((amenity, idx) => (
+                    <button
+                      type="button"
+                      key={`${amenity.name}-${idx}`}
+                      onClick={() => setSelectedFacility(amenity)}
+                      aria-haspopup="dialog"
+                      aria-label={localize(`Xem chi tiết tiện nghi ${amenity.name}`, `View details for ${amenity.name}`)}
+                      className="group flex min-h-[108px] cursor-pointer overflow-hidden rounded-[1.1rem] border border-[#0F2A43]/10 bg-[#FBFAF6] text-left shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-[#B8944F]/65 hover:shadow-[0_14px_30px_rgba(15,42,67,0.13)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-2"
+                    >
+                      <div className="relative w-[112px] shrink-0 overflow-hidden bg-[#D9E0E5]">
+                        {amenity.imageUrl ? (
+                          <ProgressiveImage
+                            src={amenity.imageUrl}
+                            fallbackSrc={room.imageUrl || ROOMS_CONTENT.hero.bg}
+                            alt={localize(`Ảnh đại diện tiện nghi ${amenity.name}`, `${amenity.name} amenity`)}
+                            fill
+                            sizes="112px"
+                            className="object-cover transition duration-500 group-hover:scale-105"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-[#80632F]" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 19V8l8-4 8 4v11M8 19v-5h8v5M3 19h18" /></svg>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex min-w-0 flex-1 flex-col justify-center p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#80632F]">
+                            {amenity.type === "ROOM" ? localize("Trong phòng", "In-room") : localize("Không gian chung", "Shared space")}
+                          </p>
+                          <span aria-hidden="true" className="text-sm font-bold text-[#80632F] transition-transform duration-200 group-hover:translate-x-0.5">↗</span>
+                        </div>
+                        <h4 className="mt-1 font-serif text-lg font-bold leading-tight text-[#0F2A43]">{amenity.name}</h4>
+                        <p className="mt-2 flex items-center gap-2 text-xs font-semibold text-[#66727C]">
+                          <svg viewBox="0 0 24 24" className="h-4 w-4 text-[#B8944F]" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="m5 12 4 4L19 6" /></svg>
+                          {localize("Có trong hạng phòng này", "Included with this room type")}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-[1.1rem] border border-dashed border-[#0F2A43]/15 bg-[#FBFAF6] p-5 text-sm font-semibold text-[#66727C]">
+                  {localize("Chưa có dữ liệu tiện nghi cho hạng phòng này.", "No amenity data is available for this room type yet.")}
+                </div>
+              )}
             </div>
 
             <div className="rounded-[1.75rem] bg-[#F1F0EA] p-6 md:p-8">
@@ -541,25 +591,41 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </section>
 
-        {selectedImage !== null && selectedGalleryImage && (
-      <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
-          onClick={() => setSelectedImage(null)}
-      >
+      {selectedImage !== null && selectedGalleryImage && (
+        <ViewportModal
+          open
+          onClose={() => setSelectedImage(null)}
+          labelledBy="room-gallery-lightbox-title"
+          panelClassName="max-w-[96vw] !border-0 !bg-transparent !shadow-none"
+          backdropClassName="bg-black/90"
+        >
+          <div
+            className="relative flex min-h-0 flex-1 items-center justify-center"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setSelectedImage(null);
+            }}
+          >
+          <h2 id="room-gallery-lightbox-title" className="sr-only">
+            {localize("Ảnh chi tiết phòng", "Room gallery image")}
+          </h2>
           <button
-              className="absolute top-5 right-5 text-white text-4xl"
+              type="button"
+              className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-[#0F2A43]/80 text-2xl text-white shadow-lg backdrop-blur transition hover:scale-105 hover:bg-[#0F2A43] sm:right-4 sm:top-4"
               onClick={() => setSelectedImage(null)}
+              aria-label={localize("Đóng ảnh", "Close image")}
           >
               ✕
           </button>
 
           {galleryImages.length > 1 && (
               <button
-                  className="absolute left-6 text-white text-5xl"
+                  type="button"
+                  className="absolute left-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-[#F1F0EA]/90 text-3xl text-[#0F2A43] shadow-lg backdrop-blur transition hover:scale-105 hover:bg-white sm:left-4"
                   onClick={(e) => {
                       e.stopPropagation();
                       showPreviousSelectedImage();
                   }}
+                  aria-label={localize("Ảnh trước", "Previous image")}
               >
                   ‹
               </button>
@@ -571,7 +637,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
               alt={`${room.typeName} selected gallery`}
               width={1600}
               height={1000}
-              className={`h-auto w-auto max-h-[90vh] max-w-[90vw] object-contain ${
+              className={`h-auto w-auto max-h-[calc(100dvh-2rem)] max-w-[94vw] object-contain ${
                 selectedImageDirection === "next" ? "facility-lightbox-next" : "facility-lightbox-previous"
               }`}
               onClick={(e) => e.stopPropagation()}
@@ -579,17 +645,21 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
 
           {galleryImages.length > 1 && (
               <button
-                  className="absolute right-6 text-white text-5xl"
+                  type="button"
+                  className="absolute right-2 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-[#F1F0EA]/90 text-3xl text-[#0F2A43] shadow-lg backdrop-blur transition hover:scale-105 hover:bg-white sm:right-4"
                   onClick={(e) => {
                       e.stopPropagation();
                       showNextSelectedImage();
                   }}
+                  aria-label={localize("Ảnh tiếp theo", "Next image")}
               >
                   ›
               </button>
           )}
-      </div>
-  )}
+          </div>
+        </ViewportModal>
+      )}
+      <FacilityDetailModal facility={selectedFacility} onClose={() => setSelectedFacility(null)} />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );

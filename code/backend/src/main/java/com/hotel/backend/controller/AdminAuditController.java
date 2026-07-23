@@ -2,6 +2,7 @@ package com.hotel.backend.controller;
 
 import com.hotel.backend.constant.AuditCategory;
 import com.hotel.backend.constant.AuditRiskLevel;
+import com.hotel.backend.constant.AuditScope;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.dto.response.ApiResponse;
 import com.hotel.backend.dto.response.ReservationAuditLogResponse;
@@ -33,13 +34,14 @@ public class AdminAuditController {
             @RequestParam(required = false) String actorRole,
             @RequestParam(required = false) ReservationAuditAction action,
             @RequestParam(required = false) AuditCategory category,
+            @RequestParam(required = false) AuditScope scope,
             @RequestParam(required = false) AuditRiskLevel riskLevel,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size) {
         return ApiResponse.success(auditService.search(
-                targetType, targetId, actor, actorRole, action, category, riskLevel,
+                targetType, targetId, actor, actorRole, action, category, scope, riskLevel,
                 from, to, page, size));
     }
 

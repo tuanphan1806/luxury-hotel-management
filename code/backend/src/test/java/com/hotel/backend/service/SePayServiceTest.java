@@ -129,7 +129,8 @@ class SePayServiceTest {
                 reservationRepository,
                 reservationService,
                 paymentRefundService,
-                reservationAuditService);
+                reservationAuditService,
+                org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class));
     }
 
     @Test

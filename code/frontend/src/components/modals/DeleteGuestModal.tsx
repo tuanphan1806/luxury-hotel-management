@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { getApiErrorMessage } from "@/lib/api";
+import Button from "@/components/UI/Button";
+import ViewportModal from "@/components/UI/ViewportModal";
 
 interface UserItem {
   id: number;
@@ -21,6 +23,12 @@ export default function DeleteGuestModal({ isOpen, onClose, user, onConfirm }: D
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setErrorMsg("");
+    setIsSubmitting(false);
+  }, [isOpen, user?.id]);
+
   if (!isOpen || !user) return null;
 
   const handleConfirm = async () => {
@@ -37,8 +45,16 @@ export default function DeleteGuestModal({ isOpen, onClose, user, onConfirm }: D
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#091E30]/62 p-4 animate-fade-in" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSubmitting) onClose(); }}>
-      <div className="bg-white rounded-2xl max-w-sm w-full p-8 space-y-6 shadow-2xl relative text-center border border-gray-150">
+    <ViewportModal
+      open={isOpen}
+      onClose={onClose}
+      labelledBy="delete-user-title"
+      describedBy="delete-user-description"
+      busy={isSubmitting}
+      panelClassName="max-w-sm"
+      backdropClassName="bg-[#091E30]/62"
+    >
+      <div className="min-h-0 space-y-6 overflow-y-auto p-6 text-center sm:p-8">
         <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
           {/* Warning SVG instead of text emoji */}
           <svg
@@ -57,8 +73,8 @@ export default function DeleteGuestModal({ isOpen, onClose, user, onConfirm }: D
         </div>
 
         <div className="space-y-2">
-          <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Xóa người dùng", "Delete user")}</h3>
-          <p className="text-xs text-[#66727C] leading-relaxed">
+          <h3 id="delete-user-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa người dùng", "Delete user")}</h3>
+          <p id="delete-user-description" className="text-sm text-[#66727C] leading-relaxed">
             {localize("Bạn có chắc chắn muốn xóa người dùng", "Are you sure you want to delete user")} <strong>{user.fullName}</strong>? {localize("Hành động này không thể hoàn tác.", "This action cannot be undone.")}
           </p>
         </div>
@@ -70,24 +86,20 @@ export default function DeleteGuestModal({ isOpen, onClose, user, onConfirm }: D
         )}
 
         <div className="flex gap-3 pt-2">
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={onClose}
-            className="flex-1 py-3 border border-[#0F2A43]/10 hover:bg-[#F1F0EA] text-[#66727C] font-bold text-xs uppercase rounded-xl transition-all"
-          >
+          <Button variant="secondary" disabled={isSubmitting} onClick={onClose} className="flex-1 uppercase">
             {localize("Hủy", "Cancel")}
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={handleConfirm}
-            className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase rounded-xl shadow-md transition-all"
+          </Button>
+          <Button
+            variant="danger"
+            loading={isSubmitting}
+            loadingLabel={localize("Đang xóa...", "Deleting...")}
+            onClick={() => void handleConfirm()}
+            className="flex-1 uppercase"
           >
-            {isSubmitting ? localize("Đang xóa...", "Deleting...") : localize("Xóa", "Delete")}
-          </button>
+            {localize("Xóa", "Delete")}
+          </Button>
         </div>
       </div>
-    </div>
+    </ViewportModal>
   );
 }

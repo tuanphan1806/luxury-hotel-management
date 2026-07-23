@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "7";
+    private static final String LATEST_VERSION = "8";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")

@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
+import Button from "@/components/UI/Button";
+import ViewportModal from "@/components/UI/ViewportModal";
 
 interface MaintenanceHistoryLog {
   date: string;
@@ -19,8 +21,8 @@ interface MaintenanceDetailModalProps {
     maintenanceExpectedCompletedDate?: string;
     maintenanceHistory?: MaintenanceHistoryLog[];
   } | null;
-  onAddLog: (note: string) => void;
-  onCompleteMaintenance: () => void;
+  onAddLog: (note: string) => void | Promise<void>;
+  onCompleteMaintenance: () => void | Promise<void>;
 }
 
 export default function MaintenanceDetailModal({
@@ -32,22 +34,57 @@ export default function MaintenanceDetailModal({
 }: MaintenanceDetailModalProps) {
   const { localize } = useLanguage();
   const [logNote, setLogNote] = useState("");
+  const [logError, setLogError] = useState("");
+  const [activeAction, setActiveAction] = useState<"log" | "complete" | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setLogNote("");
+    setLogError("");
+    setActiveAction(null);
+  }, [isOpen, room?.roomName]);
 
   if (!isOpen || !room) return null;
 
-  const handleLogSubmit = () => {
-    if (!logNote.trim()) return;
-    onAddLog(logNote);
-    setLogNote("");
+  const handleLogSubmit = async () => {
+    const normalizedNote = logNote.trim();
+    if (!normalizedNote) {
+      setLogError(localize("Vui lòng nhập nội dung cập nhật tiến độ.", "Enter a progress update."));
+      return;
+    }
+    setActiveAction("log");
+    setLogError("");
+    try {
+      await onAddLog(normalizedNote);
+      setLogNote("");
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleComplete = async () => {
+    setActiveAction("complete");
+    try {
+      await onCompleteMaintenance();
+    } finally {
+      setActiveAction(null);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#091E30]/62 p-4 animate-fade-in" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="bg-white border border-gray-200 rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden">
+    <ViewportModal
+      open={isOpen}
+      onClose={onClose}
+      labelledBy="maintenance-detail-title"
+      busy={activeAction !== null}
+      panelClassName="max-w-2xl"
+      backdropClassName="bg-[#091E30]/62"
+    >
+      <div className="flex min-h-0 flex-col">
         {/* Header */}
         <div className="bg-red-950 p-6 text-white text-center flex justify-between items-center">
           <div className="text-left">
-            <h3 className="font-serif text-xl font-bold tracking-wide">
+            <h3 id="maintenance-detail-title" className="text-xl font-bold tracking-wide">
               {localize("Chi tiết bảo trì phòng", "Room maintenance details")} #{room.roomName}
             </h3>
             <p className="text-[10px] font-semibold text-[#C8A35B] uppercase tracking-wider mt-1">
@@ -60,9 +97,9 @@ export default function MaintenanceDetailModal({
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-5 text-xs font-semibold text-text-dark max-h-[60vh] overflow-y-auto">
+        <div className="min-h-0 overflow-y-auto p-4 text-xs font-semibold text-text-dark sm:p-6 space-y-5">
           {/* Reason & Expected Date */}
-          <div className="grid grid-cols-2 gap-4 bg-red-50/20 border border-red-200/50 p-4 rounded-xl">
+          <div className="grid gap-4 bg-red-50/20 border border-red-200/50 p-4 rounded-xl sm:grid-cols-2">
             <div>
               <p className="text-[9px] text-text-light font-bold uppercase tracking-wider mb-0.5">
                 {localize("Lý do bảo trì", "Maintenance reason")}
@@ -82,7 +119,7 @@ export default function MaintenanceDetailModal({
             <p className="text-[10px] text-text-light font-bold uppercase tracking-wider border-b border-gray-150 pb-1">
               {localize("Nhật ký bảo trì", "Maintenance history")}
             </p>
-            <div className="overflow-hidden border border-gray-200 rounded-lg">
+            <div className="overflow-x-auto border border-gray-200 rounded-lg">
               <table className="w-full text-left border-collapse text-[11px]">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-[10px] uppercase text-text-light">
@@ -132,39 +169,45 @@ export default function MaintenanceDetailModal({
               <input
                 type="text"
                 value={logNote}
-                onChange={(e) => setLogNote(e.target.value)}
+                onChange={(e) => {
+                  setLogNote(e.target.value);
+                  if (logError) setLogError("");
+                }}
                 placeholder={localize("Nhập ghi chú cập nhật tiến độ...", "Enter a progress update...")}
                 className="w-full border border-gray-300 px-3.5 py-2 rounded-xl text-xs font-semibold focus:outline-none"
+                aria-invalid={Boolean(logError)}
+                aria-describedby={logError ? "maintenance-log-error" : undefined}
               />
-              <button
-                type="button"
-                onClick={handleLogSubmit}
-                className="px-4 py-2 bg-blue-650 hover:bg-blue-700 text-white font-bold uppercase tracking-widest text-[9px] rounded-xl transition-colors shrink-0 shadow-xs"
+              <Button
+                loading={activeAction === "log"}
+                loadingLabel={localize("Đang lưu...", "Saving...")}
+                disabled={activeAction !== null}
+                onClick={() => void handleLogSubmit()}
+                className="shrink-0 uppercase"
               >
                 {localize("Cập nhật", "Update")}
-              </button>
+              </Button>
             </div>
+            {logError && <p id="maintenance-log-error" role="alert" className="text-xs font-semibold text-rose-700">{logError}</p>}
           </div>
         </div>
 
         {/* Footer */}
         <div className="bg-[#F1F0EA] px-6 py-4 flex gap-3 border-t border-gray-200 justify-end text-xs font-semibold">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4.5 py-2.5 border border-gray-350 hover:bg-gray-105 rounded-xl uppercase transition-colors"
-          >
+          <Button variant="secondary" disabled={activeAction !== null} onClick={onClose} className="uppercase">
             {localize("Đóng", "Close")}
-          </button>
-          <button
-            type="button"
-            onClick={onCompleteMaintenance}
-            className="px-5 py-2.5 bg-emerald-650 hover:bg-emerald-700 text-white font-bold tracking-widest uppercase transition-colors rounded-xl shadow-sm"
+          </Button>
+          <Button
+            loading={activeAction === "complete"}
+            loadingLabel={localize("Đang hoàn tất...", "Completing...")}
+            disabled={activeAction !== null}
+            onClick={() => void handleComplete()}
+            className="bg-emerald-700 uppercase hover:bg-emerald-800"
           >
             {localize("Hoàn tất bảo trì", "Complete maintenance")}
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </ViewportModal>
   );
 }

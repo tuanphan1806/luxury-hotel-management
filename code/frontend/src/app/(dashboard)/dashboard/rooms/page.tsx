@@ -1,10 +1,13 @@
 "use client";
 
-import React, { useCallback, useState, useEffect, useMemo } from "react";
+import React, { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { apiClient, cachedGet } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
+import Button from "@/components/UI/Button";
+import ViewportModal from "@/components/UI/ViewportModal";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
@@ -107,6 +110,28 @@ export default function RoomsManagement() {
     x: number;
     y: number;
   } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const menu = contextMenuRef.current;
+    if (!contextMenu || !menu) return;
+
+    const viewportPadding = 12;
+    const bounds = menu.getBoundingClientRect();
+    let nextX = contextMenu.x;
+    let nextY = contextMenu.y;
+
+    if (nextX + bounds.width > window.innerWidth - viewportPadding) {
+      nextX = Math.max(viewportPadding, window.innerWidth - viewportPadding - bounds.width);
+    }
+    if (nextY + bounds.height > window.innerHeight - viewportPadding) {
+      nextY = Math.max(viewportPadding, window.innerHeight - viewportPadding - bounds.height);
+    }
+
+    if (nextX !== contextMenu.x || nextY !== contextMenu.y) {
+      setContextMenu((current) => current ? { ...current, x: nextX, y: nextY } : current);
+    }
+  }, [contextMenu]);
 
   // Swap Room modal state
   const [isSwapOpen, setIsSwapOpen] = useState(false);
@@ -131,6 +156,8 @@ export default function RoomsManagement() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [roomMutation, setRoomMutation] = useState<"create" | "edit" | "delete" | null>(null);
+  const [roomFormError, setRoomFormError] = useState("");
 
   // Form states
   const [formData, setFormData] = useState({
@@ -278,6 +305,7 @@ export default function RoomsManagement() {
       description: "",
     });
     setRoomNameAutoFilled(true);
+    setRoomFormError("");
     setIsCreateOpen(true);
   };
 
@@ -285,10 +313,12 @@ export default function RoomsManagement() {
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.roomName.trim() || !formData.roomTypeId || !formData.floor) {
-      showToast("Vui lòng nhập đầy đủ tên phòng, loại phòng và số tầng", "error");
+      setRoomFormError(localize("Vui lòng nhập đầy đủ tên phòng, loại phòng và tầng.", "Enter the room name, room type, and floor."));
       return;
     }
 
+    setRoomMutation("create");
+    setRoomFormError("");
     try {
       await apiClient.post("/api/rooms", {
         roomName: formData.roomName,
@@ -302,7 +332,9 @@ export default function RoomsManagement() {
       fetchData();
     } catch (error: unknown) {
       const errMsg = getApiErrorMessage(error, "Không thể tạo phòng mới.");
-      showToast(errMsg, "error");
+      setRoomFormError(errMsg);
+    } finally {
+      setRoomMutation(null);
     }
   };
 
@@ -318,6 +350,7 @@ export default function RoomsManagement() {
       description: room.description || "",
     });
     setRoomNameAutoFilled(false);
+    setRoomFormError("");
     setIsEditOpen(true);
   };
 
@@ -325,10 +358,12 @@ export default function RoomsManagement() {
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.roomName.trim() || !formData.roomTypeId || !formData.floor) {
-      showToast("Vui lòng nhập đầy đủ các trường bắt buộc", "error");
+      setRoomFormError(localize("Vui lòng nhập đầy đủ các trường bắt buộc.", "Complete all required fields."));
       return;
     }
 
+    setRoomMutation("edit");
+    setRoomFormError("");
     try {
       await apiClient.put(`/api/rooms/${formData.id}`, {
         roomName: formData.roomName,
@@ -342,7 +377,9 @@ export default function RoomsManagement() {
       fetchData();
     } catch (error: unknown) {
       const errMsg = getApiErrorMessage(error, "Không thể cập nhật phòng.");
-      showToast(errMsg, "error");
+      setRoomFormError(errMsg);
+    } finally {
+      setRoomMutation(null);
     }
   };
 
@@ -350,12 +387,15 @@ export default function RoomsManagement() {
   const openDeleteModal = (room: RoomItem) => {
     if (!isAdmin) return;
     setSelectedRoom(room);
+    setRoomFormError("");
     setIsDeleteOpen(true);
   };
 
   // Confirm Delete
   const handleDeleteConfirm = async () => {
     if (!selectedRoom) return;
+    setRoomMutation("delete");
+    setRoomFormError("");
     try {
       await apiClient.delete(`/api/rooms/${selectedRoom.id}`);
       showToast("Xóa phòng thành công!", "success");
@@ -363,7 +403,9 @@ export default function RoomsManagement() {
       fetchData();
     } catch (error: unknown) {
       const errMsg = getApiErrorMessage(error, "Không thể xóa phòng này.");
-      showToast(errMsg, "error");
+      setRoomFormError(errMsg);
+    } finally {
+      setRoomMutation(null);
     }
   };
 
@@ -763,8 +805,8 @@ export default function RoomsManagement() {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-12 text-[#66727C] font-semibold text-sm">
-            {localize("Đang tải dữ liệu phòng...", "Loading room data...")}
+          <div className="space-y-6" role="status" aria-label={localize("Đang tải dữ liệu phòng", "Loading room data")}>
+            {[0, 1].map((floor) => <section key={floor} className="rounded-2xl border border-[#0F2A43]/10 bg-white p-4 sm:p-6"><div className="h-7 w-32 animate-pulse rounded bg-[#E5E9ED]" /><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">{[0, 1, 2, 3, 4, 5].map((room) => <div key={room} className="h-32 animate-pulse rounded-xl bg-[#F1F0EA]" />)}</div></section>)}
           </div>
         ) : filteredRooms.length === 0 ? (
           <div className="bg-white text-center py-12 border-2 border-dashed border-[#0F2A43]/10 rounded-xl text-[#66727C] font-semibold text-sm">
@@ -1043,30 +1085,44 @@ export default function RoomsManagement() {
       </div>
 
       {/* CREATE MODAL */}
-      {isAdmin && isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsCreateOpen(false); }}>
-          <div className="bg-white rounded-2xl max-w-md w-full p-8 space-y-6 shadow-2xl relative">
-            <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Thêm phòng mới", "Add new room")}</h3>
-            <form onSubmit={handleCreateSubmit} className="space-y-4">
+      {isAdmin && (
+        <ViewportModal
+          open={isCreateOpen}
+          onClose={() => setIsCreateOpen(false)}
+          labelledBy="create-room-title"
+          describedBy="create-room-description"
+          busy={roomMutation === "create"}
+          panelClassName="max-w-lg"
+        >
+          <form onSubmit={handleCreateSubmit} className="flex min-h-0 flex-col">
+            <header className="border-b border-[#0F2A43]/10 bg-[#F7F4EC] px-5 py-4 sm:px-6">
+              <h3 id="create-room-title" className="text-xl font-bold text-[#0F2A43]">{localize("Thêm phòng vật lý", "Add physical room")}</h3>
+              <p id="create-room-description" className="mt-1 text-xs leading-5 text-[#66727C]">{localize("Tên phòng có thể được đề xuất tự động theo tầng; bạn vẫn có thể chỉnh lại trước khi lưu.", "The room name can be suggested from its floor and edited before saving.")}</p>
+            </header>
+            <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
+              {roomFormError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{roomFormError}</p>}
               <div>
-                <div className="mb-1.5 flex items-center justify-between gap-3"><label className="block text-xs font-bold uppercase tracking-wider text-[#66727C]">{localize("Tên / số phòng", "Room name / number")} *</label><button type="button" onClick={() => { setFormData((current) => ({ ...current, roomName: suggestRoomName(current.floor) })); setRoomNameAutoFilled(true); }} className="text-[10px] font-bold text-[#80632F] underline-offset-4 hover:underline">{localize("Tự điền", "Auto-fill")}</button></div>
+                <div className="mb-1.5 flex items-center justify-between gap-3"><label htmlFor="create-room-name" className="block text-xs font-bold text-[#0F2A43]">{localize("Tên / số phòng", "Room name / number")} *</label><button type="button" onClick={() => { setFormData((current) => ({ ...current, roomName: suggestRoomName(current.floor) })); setRoomNameAutoFilled(true); setRoomFormError(""); }} className="min-h-11 px-2 text-xs font-bold text-[#80632F] underline-offset-4 hover:underline">{localize("Tự điền", "Auto-fill")}</button></div>
                 <input
+                  id="create-room-name"
+                  data-modal-autofocus
                   type="text"
                   required
                   value={formData.roomName}
-                  onChange={(e) => { setRoomNameAutoFilled(false); setFormData({ ...formData, roomName: e.target.value }); }}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
+                  onChange={(e) => { setRoomNameAutoFilled(false); setFormData({ ...formData, roomName: e.target.value }); setRoomFormError(""); }}
+                  className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 px-3.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                   placeholder={localize("Ví dụ: Phòng 304", "e.g. Room 304")}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Loại phòng", "Room type")} *</label>
+                  <label htmlFor="create-room-type" className="mb-1.5 block text-xs font-bold text-[#0F2A43]">{localize("Loại phòng", "Room type")} *</label>
                   <select
+                    id="create-room-type"
                     value={formData.roomTypeId}
-                    onChange={(e) => setFormData({ ...formData, roomTypeId: Number(e.target.value) })}
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm bg-white"
+                    onChange={(e) => { setFormData({ ...formData, roomTypeId: Number(e.target.value) }); setRoomFormError(""); }}
+                    className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                   >
                     {roomTypes.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -1077,8 +1133,9 @@ export default function RoomsManagement() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Tầng", "Floor")} *</label>
+                  <label htmlFor="create-room-floor" className="mb-1.5 block text-xs font-bold text-[#0F2A43]">{localize("Tầng", "Floor")} *</label>
                   <input
+                    id="create-room-floor"
                     type="number"
                     min="1"
                     required
@@ -1086,66 +1143,71 @@ export default function RoomsManagement() {
                     onChange={(e) => {
                       const floor = Number(e.target.value);
                       setFormData((current) => ({ ...current, floor, roomName: roomNameAutoFilled ? suggestRoomName(floor) : current.roomName }));
+                      setRoomFormError("");
                     }}
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
+                    className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 px-3.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Mô tả", "Description")}</label>
+                <label htmlFor="create-room-description-field" className="mb-1.5 block text-xs font-bold text-[#0F2A43]">{localize("Mô tả", "Description")}</label>
                 <textarea
+                  id="create-room-description-field"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm h-24 resize-none"
+                  className="h-24 w-full resize-none rounded-lg border border-[#0F2A43]/15 px-3.5 py-2.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                   placeholder={localize("Đặc điểm bổ sung của phòng...", "Additional room features...")}
                 />
               </div>
+            </div>
 
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateOpen(false)}
-                  className="px-5 py-2.5 border border-gray-200 hover:bg-gray-50 text-[#66727C] font-semibold text-sm rounded-lg"
-                >
-                  {localize("Hủy", "Cancel")}
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-[#0F2A43] hover:bg-[#091E30] text-white font-semibold text-sm rounded-lg"
-                >
-                  {localize("Tạo phòng", "Create room")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <footer className="flex justify-end gap-3 border-t border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-4 sm:px-6">
+              <Button variant="secondary" disabled={roomMutation === "create"} onClick={() => setIsCreateOpen(false)}>{localize("Hủy", "Cancel")}</Button>
+              <Button type="submit" loading={roomMutation === "create"} loadingLabel={localize("Đang tạo...", "Creating...")}>{localize("Tạo phòng", "Create room")}</Button>
+            </footer>
+          </form>
+        </ViewportModal>
       )}
 
       {/* EDIT MODAL */}
-      {isAdmin && isEditOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsEditOpen(false); }}>
-          <div className="bg-white rounded-2xl max-w-md w-full p-8 space-y-6 shadow-2xl relative">
-            <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Chỉnh sửa phòng", "Edit room")}</h3>
-            <form onSubmit={handleEditSubmit} className="space-y-4">
+      {isAdmin && (
+        <ViewportModal
+          open={isEditOpen}
+          onClose={() => setIsEditOpen(false)}
+          labelledBy="edit-room-title"
+          describedBy="edit-room-description"
+          busy={roomMutation === "edit"}
+          panelClassName="max-w-lg"
+        >
+          <form onSubmit={handleEditSubmit} className="flex min-h-0 flex-col">
+            <header className="border-b border-[#0F2A43]/10 bg-[#F7F4EC] px-5 py-4 sm:px-6">
+              <h3 id="edit-room-title" className="text-xl font-bold text-[#0F2A43]">{localize("Chỉnh sửa phòng", "Edit room")}</h3>
+              <p id="edit-room-description" className="mt-1 text-xs leading-5 text-[#66727C]">{localize("Thay đổi thông tin phòng vật lý mà không làm thay đổi lịch sử đặt phòng.", "Update physical-room details without changing reservation history.")}</p>
+            </header>
+            <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-5 sm:px-6">
+              {roomFormError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{roomFormError}</p>}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Tên / số phòng", "Room name / number")} *</label>
+                <label htmlFor="edit-room-name" className="mb-1.5 block text-xs font-bold text-[#0F2A43]">{localize("Tên / số phòng", "Room name / number")} *</label>
                 <input
+                  id="edit-room-name"
+                  data-modal-autofocus
                   type="text"
                   required
                   value={formData.roomName}
-                  onChange={(e) => setFormData({ ...formData, roomName: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
+                  onChange={(e) => { setFormData({ ...formData, roomName: e.target.value }); setRoomFormError(""); }}
+                  className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 px-3.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Loại phòng", "Room type")} *</label>
+                  <label htmlFor="edit-room-type" className="mb-1.5 block text-xs font-bold text-[#0F2A43]">{localize("Loại phòng", "Room type")} *</label>
                   <select
+                    id="edit-room-type"
                     value={formData.roomTypeId}
-                    onChange={(e) => setFormData({ ...formData, roomTypeId: Number(e.target.value) })}
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm bg-white"
+                    onChange={(e) => { setFormData({ ...formData, roomTypeId: Number(e.target.value) }); setRoomFormError(""); }}
+                    className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                   >
                     {roomTypes.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -1156,51 +1218,49 @@ export default function RoomsManagement() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Tầng", "Floor")} *</label>
+                  <label htmlFor="edit-room-floor" className="mb-1.5 block text-xs font-bold text-[#0F2A43]">{localize("Tầng", "Floor")} *</label>
                   <input
+                    id="edit-room-floor"
                     type="number"
                     min="1"
                     required
                     value={formData.floor}
-                    onChange={(e) => setFormData({ ...formData, floor: Number(e.target.value) })}
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
+                    onChange={(e) => { setFormData({ ...formData, floor: Number(e.target.value) }); setRoomFormError(""); }}
+                    className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 px-3.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Mô tả", "Description")}</label>
+                <label htmlFor="edit-room-description-field" className="mb-1.5 block text-xs font-bold text-[#0F2A43]">{localize("Mô tả", "Description")}</label>
                 <textarea
+                  id="edit-room-description-field"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm h-24 resize-none"
+                  className="h-24 w-full resize-none rounded-lg border border-[#0F2A43]/15 px-3.5 py-2.5 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
                 />
               </div>
+            </div>
 
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsEditOpen(false)}
-                  className="px-5 py-2.5 border border-gray-200 hover:bg-gray-50 text-[#66727C] font-semibold text-sm rounded-lg"
-                >
-                  {localize("Hủy", "Cancel")}
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-[#0F2A43] hover:bg-[#091E30] text-white font-semibold text-sm rounded-lg"
-                >
-                  {localize("Lưu thay đổi", "Save changes")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <footer className="flex justify-end gap-3 border-t border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-4 sm:px-6">
+              <Button variant="secondary" disabled={roomMutation === "edit"} onClick={() => setIsEditOpen(false)}>{localize("Hủy", "Cancel")}</Button>
+              <Button type="submit" loading={roomMutation === "edit"} loadingLabel={localize("Đang lưu...", "Saving...")}>{localize("Lưu thay đổi", "Save changes")}</Button>
+            </footer>
+          </form>
+        </ViewportModal>
       )}
 
       {/* DELETE CONFIRM */}
-      {isAdmin && isDeleteOpen && selectedRoom && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsDeleteOpen(false); }}>
-          <div className="bg-white rounded-2xl max-w-sm w-full p-8 space-y-6 shadow-2xl relative text-center">
+      {isAdmin && selectedRoom && (
+        <ViewportModal
+          open={isDeleteOpen}
+          onClose={() => setIsDeleteOpen(false)}
+          labelledBy="delete-room-title"
+          describedBy="delete-room-description"
+          busy={roomMutation === "delete"}
+          panelClassName="max-w-sm"
+        >
+          <div className="min-h-0 space-y-6 overflow-y-auto p-6 text-center sm:p-8">
             <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto">
               <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -1209,32 +1269,41 @@ export default function RoomsManagement() {
               </svg>
             </div>
             <div className="space-y-2">
-              <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Xóa phòng", "Delete room")}</h3>
-              <p className="text-sm text-[#66727C]">
+              <h3 id="delete-room-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa phòng", "Delete room")}</h3>
+              <p id="delete-room-description" className="text-sm leading-6 text-[#66727C]">
                 {localize("Bạn có chắc muốn xóa phòng", "Are you sure you want to delete room")} <strong>{selectedRoom.roomName}</strong>? {localize("Thao tác này không thể hoàn tác.", "This action cannot be undone.")}
               </p>
             </div>
+            {roomFormError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-sm font-semibold text-rose-700">{roomFormError}</p>}
             <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setIsDeleteOpen(false)}
-                className="flex-1 py-3 border border-gray-200 hover:bg-gray-50 text-[#66727C] font-semibold text-sm rounded-lg"
-              >
+              <Button variant="secondary" disabled={roomMutation === "delete"} onClick={() => setIsDeleteOpen(false)} className="flex-1">
                 {localize("Hủy", "Cancel")}
-              </button>
-              <button
-                onClick={handleDeleteConfirm}
-                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold text-sm rounded-lg shadow-md"
+              </Button>
+              <Button
+                variant="danger"
+                loading={roomMutation === "delete"}
+                loadingLabel={localize("Đang xóa...", "Deleting...")}
+                onClick={() => void handleDeleteConfirm()}
+                className="flex-1"
               >
                 {localize("Xóa", "Delete")}
-              </button>
+              </Button>
             </div>
           </div>
-        </div>
+        </ViewportModal>
       )}
 
       {checkoutConfirmation && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-[#091E30]/65 p-4" role="dialog" aria-modal="true" aria-labelledby="checkout-room-warning-title" onMouseDown={(event) => { if (event.target === event.currentTarget && checkoutRoomId === null) setCheckoutConfirmation(null); }}>
-          <section className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+        <ViewportModal
+          open
+          onClose={() => setCheckoutConfirmation(null)}
+          labelledBy="checkout-room-warning-title"
+          busy={checkoutRoomId !== null}
+          panelClassName="max-w-md"
+          backdropClassName="bg-[#091E30]/65"
+          zIndexClassName="z-[90]"
+        >
+          <section className="flex min-h-0 flex-col">
             <header className="border-b border-[#0F2A43]/10 px-6 py-5">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-rose-700">{localize("Xác nhận trả phòng toàn đơn", "Confirm full reservation checkout")}</p>
               <h2 id="checkout-room-warning-title" className="mt-1 text-xl font-bold text-[#0F2A43]">{localize("Đơn đặt phòng", "Reservation")} {checkoutConfirmation.reservationCode}</h2>
@@ -1243,11 +1312,11 @@ export default function RoomsManagement() {
               {localize("Phòng này thuộc đơn có", "This room belongs to a reservation with")} <strong className="text-[#0F2A43]">{checkoutConfirmation.roomCount} {localize("phòng", "rooms")}</strong>. {localize("Tiếp tục sẽ mở đối soát và trả toàn bộ phòng trong đơn, không chỉ phòng đang chọn.", "Continuing opens reconciliation and checks out the entire reservation, not only the selected room.")}
             </div>
             <footer className="flex justify-end gap-3 border-t border-[#0F2A43]/10 px-6 py-4">
-              <button type="button" onClick={() => setCheckoutConfirmation(null)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43]">{localize("Hủy", "Cancel")}</button>
-              <button type="button" onClick={() => router.push(`/dashboard/reservations?finalPaymentId=${checkoutConfirmation.reservationId}`)} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white">{localize("Mở đối soát toàn đơn", "Open reservation reconciliation")}</button>
+              <Button variant="secondary" onClick={() => setCheckoutConfirmation(null)}>{localize("Hủy", "Cancel")}</Button>
+              <Button variant="danger" onClick={() => router.push(`/dashboard/reservations?finalPaymentId=${checkoutConfirmation.reservationId}`)}>{localize("Mở đối soát toàn đơn", "Open reservation reconciliation")}</Button>
             </footer>
           </section>
-        </div>
+        </ViewportModal>
       )}
 
       {/* TOAST alerts */}
@@ -1259,9 +1328,10 @@ export default function RoomsManagement() {
         />
       )}
       {/* ───── SHORTCUT CONTEXT MENU DIALOG (US4.4) ───── */}
-      {contextMenu && (
+      {contextMenu && createPortal(
         <div
-          className="fixed z-50 bg-white border border-gray-200 rounded-xl shadow-2xl py-2 w-48 text-xs font-semibold text-text-dark"
+          ref={contextMenuRef}
+          className="fixed z-[120] max-h-[calc(100vh-1.5rem)] w-48 overflow-y-auto rounded-xl border border-gray-200 bg-white py-2 text-xs font-semibold text-text-dark shadow-2xl"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1393,24 +1463,35 @@ export default function RoomsManagement() {
           >
             <span className="w-2 h-2 rounded-full bg-yellow-500" /> {getCleaningStatusLabel("IN_PROGRESS")}
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* ───── SWAP ROOM MODAL (US4.4) ───── */}
       {isSwapOpen && swapSourceRoom && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#091E30]/62 p-4 animate-fade-in" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSwapLoading) setIsSwapOpen(false); }}>
-          <div className="bg-white border border-gray-200 rounded-xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <div>
-              <h3 className="font-serif text-lg font-bold text-[#0F2A43]">{localize("Chuyển khách sang phòng khác", "Move guest to another room")}</h3>
-              <p className="text-xs text-[#66727C] mt-1">{localize(`Chuyển khách khỏi phòng #${swapSourceRoom.roomName} (${localize(swapSourceRoom.roomTypeName, swapSourceRoom.roomTypeNameEn)})`, `Move the guest from room #${swapSourceRoom.roomName} (${localize(swapSourceRoom.roomTypeName, swapSourceRoom.roomTypeNameEn)})`)}</p>
-            </div>
+        <ViewportModal
+          open
+          onClose={() => setIsSwapOpen(false)}
+          labelledBy="swap-room-title"
+          describedBy="swap-room-description"
+          busy={isSwapLoading}
+          panelClassName="max-w-md"
+          backdropClassName="bg-[#091E30]/62"
+        >
+          <div className="flex min-h-0 flex-col">
+            <header className="border-b border-[#0F2A43]/10 bg-[#F7F4EC] px-5 py-4 sm:px-6">
+              <h3 id="swap-room-title" className="text-lg font-bold text-[#0F2A43]">{localize("Chuyển khách sang phòng khác", "Move guest to another room")}</h3>
+              <p id="swap-room-description" className="mt-1 text-xs leading-5 text-[#66727C]">{localize(`Chuyển khách khỏi phòng #${swapSourceRoom.roomName} (${localize(swapSourceRoom.roomTypeName, swapSourceRoom.roomTypeNameEn)})`, `Move the guest from room #${swapSourceRoom.roomName} (${localize(swapSourceRoom.roomTypeName, swapSourceRoom.roomTypeNameEn)})`)}</p>
+            </header>
 
-            <div className="space-y-3 font-semibold text-text-dark text-xs">
-              <label className="block text-[10px] font-bold text-text-light uppercase tracking-wider">{localize("Chọn phòng sạch đang sẵn sàng", "Choose an available clean room")} *</label>
+            <div className="min-h-0 space-y-3 overflow-y-auto px-5 py-5 text-xs font-semibold text-text-dark sm:px-6">
+              <label htmlFor="swap-room-target" className="block text-xs font-bold text-[#0F2A43]">{localize("Chọn phòng sạch đang sẵn sàng", "Choose an available clean room")} *</label>
               <select
+                id="swap-room-target"
+                data-modal-autofocus
                 value={swapTargetRoomName}
                 onChange={(e) => setSwapTargetRoomName(e.target.value)}
-                className="w-full border border-gray-300 px-3 py-2.5 rounded-xl text-xs font-semibold focus:outline-none bg-transparent"
+                className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3.5 text-sm font-semibold outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
               >
                 <option value="">-- {localize("Chọn phòng sạch đang sẵn sàng", "Select a clean available room")} --</option>
                 {rooms
@@ -1433,25 +1514,21 @@ export default function RoomsManagement() {
               )}
             </div>
 
-            <div className="flex gap-2 justify-end pt-2 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setIsSwapOpen(false)}
-                className="px-4.5 py-2 border border-gray-355 hover:bg-gray-105 rounded-xl transition-colors"
-              >
+            <footer className="flex justify-end gap-3 border-t border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-4 sm:px-6">
+              <Button variant="secondary" disabled={isSwapLoading} onClick={() => setIsSwapOpen(false)}>
                 {localize("Đóng", "Close")}
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
                 disabled={!swapTargetRoomName || isSwapLoading}
-                onClick={handleTransferRoom}
-                className="px-4.5 py-2 bg-[#0F2A43] hover:bg-[#091E30] text-white text-xs font-bold tracking-widest uppercase transition-colors rounded-xl shadow-xs disabled:opacity-50"
+                loading={isSwapLoading}
+                loadingLabel={localize("Đang chuyển...", "Moving...")}
+                onClick={() => void handleTransferRoom()}
               >
-                {isSwapLoading ? localize("Đang chuyển...", "Moving...") : localize("Xác nhận chuyển phòng", "Confirm room move")}
-              </button>
-            </div>
+                {localize("Xác nhận chuyển phòng", "Confirm room move")}
+              </Button>
+            </footer>
           </div>
-        </div>
+        </ViewportModal>
       )}
       <CleanConfirmModal
         isOpen={confirmCleanOpen}

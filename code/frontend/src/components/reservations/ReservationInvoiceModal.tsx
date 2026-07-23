@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
+import ViewportModal from "@/components/UI/ViewportModal";
 
 export interface ReservationInvoice {
   invoiceNumber: string;
@@ -137,27 +137,18 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
     };
     return labels[value]?.[locale] || value;
   };
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
   const settled = invoice.settlementStatus === "PAID" && invoice.balanceAmount === 0;
 
   return (
-    <div
-      className="invoice-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-[#091E30]/65 p-3 sm:p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="invoice-title"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <ViewportModal
+      open
+      onClose={onClose}
+      labelledBy="invoice-title"
+      panelClassName="max-w-[210mm] print:max-h-none print:max-w-none print:overflow-visible print:rounded-none print:border-0 print:shadow-none"
+      backdropClassName="invoice-modal-backdrop bg-[#091E30]/65"
+      zIndexClassName="z-[90]"
     >
-      <div className="invoice-print-root max-h-[94vh] w-full max-w-[210mm] overflow-y-auto bg-white text-[#0F2A43] shadow-2xl print:max-h-none print:max-w-none print:overflow-visible print:shadow-none">
+      <div className="invoice-print-root min-h-0 w-full overflow-y-auto bg-white text-[#0F2A43] print:overflow-visible">
         <div className="invoice-no-print sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[#0F2A43]/10 bg-white px-5 py-3">
           <p className="text-sm font-bold text-[#0F2A43]">{localize("Xem trước hóa đơn", "Invoice preview")}</p>
           <div className="flex gap-2">
@@ -255,6 +246,6 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
           </footer>
         </article>
       </div>
-    </div>
+    </ViewportModal>
   );
 }

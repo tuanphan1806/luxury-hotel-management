@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 const ACCESSIBILITY_STORAGE_KEY = "hotel_accessibility_preferences";
 
 export interface AccessibilityPreferences {
+  theme: "light" | "dark";
   textSize: "standard" | "large";
   highContrast: boolean;
   reduceMotion: boolean;
@@ -19,6 +20,7 @@ interface AccessibilityContextValue {
 }
 
 const defaultPreferences: AccessibilityPreferences = {
+  theme: "light",
   textSize: "standard",
   highContrast: false,
   reduceMotion: false,
@@ -32,6 +34,7 @@ const parsePreferences = (value: string | null): AccessibilityPreferences => {
   try {
     const parsed = JSON.parse(value) as Partial<AccessibilityPreferences>;
     return {
+      theme: parsed.theme === "dark" ? "dark" : "light",
       textSize: parsed.textSize === "large" ? "large" : "standard",
       highContrast: Boolean(parsed.highContrast),
       reduceMotion: Boolean(parsed.reduceMotion),
@@ -44,6 +47,9 @@ const parsePreferences = (value: string | null): AccessibilityPreferences => {
 
 const applyPreferences = (preferences: AccessibilityPreferences) => {
   const root = document.documentElement;
+  const useDarkTheme = preferences.theme === "dark";
+  root.dataset.hotelTheme = preferences.theme;
+  root.classList.toggle("hotel-dark-mode", useDarkTheme);
   root.dataset.hotelTextSize = preferences.textSize;
   root.classList.toggle("hotel-high-contrast", preferences.highContrast);
   root.classList.toggle("hotel-reduce-motion", preferences.reduceMotion);

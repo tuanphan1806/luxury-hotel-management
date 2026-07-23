@@ -5,6 +5,7 @@ import "../index.css";
 import { LanguageProvider } from "@/components/i18n/LanguageProvider";
 import { FavoritesProvider } from "@/components/favorites/FavoritesProvider";
 import { AccessibilityProvider } from "@/components/accessibility/AccessibilityProvider";
+import BackToTopButton from "@/components/UI/BackToTopButton";
 import { siteConfig } from "@/lib/siteConfig";
 
 const beVietnam = Be_Vietnam_Pro({
@@ -65,7 +66,10 @@ export default async function RootLayout({
       <body suppressHydrationWarning className={`${beVietnam.variable} ${playfair.variable} bg-[#F1F0EA] font-sans text-text-dark antialiased`}>
         <AccessibilityProvider>
           <LanguageProvider initialLocale={locale} messages={messages}>
-            <FavoritesProvider>{children}</FavoritesProvider>
+            <FavoritesProvider>
+              {children}
+              <BackToTopButton />
+            </FavoritesProvider>
           </LanguageProvider>
         </AccessibilityProvider>
       </body>

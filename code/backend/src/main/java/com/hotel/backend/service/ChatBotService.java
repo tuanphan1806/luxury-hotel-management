@@ -159,7 +159,7 @@ public class ChatBotService {
         }
 
         if (isGreeting(normalizedQuestion)) {
-            return answerOnly("Xin chào! Tôi có thể hỗ trợ bạn về phòng, giá, tiện ích và thông tin đặt phòng của khách sạn.");
+            return answerOnly("Xin chào! Tôi có thể hỗ trợ bạn về phòng, giá, tiện nghi và thông tin đặt phòng của khách sạn.");
         }
 
         if (isReservationCreationQuestion(normalizedQuestion)
@@ -205,7 +205,7 @@ public class ChatBotService {
                 - Chỉ trả lời các vấn đề liên quan khách sạn.
                 - Trả lời thân thiện, lịch sự.
                 - Dựa vào dữ liệu được cung cấp.
-                - Có thể tư vấn đa dạng trong phạm vi khách sạn: loại phòng, giá, trạng thái phòng, tiện ích, hình ảnh, đánh giá, quy trình đặt phòng, nhận/trả phòng, thanh toán, gợi ý chọn phòng.
+                - Có thể tư vấn đa dạng trong phạm vi khách sạn: loại phòng, giá, trạng thái phòng, tiện nghi, hình ảnh, đánh giá, quy trình đặt phòng, nhận/trả phòng, thanh toán, gợi ý chọn phòng.
                 - Nếu dữ liệu được cung cấp không có thông tin người dùng hỏi, hãy nói rõ là hiện chưa có dữ liệu đó và gợi ý khách liên hệ lễ tân/đặt phòng.
                 - Không khẳng định chính sách, khuyến mãi, địa chỉ, số điện thoại, thời gian nhận/trả phòng nếu dữ liệu khách sạn bên dưới không có.
                 - Không xử lý đặt phòng, hủy phòng, thanh toán, hoàn tiền trực tiếp trong chat; chỉ hướng dẫn khách dùng chức năng phù hợp hoặc liên hệ nhân viên.
@@ -338,7 +338,7 @@ public class ChatBotService {
         List<FacilityResponse> facilities = getFacilitiesFromApi();
 
         if (hasApiFetchErrors() && roomTypes.isEmpty() && facilities.isEmpty()) {
-            return Optional.of(formatApiFetchErrorAnswer("dữ liệu phòng và tiện ích"));
+            return Optional.of(formatApiFetchErrorAnswer("dữ liệu phòng và tiện nghi"));
         }
 
         Optional<String> roomTypeAnswer = answerRoomTypeQuestion(question, normalized, roomTypes);
@@ -561,7 +561,7 @@ public class ChatBotService {
                         .orElse("hiện chưa có mô tả chi tiết"))
                 .append(".\n");
 
-        answer.append("- Tiện ích: ")
+        answer.append("- Tiện nghi: ")
                 .append(formatFacilities(roomType.getFacilities()))
                 .append(".\n");
 
@@ -625,10 +625,10 @@ public class ChatBotService {
 
         Map<String, String> aliases = Map.ofEntries(
                 Map.entry("ho boi", "Hồ bơi"),
-                Map.entry("gym", "Phòng Gym"),
-                Map.entry("fitness", "Phòng Gym"),
-                Map.entry("spa", "Spa & Massage"),
-                Map.entry("massage", "Spa & Massage"),
+                Map.entry("gym", "Trung tâm thể hình"),
+                Map.entry("fitness", "Trung tâm thể hình"),
+                Map.entry("spa", "Spa & chăm sóc sức khỏe"),
+                Map.entry("massage", "Spa & chăm sóc sức khỏe"),
                 Map.entry("nha hang", "Nhà hàng"),
                 Map.entry("bua sang", "Nhà hàng"),
                 Map.entry("an sang", "Nhà hàng"),
@@ -1419,7 +1419,7 @@ public class ChatBotService {
         StringBuilder sb = new StringBuilder();
 
         sb.append("===== ALLOWED PUBLIC DATA =====\n");
-        sb.append("- Dữ liệu public được phép dùng: loại phòng, giá, mô tả, tiện ích, gallery và đánh giá công khai.\n");
+        sb.append("- Dữ liệu public được phép dùng: loại phòng, giá, mô tả, tiện nghi, gallery và đánh giá công khai.\n");
         sb.append("- Không được tiết lộ tên/số phòng vật lý cụ thể, tầng cụ thể, phòng nào đang có khách, hoặc tình trạng dọn dẹp từng phòng.\n");
         sb.append("- Không có dữ liệu public về địa chỉ, số điện thoại, chính sách hủy, phụ thu, khuyến mãi hoặc giờ nhận/trả phòng nếu không xuất hiện ở các mục bên dưới.\n\n");
 
@@ -1451,7 +1451,7 @@ public class ChatBotService {
                             .append(" đánh giá")
                             .append("\n");
 
-                    sb.append("Tiện ích: ");
+                    sb.append("Tiện nghi: ");
 
                     if (rt.getFacilities() != null) {
                         rt.getFacilities().forEach(
@@ -1472,7 +1472,7 @@ public class ChatBotService {
         getFacilitiesFromApi()
                 .forEach(f -> {
 
-                    sb.append("Tên tiện ích: ")
+                    sb.append("Tên tiện nghi: ")
                             .append(f.getFacilityName())
                             .append("\n");
 

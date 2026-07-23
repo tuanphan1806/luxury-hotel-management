@@ -46,6 +46,20 @@ interface ReservationRoomType {
   };
 }
 
+interface ReservationRoomAssignment {
+  id: number;
+  reservationRoomTypeId: number;
+  roomId?: number;
+  roomName?: string;
+  status?: string;
+}
+
+interface AssignedRoomGroup {
+  key: string;
+  label: string;
+  roomNames: string[];
+}
+
 interface ReservationItem {
   id: number;
   reservationCode: string;
@@ -74,6 +88,7 @@ interface ReservationItem {
   refundDestinationStatus?: RefundDestinationStatus;
   refundBankSummary?: string;
   roomTypes?: ReservationRoomType[];
+  rooms?: ReservationRoomAssignment[];
 }
 
 interface WalkInOperationResponse {
@@ -311,7 +326,21 @@ const toData = <T,>(response: { data?: unknown }): T => {
 const getApiErrorMessage = (error: unknown, fallback: string) => {
   if (!isRecord(error) || !("response" in error) || !isRecord(error.response)) return fallback;
   const responseData = error.response.data;
-  return isRecord(responseData) && typeof responseData.message === "string" ? responseData.message : fallback;
+  if (!isRecord(responseData)) return fallback;
+  const validationErrors = Array.isArray(responseData.errors)
+    ? responseData.errors.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
+  if (validationErrors.length > 0) return validationErrors.join(" · ");
+  return typeof responseData.message === "string" ? responseData.message : fallback;
+};
+
+const getApiValidationMessages = (error: unknown): string[] => {
+  if (!isRecord(error) || !("response" in error) || !isRecord(error.response)) return [];
+  const responseData = error.response.data;
+  if (!isRecord(responseData) || !Array.isArray(responseData.errors)) return [];
+  return responseData.errors.filter(
+    (item): item is string => typeof item === "string" && Boolean(item.trim()),
+  );
 };
 
 const formatVND = (value?: number) =>
@@ -422,6 +451,35 @@ function RefundChannelSelector({
   );
 }
 
+function AssignedRoomDisplay({
+  groups,
+  emptyLabel,
+}: {
+  groups: AssignedRoomGroup[];
+  emptyLabel: string;
+}) {
+  if (groups.length === 0) {
+    return <span className="inline-flex rounded-lg border border-dashed border-[#0F2A43]/15 px-2.5 py-1.5 text-xs font-semibold text-[#66727C]">{emptyLabel}</span>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {groups.map((group) => (
+        <div key={group.key}>
+          <p className="truncate text-[10px] font-bold uppercase tracking-[0.08em] text-[#66727C]" title={group.label}>{group.label}</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {group.roomNames.map((roomName) => (
+              <span key={roomName} className="inline-flex min-h-7 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 font-mono text-xs font-bold text-emerald-800">
+                #{roomName}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ReservationsManagement() {
   const { locale, localize } = useLanguage();
   const { isAdmin } = useDashboardRole();
@@ -518,6 +576,22 @@ export default function ReservationsManagement() {
     checkOut: "",
     note: "Walk-in booking",
   });
+  const [walkInErrors, setWalkInErrors] = useState<Record<string, string>>({});
+
+  const walkInErrorMessages = useMemo(
+    () => Array.from(new Set(Object.values(walkInErrors).filter(Boolean))),
+    [walkInErrors],
+  );
+
+  const clearWalkInError = (key: string) => {
+    setWalkInErrors((current) => {
+      if (!current[key] && !current.form) return current;
+      const next = { ...current };
+      delete next[key];
+      delete next.form;
+      return next;
+    });
+  };
 
   const selectedWalkInRoomTypes = useMemo(() => {
     const grouped = new Map<number, { roomTypeId: number; name: string; nameEn?: string; basePrice?: number; quantity: number }>();
@@ -547,6 +621,7 @@ export default function ReservationsManagement() {
       checkOut: formatDateTimeLocal(defaultCheckOut),
     }));
     setWalkInPaymentMethod("NONE");
+    setWalkInErrors({});
     setSelectedWalkInRoomIds([]);
     setWalkInGuestsByRoom({});
     setWalkInPriceOverrides({});
@@ -583,6 +658,54 @@ export default function ReservationsManagement() {
     const timer = window.setInterval(() => setWalkInNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, [isWalkInOpen]);
+
+  const firstSelectedWalkInRoomId = selectedWalkInRoomIds[0];
+
+  useEffect(() => {
+    if (!isWalkInOpen || !firstSelectedWalkInRoomId) return;
+
+    setWalkInGuestsByRoom((current) => {
+      const roomGuests = current[firstSelectedWalkInRoomId];
+      if (!roomGuests?.length) return current;
+
+      const selectedPrimaryIndex = roomGuests.findIndex((guest) => guest.isPrimary);
+      const primaryIndex = selectedPrimaryIndex >= 0 ? selectedPrimaryIndex : 0;
+      const primaryGuest = roomGuests[primaryIndex];
+      const nextPrimaryGuest: CheckInGuestDraft = {
+        ...primaryGuest,
+        fullName: walkInForm.customerName,
+        phone: walkInForm.customerPhone,
+        email: walkInForm.customerEmail,
+        idCardNumber: walkInForm.customerIdCard,
+        idCardType: walkInForm.customerIdCardType,
+        isPrimary: true,
+      };
+
+      if (primaryGuest.fullName === nextPrimaryGuest.fullName
+        && primaryGuest.phone === nextPrimaryGuest.phone
+        && primaryGuest.email === nextPrimaryGuest.email
+        && primaryGuest.idCardNumber === nextPrimaryGuest.idCardNumber
+        && primaryGuest.idCardType === nextPrimaryGuest.idCardType
+        && primaryGuest.isPrimary) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [firstSelectedWalkInRoomId]: roomGuests.map((guest, index) => (
+          index === primaryIndex ? nextPrimaryGuest : guest
+        )),
+      };
+    });
+  }, [
+    firstSelectedWalkInRoomId,
+    isWalkInOpen,
+    walkInForm.customerEmail,
+    walkInForm.customerIdCard,
+    walkInForm.customerIdCardType,
+    walkInForm.customerName,
+    walkInForm.customerPhone,
+  ]);
 
   const toggleWalkInRoom = (roomId: number) => {
     const selected = selectedWalkInRoomIds.includes(roomId);
@@ -849,6 +972,7 @@ export default function ReservationsManagement() {
         !keyword ||
         reservation.reservationCode?.toLowerCase().includes(keyword) ||
         reservation.customerName?.toLowerCase().includes(keyword) ||
+        reservation.rooms?.some((room) => room.roomName?.toLowerCase().includes(keyword)) ||
         String(reservation.id).includes(keyword);
       return matchesStatus && matchesPayment && matchesStayDate && matchesSearch;
     });
@@ -1755,44 +1879,48 @@ export default function ReservationsManagement() {
 
   const handleCreateWalkIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const errors: Record<string, string> = {};
     const expectedCheckOut = new Date(walkInForm.checkOut);
     if (!walkInForm.checkOut || Number.isNaN(expectedCheckOut.getTime()) || expectedCheckOut <= new Date()) {
-      showToast(localize("Thời gian trả phòng phải sau thời gian nhận phòng hiện tại", "Check-out must be after the current check-in time"), "error");
-      return;
+      errors.checkOut = localize("Thời gian trả phòng phải sau thời điểm hiện tại.", "Check-out must be after the current time.");
     }
-    const customerPhoneDigits = walkInForm.customerPhone.replace(/[\s().+-]/g, "");
-    if (walkInForm.customerName.trim().length < 2 || walkInForm.customerName.trim().length > 100
-      || walkInForm.customerIdCard.trim().length < 4 || walkInForm.customerIdCard.trim().length > 50
-      || !/^\d{8,15}$/.test(customerPhoneDigits)
-      || (Boolean(walkInForm.customerEmail.trim()) && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(walkInForm.customerEmail.trim()) || walkInForm.customerEmail.trim().length > 254))) {
-      showToast(localize("Vui lòng kiểm tra họ tên, giấy tờ, số điện thoại và email của khách đại diện.", "Check the primary guest's name, ID, phone number, and email."), "error");
-      return;
-    }
+    const customerName = walkInForm.customerName.trim();
+    const customerPhone = walkInForm.customerPhone.trim().replace(/[\s().-]/g, "");
+    const customerIdCard = walkInForm.customerIdCard.trim();
+    const customerEmail = walkInForm.customerEmail.trim();
+    if (customerName.length < 2 || customerName.length > 100) errors.customerName = localize("Họ tên phải từ 2 đến 100 ký tự.", "Name must be 2-100 characters.");
+    if (customerIdCard.length < 4 || customerIdCard.length > 50) errors.customerIdCard = localize("Số giấy tờ phải từ 4 đến 50 ký tự.", "ID number must be 4-50 characters.");
+    if (!/^(0|\+84)\d{9,10}$/.test(customerPhone)) errors.customerPhone = localize("Số điện thoại phải bắt đầu bằng 0 hoặc +84 và đúng độ dài.", "Phone must start with 0 or +84 and have a valid length.");
+    if (customerEmail && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) || customerEmail.length > 254)) errors.customerEmail = localize("Email không đúng định dạng.", "Email format is invalid.");
+
+    const declaredGuestCount = Number(walkInForm.guestCount);
+    if (!Number.isInteger(declaredGuestCount) || declaredGuestCount < 1) errors.guestCount = localize("Số khách phải là số nguyên từ 1 trở lên.", "Guest count must be a positive whole number.");
     if (selectedWalkInRoomIds.length === 0) {
-      showToast("Vui lòng chọn ít nhất một phòng trống sạch", "error");
-      return;
+      errors.rooms = localize("Vui lòng chọn ít nhất một phòng trống sạch.", "Select at least one clean available room.");
     }
-    const walkInGuestGroups = selectedWalkInRoomIds.map((roomId) => walkInGuestsByRoom[roomId] || []);
-    if (walkInGuestGroups.some((guests) => guests.length === 0
-      || guests.some((guest) => {
-        const phoneDigits = guest.phone.replace(/[\s().+-]/g, "");
-        return guest.fullName.trim().length < 2
-          || guest.fullName.trim().length > 100
-          || (Boolean(guest.phone.trim()) && !/^\d{8,15}$/.test(phoneDigits))
-          || (Boolean(guest.email.trim()) && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guest.email.trim()) || guest.email.trim().length > 254))
-          || guest.idCardNumber.trim().length > 50;
-      })
-      || guests.filter((guest) => guest.isPrimary).length !== 1)) {
-      showToast("Mỗi phòng cần có khách lưu trú và đúng một khách đại diện", "error");
-      return;
-    }
+    const selectedRooms = walkInRooms.filter((room) => selectedWalkInRoomIds.includes(room.id));
+    const walkInGuestGroups = selectedRooms.map((room) => walkInGuestsByRoom[room.id] || []);
+    selectedRooms.forEach((room) => {
+      const guests = walkInGuestsByRoom[room.id] || [];
+      if (guests.length === 0) errors[`room:${room.id}`] = localize(`Phòng #${room.roomName} phải có ít nhất một khách.`, `Room #${room.roomName} requires at least one guest.`);
+      if (guests.filter((guest) => guest.isPrimary).length !== 1) errors[`room:${room.id}`] = localize(`Phòng #${room.roomName} phải có đúng một khách đại diện.`, `Room #${room.roomName} must have exactly one primary guest.`);
+      guests.forEach((guest, guestIndex) => {
+        const prefix = `guest:${room.id}:${guestIndex}`;
+        const guestName = guest.fullName.trim();
+        const guestPhone = guest.phone.trim().replace(/[\s().-]/g, "");
+        const guestEmail = guest.email.trim();
+        const guestIdCard = guest.idCardNumber.trim();
+        if (guestName.length < 2 || guestName.length > 100) errors[`${prefix}:fullName`] = localize("Họ tên khách phải từ 2 đến 100 ký tự.", "Guest name must be 2-100 characters.");
+        if (guestPhone && !/^(0|\+84)\d{9,10}$/.test(guestPhone)) errors[`${prefix}:phone`] = localize("Số điện thoại khách không hợp lệ.", "Guest phone is invalid.");
+        if (guestEmail && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail) || guestEmail.length > 254)) errors[`${prefix}:email`] = localize("Email khách không đúng định dạng.", "Guest email is invalid.");
+        if (guestIdCard && (guestIdCard.length < 4 || guestIdCard.length > 50)) errors[`${prefix}:idCard`] = localize("Số giấy tờ phải từ 4 đến 50 ký tự nếu được nhập.", "ID number must be 4-50 characters when provided.");
+      });
+    });
     const enteredGuestCount = walkInGuestGroups.reduce((total, guests) => total + guests.length, 0);
-    if (enteredGuestCount !== Number(walkInForm.guestCount)) {
-      showToast(`Số khách khai báo là ${walkInForm.guestCount}, nhưng danh sách phòng có ${enteredGuestCount} khách`, "error");
-      return;
+    if (Number.isInteger(declaredGuestCount) && enteredGuestCount !== declaredGuestCount) {
+      errors.guestCount = localize(`Đã khai báo ${walkInForm.guestCount} khách nhưng danh sách phòng có ${enteredGuestCount} khách.`, `Declared ${walkInForm.guestCount} guests but room lists contain ${enteredGuestCount}.`);
     }
 
-    const selectedRooms = walkInRooms.filter((room) => selectedWalkInRoomIds.includes(room.id));
     const selectedRoomTypeIds = new Set(selectedRooms.map((room) => room.roomTypeId));
     const activePriceOverrides = Object.entries(walkInPriceOverrides)
       .filter(([roomTypeId, draft]) => draft.enabled && selectedRoomTypeIds.has(Number(roomTypeId)))
@@ -1802,9 +1930,19 @@ export default function ReservationsManagement() {
       return !Number.isSafeInteger(amount) || amount < 0 || !draft.reasonCode.trim() || !draft.note.trim();
     });
     if (invalidOverride) {
-      showToast(localize("Giá thay thế phải là số VND nguyên không âm và có đầy đủ lý do.", "An override must be a non-negative whole-VND amount with a documented reason."), "error");
+      errors[`price:${invalidOverride.roomTypeId}`] = localize("Giá thay thế phải là số VND nguyên không âm và có đầy đủ lý do.", "An override must be a non-negative whole-VND amount with a documented reason.");
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setWalkInErrors(errors);
+      const [firstKey, firstMessage] = Object.entries(errors)[0];
+      showToast(firstMessage, "error");
+      window.requestAnimationFrame(() => {
+        document.getElementById(`walk-in-${firstKey}`)?.focus();
+      });
       return;
     }
+    setWalkInErrors({});
 
     setIsActionLoading(true);
     let createdReservation: ReservationItem | null = null;
@@ -1891,6 +2029,12 @@ export default function ReservationsManagement() {
         await loadReservations();
         await openFinalPayment({ ...createdReservation, status: "CHECKED_IN" });
       } else {
+        const validationMessages = getApiValidationMessages(error);
+        setWalkInErrors({
+          form: validationMessages.length > 0
+            ? validationMessages.join(" · ")
+            : errorMessage,
+        });
         showToast(errorMessage, "error");
       }
     } finally {
@@ -1933,6 +2077,40 @@ export default function ReservationsManagement() {
       ? { ALL: "Tất cả", DRAFT: "Chờ xác nhận", PAYMENT_PENDING: "Chờ thanh toán", CONFIRMED: "Đã xác nhận", CANCELLATION_PENDING: "Chờ duyệt hủy", CANCELLED: "Đã hủy", CHECKED_IN: "Đang lưu trú", CHECKED_OUT: "Đã trả phòng", NO_SHOW: "Không đến" }
       : { ALL: "All", DRAFT: "Draft", PAYMENT_PENDING: "Payment pending", CONFIRMED: "Confirmed", CANCELLATION_PENDING: "Cancellation pending", CANCELLED: "Cancelled", CHECKED_IN: "Checked in", CHECKED_OUT: "Checked out", NO_SHOW: "No-show" };
     return labels[status];
+  };
+
+  const getAssignedRoomGroups = (reservation: ReservationItem): AssignedRoomGroup[] => {
+    const assignedRooms = (reservation.rooms || []).filter((room) => Boolean(room.roomName));
+    if (assignedRooms.length === 0) return [];
+
+    const groupedAssignmentIds = new Set<number>();
+    const groups = (reservation.roomTypes || []).flatMap((roomType) => {
+      const roomsForType = assignedRooms.filter((room) => room.reservationRoomTypeId === roomType.id);
+      const roomNames = Array.from(new Set(
+        roomsForType.map((room) => room.roomName as string),
+      )).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+      if (roomNames.length === 0) return [];
+      roomsForType.forEach((room) => groupedAssignmentIds.add(room.id));
+      return [{
+        key: `type-${roomType.id}`,
+        label: localize(roomType.roomTypeName, roomType.roomTypeNameEn),
+        roomNames,
+      }];
+    });
+
+    const ungroupedRoomNames = Array.from(new Set(
+      assignedRooms
+        .filter((room) => !groupedAssignmentIds.has(room.id))
+        .map((room) => room.roomName as string),
+    )).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+    if (ungroupedRoomNames.length > 0) {
+      groups.push({
+        key: "ungrouped",
+        label: localize("Phòng đã gán", "Assigned rooms"),
+        roomNames: ungroupedRoomNames,
+      });
+    }
+    return groups;
   };
 
   const isPastCheckInDate = (checkIn: string) => {
@@ -2292,11 +2470,12 @@ export default function ReservationsManagement() {
         ) : (
           <>
           <div className="hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-[1080px] text-left text-sm">
+            <table className="w-full min-w-[1240px] text-left text-sm">
               <thead className="sticky top-0 bg-[#F1F0EA] text-xs font-bold text-[#66727C]">
                 <tr>
                   <th className="px-5 py-3">{localize("Đơn & khách hàng", "Reservation & customer")}</th>
                   <th className="px-5 py-3">{localize("Lưu trú & phòng", "Stay & rooms")}</th>
+                  <th className="w-[230px] px-4 py-3">{localize("Phòng ở", "Assigned rooms")}</th>
                   <th className="px-5 py-3 text-right">{localize("Thanh toán", "Payment")}</th>
                   <th className="px-4 py-3">{localize("Trạng thái", "Status")}</th>
                   <th className="w-[290px] px-5 py-3 text-right">{localize("Hành động tiếp theo", "Next action")}</th>
@@ -2315,6 +2494,12 @@ export default function ReservationsManagement() {
                       <p className="mt-1.5 max-w-md leading-5">{(reservation.roomTypes || []).length ? reservation.roomTypes?.map((roomType) => `${localize(roomType.roomTypeName, roomType.roomTypeNameEn)} × ${roomType.quantity}`).join(" · ") : localize("Chưa có thông tin loại phòng", "No room type information")}</p>
                       {reservation.actualCheckIn && <p className="mt-1 font-semibold text-emerald-700">{localize("Nhận thực tế", "Actual check-in")}: {formatDate(reservation.actualCheckIn)}</p>}
                       {reservation.actualCheckOut && <p className="font-semibold text-blue-700">{localize("Trả thực tế", "Actual check-out")}: {formatDate(reservation.actualCheckOut)}</p>}
+                    </td>
+                    <td className="px-4 py-4">
+                      <AssignedRoomDisplay
+                        groups={getAssignedRoomGroups(reservation)}
+                        emptyLabel={localize("Chưa gán phòng", "Not assigned")}
+                      />
                     </td>
                     <td className="px-5 py-4 text-right tabular-nums"><p className="font-bold text-[#0F2A43]">{formatVND(Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0))}</p><p className="mt-1 text-xs font-semibold text-emerald-700">{localize("Đã trả", "Paid")}: {formatVND(Number(reservation.paidAmount || 0))}</p></td>
                     <td className="px-4 py-4">
@@ -2336,6 +2521,7 @@ export default function ReservationsManagement() {
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
                   <div className="col-span-2"><dt className="text-[#66727C]">{localize("Thời gian dự kiến", "Planned stay")}</dt><dd className="mt-1 font-semibold text-[#0F2A43]">{formatDate(reservation.checkIn)} → {formatDate(reservation.checkOut)}</dd></div>
                   <div className="col-span-2"><dt className="text-[#66727C]">{localize("Loại phòng", "Room types")}</dt><dd className="mt-1 font-semibold text-[#0F2A43]">{(reservation.roomTypes || []).length ? reservation.roomTypes?.map((roomType) => `${localize(roomType.roomTypeName, roomType.roomTypeNameEn)} × ${roomType.quantity}`).join(" · ") : "—"}</dd></div>
+                  <div className="col-span-2"><dt className="text-[#66727C]">{localize("Phòng ở", "Assigned rooms")}</dt><dd className="mt-1"><AssignedRoomDisplay groups={getAssignedRoomGroups(reservation)} emptyLabel={localize("Chưa gán phòng", "Not assigned")} /></dd></div>
                   <div><dt className="text-[#66727C]">{localize("Tổng dự kiến", "Planned total")}</dt><dd className="mt-1 font-bold tabular-nums text-[#0F2A43]">{formatVND(Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0))}</dd></div>
                   <div><dt className="text-[#66727C]">{localize("Đã thanh toán", "Paid")}</dt><dd className="mt-1 font-bold tabular-nums text-emerald-700">{formatVND(Number(reservation.paidAmount || 0))}</dd></div>
                 </dl>
@@ -2479,69 +2665,86 @@ export default function ReservationsManagement() {
 
       <ViewportModal
         open={isWalkInOpen}
-        onClose={() => setIsWalkInOpen(false)}
+        onClose={() => { setIsWalkInOpen(false); setWalkInErrors({}); }}
         labelledBy="walk-in-modal-title"
         busy={isActionLoading}
         panelClassName="max-w-6xl"
         testId="walk-in-modal"
       >
-          <form onSubmit={handleCreateWalkIn} className="flex min-h-0 flex-1 flex-col">
+          <form noValidate onSubmit={handleCreateWalkIn} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <header className="bg-[#0F2A43] px-5 py-4 text-center text-white sm:px-6">
               <h2 id="walk-in-modal-title" className="font-serif text-2xl font-bold tracking-tight">{localize("Đặt phòng & nhận phòng khách vãng lai", "Walk-in reservation & check-in")}</h2>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#F6C96B]">{localize("Hệ thống dùng thời gian hiện tại khi nhận và trả phòng", "The system uses the current time for check-in and check-out")}</p>
             </header>
 
-            <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:overflow-hidden">
-              <div className="lux-scrollbar space-y-5 border-b border-[#D8DDE1] px-5 py-5 lg:overflow-y-auto lg:border-b-0 lg:border-r sm:px-6">
+            {walkInErrorMessages.length > 0 && (
+              <div role="alert" aria-live="assertive" className="mx-5 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 sm:mx-6">
+                <p className="font-bold">{localize("Vui lòng sửa thông tin chưa hợp lệ", "Fix the invalid fields")}</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+                  {walkInErrorMessages.slice(0, 6).map((message) => <li key={message}>{message}</li>)}
+                </ul>
+              </div>
+            )}
+
+            <div className="grid min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:overflow-y-hidden">
+              <div className="lux-scrollbar min-w-0 space-y-5 overflow-x-hidden border-b border-[#D8DDE1] px-5 py-5 lg:overflow-y-auto lg:border-b-0 lg:border-r sm:px-6">
               <fieldset className="space-y-3">
                 <legend className="w-full border-b border-[#0F2A43]/55 pb-2 text-[11px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Thông tin khách đại diện", "Primary guest information")}</legend>
-                <label className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">
+                <label className="grid min-w-0 gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">
                   Họ tên khách hàng *
-                  <input required minLength={2} maxLength={100} autoComplete="name" value={walkInForm.customerName} onChange={(e) => setWalkInForm({ ...walkInForm, customerName: e.target.value.slice(0, 100) })} placeholder="Nguyễn Văn A" className="rounded-xl border border-[#D8DDE1] px-3.5 py-2.5 text-sm font-medium normal-case outline-none transition focus:border-[#0F2A43] focus:ring-2 focus:ring-[#0F2A43]/10" />
+                  <input id="walk-in-customerName" required minLength={2} maxLength={100} autoComplete="name" value={walkInForm.customerName} onChange={(e) => { setWalkInForm({ ...walkInForm, customerName: e.target.value.slice(0, 100) }); clearWalkInError("customerName"); }} placeholder="Nguyễn Văn A" aria-invalid={Boolean(walkInErrors.customerName)} className={`min-w-0 rounded-xl border px-3.5 py-2.5 text-sm font-medium normal-case outline-none transition focus:ring-2 ${walkInErrors.customerName ? "border-rose-500 bg-rose-50 focus:ring-rose-200" : "border-[#D8DDE1] focus:border-[#0F2A43] focus:ring-[#0F2A43]/10"}`} />
+                  {walkInErrors.customerName && <span className="text-xs font-semibold normal-case tracking-normal text-rose-700">{walkInErrors.customerName}</span>}
                 </label>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <label className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Loại giấy tờ *
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  <label className="grid min-w-0 gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Loại giấy tờ *
                     <select value={walkInForm.customerIdCardType} onChange={(e) => setWalkInForm({ ...walkInForm, customerIdCardType: e.target.value as CheckInGuestDraft["idCardType"] })} className="rounded-xl border border-[#D8DDE1] px-3.5 py-2.5 text-sm font-medium normal-case outline-none focus:border-[#0F2A43]">
                       <option value="CCCD">CCCD</option><option value="CMND">CMND</option><option value="PASSPORT">Hộ chiếu</option>
                     </select>
                   </label>
-                  <label className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Số giấy tờ *
-                    <input required minLength={4} maxLength={50} value={walkInForm.customerIdCard} onChange={(e) => setWalkInForm({ ...walkInForm, customerIdCard: e.target.value.slice(0, 50) })} placeholder="Nhập số giấy tờ" className="rounded-xl border border-[#D8DDE1] px-3.5 py-2.5 text-sm font-medium normal-case outline-none focus:border-[#0F2A43]" />
+                  <label className="grid min-w-0 gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Số giấy tờ *
+                    <input id="walk-in-customerIdCard" required minLength={4} maxLength={50} value={walkInForm.customerIdCard} onChange={(e) => { setWalkInForm({ ...walkInForm, customerIdCard: e.target.value.slice(0, 50) }); clearWalkInError("customerIdCard"); }} placeholder="Nhập số giấy tờ" aria-invalid={Boolean(walkInErrors.customerIdCard)} className={`min-w-0 rounded-xl border px-3.5 py-2.5 text-sm font-medium normal-case outline-none ${walkInErrors.customerIdCard ? "border-rose-500 bg-rose-50" : "border-[#D8DDE1] focus:border-[#0F2A43]"}`} />
+                    {walkInErrors.customerIdCard && <span className="text-xs font-semibold normal-case tracking-normal text-rose-700">{walkInErrors.customerIdCard}</span>}
                   </label>
-                  <label className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Số điện thoại *
-                    <input required type="tel" inputMode="tel" maxLength={24} autoComplete="tel" value={walkInForm.customerPhone} onChange={(e) => setWalkInForm({ ...walkInForm, customerPhone: e.target.value.slice(0, 24) })} placeholder="0900000000" className="rounded-xl border border-[#D8DDE1] px-3.5 py-2.5 text-sm font-medium normal-case outline-none focus:border-[#0F2A43]" />
+                  <label className="grid min-w-0 gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C] sm:col-span-2">Số điện thoại *
+                    <input id="walk-in-customerPhone" required type="tel" inputMode="tel" maxLength={24} autoComplete="tel" value={walkInForm.customerPhone} onChange={(e) => { setWalkInForm({ ...walkInForm, customerPhone: e.target.value.slice(0, 24) }); clearWalkInError("customerPhone"); }} placeholder="0900000000" aria-invalid={Boolean(walkInErrors.customerPhone)} className={`min-w-0 rounded-xl border px-3.5 py-2.5 text-sm font-medium normal-case outline-none ${walkInErrors.customerPhone ? "border-rose-500 bg-rose-50" : "border-[#D8DDE1] focus:border-[#0F2A43]"}`} />
+                    {walkInErrors.customerPhone && <span className="text-xs font-semibold normal-case tracking-normal text-rose-700">{walkInErrors.customerPhone}</span>}
                   </label>
                 </div>
-                <label className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">
-                  Email (không bắt buộc)
-                  <input type="email" maxLength={254} autoComplete="email" value={walkInForm.customerEmail} onChange={(e) => setWalkInForm({ ...walkInForm, customerEmail: e.target.value.slice(0, 254) })} placeholder="khach@example.com" className="rounded-xl border border-[#D8DDE1] px-3.5 py-2.5 text-sm font-medium normal-case outline-none transition focus:border-[#0F2A43] focus:ring-2 focus:ring-[#0F2A43]/10" />
+                <label className="grid min-w-0 gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">
+                  Email
+                  <input id="walk-in-customerEmail" type="email" maxLength={254} autoComplete="email" value={walkInForm.customerEmail} onChange={(e) => { setWalkInForm({ ...walkInForm, customerEmail: e.target.value.slice(0, 254) }); clearWalkInError("customerEmail"); }} placeholder="khach@example.com" aria-invalid={Boolean(walkInErrors.customerEmail)} className={`min-w-0 rounded-xl border px-3.5 py-2.5 text-sm font-medium normal-case outline-none transition focus:ring-2 ${walkInErrors.customerEmail ? "border-rose-500 bg-rose-50 focus:ring-rose-200" : "border-[#D8DDE1] focus:border-[#0F2A43] focus:ring-[#0F2A43]/10"}`} />
+                  {walkInErrors.customerEmail && <span className="text-xs font-semibold normal-case tracking-normal text-rose-700">{walkInErrors.customerEmail}</span>}
                 </label>
               </fieldset>
 
               <fieldset className="space-y-3">
                 <legend className="w-full border-b border-[#0F2A43]/55 pb-2 text-[11px] font-bold uppercase tracking-wider text-[#66727C]">Thông tin lưu trú</legend>
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                   <label className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Số khách *
-                    <input type="number" min="1" value={walkInForm.guestCount} onChange={(e) => setWalkInForm({ ...walkInForm, guestCount: e.target.value })} className="rounded-xl border border-[#D8DDE1] px-3.5 py-2.5 text-sm font-medium normal-case outline-none focus:border-[#0F2A43]" />
+                    <input id="walk-in-guestCount" type="number" min="1" step="1" value={walkInForm.guestCount} onChange={(e) => { setWalkInForm({ ...walkInForm, guestCount: e.target.value }); clearWalkInError("guestCount"); }} aria-invalid={Boolean(walkInErrors.guestCount)} className={`min-w-0 rounded-xl border px-3.5 py-2.5 text-sm font-medium normal-case outline-none ${walkInErrors.guestCount ? "border-rose-500 bg-rose-50" : "border-[#D8DDE1] focus:border-[#0F2A43]"}`} />
+                    {walkInErrors.guestCount && <span className="text-xs font-semibold normal-case tracking-normal text-rose-700">{walkInErrors.guestCount}</span>}
                   </label>
                   <div className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Nguồn đơn
                     <div className="rounded-xl border border-[#D8DDE1] bg-[#FBFAF6] px-3.5 py-2.5 text-center text-sm font-bold normal-case text-[#B0003A]">Walk-in</div>
                   </div>
-                  <div className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C]">Thời gian hiện tại
+                  <div className="grid gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#66727C] sm:col-span-2">Thời gian hiện tại
                     <div className="rounded-xl border border-[#D8DDE1] bg-[#FBFAF6] px-3.5 py-2.5 text-sm font-semibold normal-case tabular-nums text-[#0F2A43]">{walkInNow.toLocaleString("vi-VN")}</div>
                   </div>
-                  <DateTimeField
-                    tone="operations"
-                    label={localize("Giờ dự kiến trả phòng *", "Expected check-out time *")}
-                    value={walkInForm.checkOut}
-                    min={formatDateTimeLocal(walkInNow)}
-                    onValueChange={(value) => setWalkInForm({ ...walkInForm, checkOut: value })}
-                  />
+                  <div id="walk-in-checkOut" tabIndex={-1} className="min-w-0 sm:col-span-2">
+                    <DateTimeField
+                      tone="operations"
+                      label={localize("Giờ dự kiến trả phòng *", "Expected check-out time *")}
+                      value={walkInForm.checkOut}
+                      min={formatDateTimeLocal(walkInNow)}
+                      onValueChange={(value) => { setWalkInForm({ ...walkInForm, checkOut: value }); clearWalkInError("checkOut"); }}
+                    />
+                    {walkInErrors.checkOut && <p className="mt-1.5 text-xs font-semibold normal-case text-rose-700">{walkInErrors.checkOut}</p>}
+                  </div>
                 </div>
               </fieldset>
 
               </div>
-              <div className="lux-scrollbar px-5 py-5 lg:overflow-y-auto sm:px-6">
+              <div className="lux-scrollbar min-w-0 overflow-x-hidden px-5 py-5 lg:overflow-y-auto sm:px-6">
 
               <fieldset className="space-y-3">
                 <legend className="w-full border-b border-[#0F2A43]/55 pb-2 text-[11px] font-bold uppercase tracking-wider text-[#66727C]">Thanh toán khi tạo walk-in</legend>
@@ -2574,7 +2777,8 @@ export default function ReservationsManagement() {
               </fieldset>}
 
               <fieldset className="space-y-3">
-                <legend className="w-full border-b border-[#0F2A43]/55 pb-2 text-[11px] font-bold uppercase tracking-wider text-[#66727C]">Chọn phòng trống sạch *</legend>
+                <legend id="walk-in-rooms" tabIndex={-1} className="w-full border-b border-[#0F2A43]/55 pb-2 text-[11px] font-bold uppercase tracking-wider text-[#66727C]">Chọn phòng trống sạch *</legend>
+                {walkInErrors.rooms && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{walkInErrors.rooms}</p>}
                 {walkInRooms.length === 0 ? <p className="rounded-xl bg-[#FBFAF6] p-4 text-center text-sm font-medium text-[#66727C]">Không có phòng trống sạch phù hợp.</p> : (
                   <div className="grid gap-2 md:grid-cols-2">
                     {walkInRooms.map((room) => {
@@ -2588,15 +2792,16 @@ export default function ReservationsManagement() {
                 )}
                 <div className="space-y-3">
                   {walkInRooms.filter((room) => selectedWalkInRoomIds.includes(room.id)).map((room) => (
-                    <div key={`guests-${room.id}`} className="rounded-xl border border-[#D8DDE1] bg-[#FBFAF6] p-3">
+                    <div key={`guests-${room.id}`} className={`min-w-0 rounded-xl border bg-[#FBFAF6] p-3 ${walkInErrors[`room:${room.id}`] ? "border-rose-300" : "border-[#D8DDE1]"}`}>
                       <div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold text-[#0F2A43]">Khách phòng #{room.roomName}</p><button type="button" onClick={() => addWalkInGuest(room.id)} className="text-xs font-bold text-[#80632F]">+ Thêm khách</button></div>
+                      {walkInErrors[`room:${room.id}`] && <p id={`walk-in-room:${room.id}`} tabIndex={-1} className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{walkInErrors[`room:${room.id}`]}</p>}
                       <div className="space-y-2">
                         {(walkInGuestsByRoom[room.id] || []).map((guest, guestIndex) => (
-                          <div key={guestIndex} className="grid gap-2 rounded-lg border border-[#D8DDE1] bg-white p-2 md:grid-cols-5">
-                            <input value={guest.fullName} onChange={(e) => updateWalkInGuest(room.id, guestIndex, { fullName: e.target.value })} placeholder="Họ tên *" className="rounded-lg border px-2 py-2 text-xs md:col-span-2" />
-                            <input value={guest.phone} onChange={(e) => updateWalkInGuest(room.id, guestIndex, { phone: e.target.value })} placeholder="Điện thoại" className="rounded-lg border px-2 py-2 text-xs" />
-                            <input value={guest.idCardNumber} onChange={(e) => updateWalkInGuest(room.id, guestIndex, { idCardNumber: e.target.value })} placeholder="Số giấy tờ" className="rounded-lg border px-2 py-2 text-xs" />
-                            <div className="flex items-center justify-between gap-2"><label className="text-[10px] font-bold"><input type="radio" name={`primary-${room.id}`} checked={guest.isPrimary} onChange={() => setWalkInGuestsByRoom((current) => ({ ...current, [room.id]: current[room.id].map((item, index) => ({ ...item, isPrimary: index === guestIndex })) }))} className="mr-1" />Đại diện</label>{(walkInGuestsByRoom[room.id] || []).length > 1 && <button type="button" onClick={() => removeWalkInGuest(room.id, guestIndex)} className="text-xs font-bold text-rose-700">Xóa</button>}</div>
+                          <div key={guestIndex} className="grid min-w-0 gap-2 rounded-lg border border-[#D8DDE1] bg-white p-2 sm:grid-cols-2">
+                            <label className="grid min-w-0 gap-1 text-[10px] font-bold uppercase text-[#66727C] sm:col-span-2">Họ tên *<input id={`walk-in-guest:${room.id}:${guestIndex}:fullName`} value={guest.fullName} onChange={(e) => { updateWalkInGuest(room.id, guestIndex, { fullName: e.target.value.slice(0, 100) }); clearWalkInError(`guest:${room.id}:${guestIndex}:fullName`); }} placeholder="Họ tên khách" aria-invalid={Boolean(walkInErrors[`guest:${room.id}:${guestIndex}:fullName`])} className={`min-w-0 rounded-lg border px-2 py-2 text-xs font-medium normal-case ${walkInErrors[`guest:${room.id}:${guestIndex}:fullName`] ? "border-rose-500 bg-rose-50" : "border-[#D8DDE1]"}`} />{walkInErrors[`guest:${room.id}:${guestIndex}:fullName`] && <span className="font-semibold normal-case text-rose-700">{walkInErrors[`guest:${room.id}:${guestIndex}:fullName`]}</span>}</label>
+                            <label className="grid min-w-0 gap-1 text-[10px] font-bold uppercase text-[#66727C]">Điện thoại<input id={`walk-in-guest:${room.id}:${guestIndex}:phone`} type="tel" inputMode="tel" maxLength={24} value={guest.phone} onChange={(e) => { updateWalkInGuest(room.id, guestIndex, { phone: e.target.value }); clearWalkInError(`guest:${room.id}:${guestIndex}:phone`); }} placeholder="0900000000" aria-invalid={Boolean(walkInErrors[`guest:${room.id}:${guestIndex}:phone`])} className={`min-w-0 rounded-lg border px-2 py-2 text-xs font-medium normal-case ${walkInErrors[`guest:${room.id}:${guestIndex}:phone`] ? "border-rose-500 bg-rose-50" : "border-[#D8DDE1]"}`} />{walkInErrors[`guest:${room.id}:${guestIndex}:phone`] && <span className="font-semibold normal-case text-rose-700">{walkInErrors[`guest:${room.id}:${guestIndex}:phone`]}</span>}</label>
+                            <label className="grid min-w-0 gap-1 text-[10px] font-bold uppercase text-[#66727C]">Số giấy tờ<input id={`walk-in-guest:${room.id}:${guestIndex}:idCard`} maxLength={50} value={guest.idCardNumber} onChange={(e) => { updateWalkInGuest(room.id, guestIndex, { idCardNumber: e.target.value }); clearWalkInError(`guest:${room.id}:${guestIndex}:idCard`); }} placeholder="CCCD / hộ chiếu" aria-invalid={Boolean(walkInErrors[`guest:${room.id}:${guestIndex}:idCard`])} className={`min-w-0 rounded-lg border px-2 py-2 text-xs font-medium normal-case ${walkInErrors[`guest:${room.id}:${guestIndex}:idCard`] ? "border-rose-500 bg-rose-50" : "border-[#D8DDE1]"}`} />{walkInErrors[`guest:${room.id}:${guestIndex}:idCard`] && <span className="font-semibold normal-case text-rose-700">{walkInErrors[`guest:${room.id}:${guestIndex}:idCard`]}</span>}</label>
+                            <div className="flex min-h-11 items-center justify-between gap-2 sm:col-span-2"><label className="cursor-pointer text-[10px] font-bold"><input type="radio" name={`primary-${room.id}`} checked={guest.isPrimary} onChange={() => { setWalkInGuestsByRoom((current) => ({ ...current, [room.id]: current[room.id].map((item, index) => ({ ...item, isPrimary: index === guestIndex })) })); clearWalkInError(`room:${room.id}`); }} className="mr-1" />Đại diện</label>{(walkInGuestsByRoom[room.id] || []).length > 1 && <button type="button" onClick={() => removeWalkInGuest(room.id, guestIndex)} className="text-xs font-bold text-rose-700">Xóa</button>}</div>
                           </div>
                         ))}
                       </div>
@@ -2608,7 +2813,7 @@ export default function ReservationsManagement() {
             </div>
 
             <footer className="flex items-center justify-end gap-3 border-t border-[#D8DDE1] bg-[#FBFAF6] px-6 py-4">
-              <button type="button" onClick={() => setIsWalkInOpen(false)} className="rounded-xl border border-[#0F2A43] bg-white px-5 py-2.5 text-xs font-bold uppercase transition hover:bg-[#F1F0EA] active:scale-[0.98]">Hủy</button>
+              <button type="button" onClick={() => { setIsWalkInOpen(false); setWalkInErrors({}); }} className="rounded-xl border border-[#0F2A43] bg-white px-5 py-2.5 text-xs font-bold uppercase transition hover:bg-[#F1F0EA] active:scale-[0.98]">Hủy</button>
               <button disabled={isActionLoading || selectedWalkInRoomIds.length === 0} className="rounded-xl bg-[#0F2A43] px-5 py-2.5 text-xs font-bold uppercase text-white transition hover:bg-[#091E30] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#9AA4B5]">{isActionLoading ? "Đang xử lý..." : `Hoàn tất check-in (${selectedWalkInRoomIds.length} phòng)`}</button>
             </footer>
           </form>
@@ -2720,18 +2925,25 @@ export default function ReservationsManagement() {
                 {finalPayment.reservedRefundAmount > 0 && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900"><p className="font-bold">{localize("Đang chờ hoàn tiền", "Refund pending")}: {formatVND(finalPayment.reservedRefundAmount)}</p><p className="mt-1 text-xs">{localize("Chỉ checkout sau khi refund được xác nhận COMPLETED.", "Checkout is allowed only after the refund reaches COMPLETED.")}</p></div>}
               </div>
             </div>
+            {finalPayment.reconciliationStatus === "MISMATCH" && (
+              <div className="mx-6 mb-5 rounded-xl border border-[#0F2A43]/10 bg-[#FBFAF6] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><p className="text-xs font-black uppercase tracking-[0.14em] text-[#80632F]">{localize("Xử lý theo nguyên nhân", "Resolve the cause")}</p><p className="mt-1 text-sm text-[#66727C]">{localize("Hoàn tất nghiệp vụ thật trước; hệ thống sẽ tự đối soát lại.", "Complete the real business operation first; reconciliation refreshes automatically.")}</p></div>
+                  {(finalPayment.paymentPending || finalPayment.refundPending) && <button type="button" disabled={isActionLoading} onClick={() => void openFinalPayment(selectedReservation)} className="min-h-10 rounded-lg border border-[#0F2A43]/20 bg-white px-4 text-xs font-bold text-[#0F2A43] hover:border-[#B8944F] disabled:opacity-50">{localize("Kiểm tra lại trạng thái", "Refresh status")}</button>}
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {finalPayment.remainingAmount > 0 && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-sm font-bold text-rose-800">{localize("Còn thiếu tiền", "Outstanding balance")}: {formatVND(finalPayment.remainingAmount)}</p><p className="mt-1 text-xs leading-5 text-rose-700">{localize("Thu đúng số còn thiếu bằng tiền mặt hoặc tạo QR thanh toán cuối.", "Collect the exact balance in cash or create a final-payment QR.")}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={isActionLoading} onClick={handleCashPayment} className="min-h-10 rounded-lg bg-[#B8944F] px-4 text-xs font-bold text-[#0F2A43] disabled:opacity-60">{localize("Thu tiền mặt", "Collect cash")}</button><button type="button" disabled={isActionLoading} onClick={handleOnlinePayment} className="min-h-10 rounded-lg border border-[#0F2A43] bg-white px-4 text-xs font-bold text-[#0F2A43] hover:bg-[#0F2A43] hover:text-white disabled:opacity-60">{localize("Tạo QR", "Create QR")}</button></div></div>}
+                  {(finalPayment.refundableAmount || 0) > 0 && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-bold text-emerald-800">{localize("Cần tạo khoản hoàn", "Refund must be created")}: {formatVND(finalPayment.refundableAmount)}</p><p className="mt-1 text-xs leading-5 text-emerald-700">{localize("Tạo refund đúng số tiền; chỉ khớp sau khi refund hoàn tất.", "Create the exact refund; matching occurs only after completion.")}</p><button type="button" disabled={isActionLoading} onClick={handleCheckoutRefund} className="mt-3 min-h-10 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{localize("Xử lý hoàn tiền", "Process refund")}</button></div>}
+                  {finalPayment.paymentPending && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4"><p className="text-sm font-bold text-sky-900">{localize("Payment đang chờ xác nhận", "Payment is pending")}</p><p className="mt-1 text-xs leading-5 text-sky-800">{localize("Không tạo giao dịch trùng. Chờ webhook hoặc kiểm tra giao dịch SePay đang chờ.", "Do not create a duplicate. Wait for the webhook or review the pending SePay transaction.")}</p></div>}
+                  {finalPayment.reservedRefundAmount > 0 && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4"><p className="text-sm font-bold text-sky-900">{localize("Refund chưa hoàn tất", "Refund is incomplete")}: {formatVND(finalPayment.reservedRefundAmount)}</p><p className="mt-1 text-xs leading-5 text-sky-800">{localize("Hoàn tất giao tiền/đối soát ngân hàng; không được checkout khi còn nghĩa vụ hoàn.", "Complete the handover or bank reconciliation; checkout stays blocked while a refund is due.")}</p></div>}
+                  <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4"><p className="text-sm font-bold text-orange-900">{localize("Khoản phí nhập chưa đúng?", "Incorrect fee entry?")}</p><p className="mt-1 text-xs leading-5 text-orange-800">{localize("Sửa tại reservation với lý do rõ ràng; hàng đợi ngoại lệ không cho nhập số tiền.", "Correct it on the reservation with a documented reason; the exception queue cannot edit amounts.")}</p><button type="button" disabled={isActionLoading} onClick={openCheckoutAdditionalFee} className="mt-3 min-h-10 rounded-lg border border-orange-400 bg-white px-4 text-xs font-bold text-orange-900 hover:bg-orange-100 disabled:opacity-50">{localize("Sửa phụ phí", "Correct fee")}</button></div>
+                </div>
+                <div className="mt-4 border-t border-[#0F2A43]/10 pt-3 text-right"><button type="button" disabled={isActionLoading} onClick={openCheckoutEscalation} className="min-h-10 rounded-lg px-3 text-xs font-bold text-[#66727C] underline decoration-dotted underline-offset-4 hover:bg-amber-50 hover:text-amber-900 disabled:opacity-50">{localize("Vẫn lệch do lỗi kỹ thuật? Gửi ADMIN xử lý ngoại lệ", "Still mismatched due to a technical issue? Send an ADMIN exception")}</button></div>
+              </div>
+            )}
             <div className="flex flex-wrap justify-end gap-3 border-t border-[#0F2A43]/10 px-6 py-4">
-              <button disabled={isActionLoading} onClick={openCheckoutAdditionalFee} className="min-h-11 rounded-lg border border-orange-300 bg-orange-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-orange-800 hover:bg-orange-100 disabled:opacity-50">{localize("Thêm / sửa phụ phí", "Add / edit fee")}</button>
-              {(finalPayment.refundableAmount || 0) > 0 && (
-                <button disabled={isActionLoading} onClick={handleCheckoutRefund} className="min-h-11 rounded-lg bg-emerald-700 px-5 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm hover:bg-emerald-800 disabled:opacity-50">{localize("Hoàn tiền", "Refund")}</button>
-              )}
-              {finalPayment.remainingAmount > 0 && (
-                <>
-                  <button disabled={isActionLoading} onClick={handleCashPayment} className="min-h-11 rounded-lg bg-[#B8944F] px-5 text-xs font-bold uppercase tracking-wider text-[#0F2A43] disabled:opacity-60">{localize("Thu tiền mặt", "Cash payment")}</button>
-                  <button disabled={isActionLoading} onClick={handleOnlinePayment} className="min-h-11 rounded-lg border border-[#0F2A43] bg-white px-5 text-xs font-bold uppercase tracking-wider text-[#0F2A43] hover:bg-[#0F2A43] hover:text-white disabled:opacity-60">{localize("Thanh toán SePay VietQR", "SePay VietQR payment")}</button>
-                </>
-              )}
-              {finalPayment.reconciliationStatus === "MATCHED" ? <button disabled={isActionLoading} onClick={handleCheckOut} className="rounded-xl bg-rose-700 px-5 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm hover:bg-rose-800 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">{localize("Hoàn tất trả phòng", "Complete checkout")}</button> : <button disabled={isActionLoading} onClick={openCheckoutEscalation} className="rounded-xl border border-amber-700 bg-amber-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-amber-900 hover:bg-amber-100 disabled:opacity-50">{localize("Yêu cầu ADMIN xử lý lỗi", "Request ADMIN review")}</button>}
+              {finalPayment.reconciliationStatus === "MATCHED" && <><button disabled={isActionLoading} onClick={openCheckoutAdditionalFee} className="min-h-11 rounded-lg border border-orange-300 bg-orange-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-orange-800 hover:bg-orange-100 disabled:opacity-50">{localize("Thêm / sửa phụ phí", "Add / edit fee")}</button><button disabled={isActionLoading} onClick={handleCheckOut} className="rounded-xl bg-rose-700 px-5 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm hover:bg-rose-800 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">{localize("Hoàn tất trả phòng", "Complete checkout")}</button></>}
+              {finalPayment.reconciliationStatus === "MISMATCH" && <button type="button" disabled={isActionLoading} onClick={() => void openFinalPayment(selectedReservation)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-xs font-bold uppercase tracking-wider text-[#0F2A43] hover:bg-[#F1F0EA] disabled:opacity-50">{localize("Đối soát lại", "Recheck")}</button>}
             </div>
           </section>
         </ViewportModal>

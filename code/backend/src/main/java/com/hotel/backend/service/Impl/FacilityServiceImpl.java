@@ -98,7 +98,7 @@ public class FacilityServiceImpl implements FacilityService {
                 MediaAssetOwnerType.FACILITY,
                 saved.getId()));
         auditFacility(saved, ReservationAuditAction.FACILITY_CREATED,
-                "Tạo tiện ích", null, facilitySnapshot(saved));
+                "Tạo tiện nghi", null, facilitySnapshot(saved));
         log.info("Đã tạo facility id={}", saved.getId());
         return mapToResponse(saved);
     }
@@ -129,7 +129,7 @@ public class FacilityServiceImpl implements FacilityService {
                 facility.getId()));
         Facility saved = facilityRepository.save(facility);
         auditFacility(saved, ReservationAuditAction.FACILITY_UPDATED,
-                "Cập nhật tiện ích", oldValue, facilitySnapshot(saved));
+                "Cập nhật tiện nghi", oldValue, facilitySnapshot(saved));
         log.info("Đã cập nhật facility id={}", saved.getId());
         return mapToResponse(saved);
     }
@@ -151,7 +151,7 @@ public class FacilityServiceImpl implements FacilityService {
 
         facilityRepository.delete(facility);
         auditFacility(facility, ReservationAuditAction.FACILITY_DELETED,
-                "Xóa tiện ích", oldValue, null);
+                "Xóa tiện nghi", oldValue, null);
         log.info("Đã xóa facility id={}", id);
     }
 

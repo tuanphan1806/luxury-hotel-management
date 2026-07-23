@@ -6,6 +6,7 @@ import { apiClient, cachedGet } from "@/lib/api";
 import { resolveMediaSource } from "@/lib/media-url";
 import Toast from "@/components/UI/Toast";
 import ImageUploadField from "@/components/UI/ImageUploadField";
+import ViewportModal from "@/components/UI/ViewportModal";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { getPublicRoomTypes, invalidatePublicRoomTypes } from "@/lib/public-catalog";
@@ -268,7 +269,7 @@ export default function RoomTypesManagement() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-[#0F2A43]/5">
         <div>
           <h1 className="font-serif text-3xl md:text-4xl font-bold tracking-tight text-[#0F2A43] leading-tight">{localize("Quản lý loại phòng", "Room type management")}</h1>
-          <p className="text-xs text-[#66727C] mt-1.5 font-bold uppercase tracking-wider">{localize(`${roomTypes.length} loại phòng đã cấu hình tiện ích và giá cơ bản`, `${roomTypes.length} room types configured with facilities and base prices`)}</p>
+          <p className="text-xs text-[#66727C] mt-1.5 font-bold uppercase tracking-wider">{localize(`${roomTypes.length} loại phòng đã cấu hình tiện nghi và giá cơ bản`, `${roomTypes.length} room types configured with facilities and base prices`)}</p>
         </div>
         {isAdmin ? <button
           onClick={openCreateModal}
@@ -281,7 +282,7 @@ export default function RoomTypesManagement() {
       <div className="space-y-6">
         <DashboardFilterPanel
           title={localize("Bộ lọc loại phòng", "Room type filters")}
-          description={localize("Tìm theo tên, mô tả, tiện ích; lọc sức chứa và sắp xếp mức giá", "Search names, descriptions and facilities; filter capacity and sort pricing")}
+          description={localize("Tìm theo tên, mô tả, tiện nghi; lọc sức chứa và sắp xếp mức giá", "Search names, descriptions and facilities; filter capacity and sort pricing")}
           resultCount={filteredRoomTypes.length}
           resultLabel={localize("loại phòng phù hợp", "matching room types")}
           resultNote={sortOrder === "DEFAULT"
@@ -313,7 +314,7 @@ export default function RoomTypesManagement() {
               label={localize("Tìm kiếm", "Search")}
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder={localize("Tên loại phòng, mô tả hoặc tiện ích...", "Room type, description or facility...")}
+              placeholder={localize("Tên loại phòng, mô tả hoặc tiện nghi...", "Room type, description or facility...")}
               clearLabel={localize("Xóa từ khóa", "Clear search")}
             />
             <DashboardSelectField id="room-type-capacity" label={localize("Sức chứa", "Capacity")} value={capacityFilter} onChange={(event) => setCapacityFilter(event.target.value as CapacityFilter)}>
@@ -332,8 +333,8 @@ export default function RoomTypesManagement() {
         </DashboardFilterPanel>
 
         {isLoading ? (
-          <div className="text-center py-12 text-[#66727C] font-semibold text-sm">
-            {localize("Đang tải danh sách loại phòng...", "Loading room types...")}
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3" role="status" aria-label={localize("Đang tải danh sách loại phòng", "Loading room types")}>
+            {[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white"><div className="h-48 animate-pulse bg-[#E5E9ED]" /><div className="space-y-3 p-5"><div className="h-7 w-2/3 animate-pulse rounded bg-[#E5E9ED]" /><div className="h-4 w-full animate-pulse rounded bg-[#E5E9ED]" /><div className="h-11 w-1/2 animate-pulse rounded bg-[#E5E9ED]" /></div></div>)}
           </div>
         ) : filteredRoomTypes.length === 0 ? (
           <div className="bg-white text-center py-12 border-2 border-dashed border-[#0F2A43]/10 rounded-xl text-[#66727C] font-semibold text-sm">
@@ -370,7 +371,7 @@ export default function RoomTypesManagement() {
 
                   {type.facilities && type.facilities.length > 0 && (
                     <div className="space-y-1.5">
-                      <span className="block text-[9px] tracking-wider uppercase font-bold text-[#66727C]">{localize("Tiện ích đi kèm", "Included amenities")}</span>
+                      <span className="block text-[9px] tracking-wider uppercase font-bold text-[#66727C]">{localize("Tiện nghi đi kèm", "Included amenities")}</span>
                       <div className="flex flex-wrap gap-1">
                         {type.facilities.map((fac) => (
                           <span key={fac.id} className="text-[9px] font-bold px-2 py-0.5 bg-[#F0EADF] text-[#80632F] rounded-md border border-[#F0EADF]">
@@ -402,14 +403,21 @@ export default function RoomTypesManagement() {
         )}
       </div>
 
-      {isAdmin && isCreateOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSaving) setIsCreateOpen(false); }}>
-          <div className="bg-white rounded-2xl max-w-lg w-full p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Thêm loại phòng", "Add room type")}</h3>
+      {isAdmin && (
+        <ViewportModal
+          open={isCreateOpen}
+          onClose={() => setIsCreateOpen(false)}
+          labelledBy="create-room-type-title"
+          busy={isSaving || isUploading}
+          panelClassName="max-w-lg"
+        >
+          <div className="min-h-0 w-full space-y-6 overflow-y-auto p-5 sm:p-8">
+            <h3 id="create-room-type-title" className="text-xl font-bold text-[#0F2A43]">{localize("Thêm loại phòng", "Add room type")}</h3>
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Tên loại phòng (VI) *", "Room type name (VI) *")}</label>
                 <input
+                  data-modal-autofocus
                   type="text"
                   required
                   value={formData.typeName}
@@ -470,7 +478,7 @@ export default function RoomTypesManagement() {
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm h-20 resize-none"
-                  placeholder="Mô tả thiết kế và tiện ích của loại phòng..."
+                  placeholder="Mô tả thiết kế và tiện nghi của loại phòng..."
                 />
               </div>
               <div>
@@ -479,7 +487,7 @@ export default function RoomTypesManagement() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-2">{localize("Gán tiện ích", "Assign amenities")}</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-2">{localize("Gán tiện nghi", "Assign amenities")}</label>
                 <div className="grid grid-cols-2 gap-2 border border-gray-100 p-4 rounded-lg bg-gray-50/50 max-h-36 overflow-y-auto">
                   {facilities.map((fac) => (
                     <label key={fac.id} className="flex items-center gap-2 text-xs font-medium text-text-dark cursor-pointer select-none">
@@ -518,17 +526,24 @@ export default function RoomTypesManagement() {
               </div>
             </form>
           </div>
-        </div>
+        </ViewportModal>
       )}
 
-      {isAdmin && isEditOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSaving) setIsEditOpen(false); }}>
-          <div className="bg-white rounded-2xl max-w-lg w-full p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Chỉnh sửa loại phòng", "Edit room type")}</h3>
+      {isAdmin && (
+        <ViewportModal
+          open={isEditOpen}
+          onClose={() => setIsEditOpen(false)}
+          labelledBy="edit-room-type-title"
+          busy={isSaving || isUploading}
+          panelClassName="max-w-lg"
+        >
+          <div className="min-h-0 w-full space-y-6 overflow-y-auto p-5 sm:p-8">
+            <h3 id="edit-room-type-title" className="text-xl font-bold text-[#0F2A43]">{localize("Chỉnh sửa loại phòng", "Edit room type")}</h3>
             <form onSubmit={handleEditSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Tên loại phòng (VI) *", "Room type name (VI) *")}</label>
                 <input
+                  data-modal-autofocus
                   type="text"
                   required
                   value={formData.typeName}
@@ -595,7 +610,7 @@ export default function RoomTypesManagement() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-2">{localize("Gán tiện ích", "Assign amenities")}</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-2">{localize("Gán tiện nghi", "Assign amenities")}</label>
                 <div className="grid grid-cols-2 gap-2 border border-gray-100 p-4 rounded-lg bg-gray-50/50 max-h-36 overflow-y-auto">
                   {facilities.map((fac) => (
                     <label key={fac.id} className="flex items-center gap-2 text-xs font-medium text-text-dark cursor-pointer select-none">
@@ -634,17 +649,23 @@ export default function RoomTypesManagement() {
               </div>
             </form>
           </div>
-        </div>
+        </ViewportModal>
       )}
 
-      {isAdmin && isDeleteOpen && selectedRoomType && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSaving) setIsDeleteOpen(false); }}>
-          <div className="bg-white rounded-2xl max-w-sm w-full p-8 space-y-6 shadow-2xl relative text-center">
-            <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto text-2xl">
-              ⚠️
+      {isAdmin && selectedRoomType && (
+        <ViewportModal
+          open={isDeleteOpen}
+          onClose={() => setIsDeleteOpen(false)}
+          labelledBy="delete-room-type-title"
+          busy={isSaving}
+          panelClassName="max-w-sm"
+        >
+          <div className="min-h-0 w-full space-y-6 overflow-y-auto p-6 text-center sm:p-8">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-red-600">
+              <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
             </div>
             <div className="space-y-2">
-              <h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Xóa loại phòng", "Delete room type")}</h3>
+              <h3 id="delete-room-type-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa loại phòng", "Delete room type")}</h3>
               <p className="text-sm text-[#66727C]">
                 {localize("Bạn có chắc muốn xóa", "Are you sure you want to delete")} <strong>{localize(selectedRoomType.typeName, selectedRoomType.typeNameEn)}</strong>? {localize("Thao tác này sẽ xóa vĩnh viễn cấu hình loại phòng.", "This permanently deletes the room type mapping.")}
               </p>
@@ -664,7 +685,7 @@ export default function RoomTypesManagement() {
               </button>
             </div>
           </div>
-        </div>
+        </ViewportModal>
       )}
 
       {toast && (

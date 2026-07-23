@@ -100,7 +100,7 @@ export default function ContactRequestPage() {
         className="min-h-[54dvh] md:min-h-[540px]"
       />
 
-      <section className="px-5 py-16 md:px-8 md:py-20">
+      <section className="deferred-section px-5 py-16 md:px-8 md:py-20">
         <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
           <aside className="space-y-5 lg:sticky lg:top-28">
             <div className="rounded-[1.5rem] bg-[#0F2A43] p-6 text-white">
