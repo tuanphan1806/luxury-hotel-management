@@ -30,7 +30,7 @@ import com.hotel.backend.service.PaymentService;
 import com.hotel.backend.service.PaymentSessionExpiryService;
 import com.hotel.backend.service.BusinessMetricService;
 import com.hotel.backend.exception.AppException;
-import com.hotel.backend.util.VNPayUtil;
+import com.hotel.backend.util.PaymentUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
@@ -155,7 +155,7 @@ public ApiResponse<List<AvailabilityResponse>> checkAvailability(
             com.hotel.backend.entity.User currentUser,
             HttpServletRequest httpRequest) {
         WalkInReservationResponse response = reservationService.createWalkInCheckedIn(
-                request, currentUser, VNPayUtil.getClientIp(httpRequest));
+                request, currentUser, PaymentUtil.getClientIp(httpRequest));
         if (request.getPaymentOption() != WalkInPaymentOption.SEPAY) {
             return response;
         }

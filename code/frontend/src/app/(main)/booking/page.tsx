@@ -11,6 +11,7 @@ import { saveGuestReservationToken } from "@/lib/guest-reservation-token";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { clearIdempotencyKey, getOrCreateIdempotencyKey } from "@/lib/idempotency";
+import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 
 interface BookingData {
   roomName: string;
@@ -27,6 +28,7 @@ interface BookingData {
     roomName: string;
     quantity: number;
     pricePerHour: number;
+    maxGuestsPerRoom: number;
   }>;
 }
 
@@ -49,6 +51,7 @@ interface BookingRoomType {
   typeName?: string;
   typeNameEn?: string;
   price?: number;
+  maxGuests?: number;
   imageUrl?: string;
   size?: string;
 }
@@ -154,6 +157,7 @@ function BookingFormContent() {
           roomName: localize(roomType?.typeName, roomType?.typeNameEn),
           quantity: requested.quantity,
           pricePerHour: Number(roomType?.price || 0),
+          maxGuestsPerRoom: normalizeGuestCapacity(roomType?.maxGuests),
         }));
         if (selectedRooms.length > 0) {
           const match = matches[0].roomType as BookingRoomType;
@@ -195,6 +199,9 @@ function BookingFormContent() {
   );
   const deposit50 = Math.ceil(total * 0.5);
   const amountDueNow = paymentPlan === "PREPAY_100" ? total : deposit50;
+  const declaredGuestCount = Number(bookingData.adultsCount || 0) + Number(bookingData.childrenCount || 0);
+  const selectedRoomCount = bookingData.selectedRooms.reduce((sum, room) => sum + room.quantity, 0);
+  const selectedGuestCapacity = calculateSelectedGuestCapacity(bookingData.selectedRooms);
 
   const formatVND = (num: number) => {
     return num.toLocaleString("vi-VN") + " đ";
@@ -222,6 +229,12 @@ function BookingFormContent() {
 
   const getFormValidationError = (name = fullName, customerEmail = email, customerPhone = phone) => {
     const normalizedPhone = customerPhone.replace(/[\s().+-]/g, "");
+    if (selectedGuestCapacity < declaredGuestCount) {
+      return localize(
+        `Các phòng đã chọn chỉ chứa tối đa ${selectedGuestCapacity} khách, thấp hơn ${declaredGuestCount} khách của đơn. Vui lòng quay lại chọn thêm phòng.`,
+        `The selected rooms allow ${selectedGuestCapacity} guests, below the ${declaredGuestCount} guests in this reservation. Please go back and add rooms.`,
+      );
+    }
     if (name.trim().length < 2 || name.trim().length > 100) {
       return localize("Họ và tên phải từ 2–100 ký tự.", "Full name must contain 2–100 characters.");
     }
@@ -280,7 +293,7 @@ function BookingFormContent() {
         const createResResponse = await reservationClient.post("/api/reservations", {
           checkIn: checkInDateTime,
           checkOut: checkOutDateTime,
-          guestCount: parseInt(bookingData.adultsCount) + parseInt(bookingData.childrenCount),
+          guestCount: declaredGuestCount,
           note: specialRequest,
           paymentPlan,
           customer: {
@@ -527,7 +540,11 @@ function BookingFormContent() {
               <div className="space-y-3 text-xs font-semibold text-text-dark">
                 <div className="flex justify-between">
                   <span className="text-text-light font-medium">{localize("Phòng đã chọn", "Selected rooms")}</span>
-                  <span>01</span>
+                  <span>{String(selectedRoomCount).padStart(2, "0")}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-text-light font-medium">{localize("Sức chứa đã chọn", "Selected capacity")}</span>
+                  <span>{selectedGuestCapacity} {localize("khách", "guests")}</span>
                 </div>
                 <div className="flex justify-between pb-3">
                   <span className="text-text-light font-medium">{localize("Tổng số giờ", "Total hours")}</span>
@@ -793,7 +810,7 @@ function BookingFormContent() {
               </div>
               <div className="col-span-2 pt-2 border-t border-gray-100/50">
                 <p className="text-text-light font-medium uppercase tracking-wider mb-1">Khách</p>
-                <p>{bookingData.adultsCount} Người lớn, {bookingData.childrenCount} Trẻ em</p>
+                <p>{bookingData.adultsCount} Người lớn, {bookingData.childrenCount} Trẻ em · {localize(`Sức chứa ${selectedGuestCapacity}`, `Capacity ${selectedGuestCapacity}`)}</p>
               </div>
             </div>
 

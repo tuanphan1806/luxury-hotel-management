@@ -31,6 +31,7 @@ public class OAuthAccountService {
 
     private final OAuthAccountRepository oauthAccountRepository;
     private final UserRepository userRepository;
+    private final CustomerProfileLinkService customerProfileLinkService;
 
     @Transactional
     public User resolveOrCreate(OAuthLoginProfile profile) {
@@ -39,7 +40,9 @@ public class OAuthAccountService {
         var existingMapping = oauthAccountRepository.findByProviderAndProviderSubject(
                 profile.provider(), profile.providerSubject());
         if (existingMapping.isPresent()) {
-            return requireActive(existingMapping.get().getUser());
+            User user = requireActive(existingMapping.get().getUser());
+            customerProfileLinkService.ensureForUser(user);
+            return user;
         }
 
         String normalizedEmail = normalizeEmail(profile.email());
@@ -131,6 +134,7 @@ public class OAuthAccountService {
                     .providerSubject(profile.providerSubject())
                     .user(linkedUser)
                     .build());
+            customerProfileLinkService.ensureForUser(linkedUser);
             return linkedUser;
         } catch (DataIntegrityViolationException exception) {
             log.warn("OAuth account link conflict for provider={}", profile.provider());
@@ -162,6 +166,7 @@ public class OAuthAccountService {
                     .providerSubject(profile.providerSubject())
                     .user(savedUser)
                     .build());
+            customerProfileLinkService.ensureForUser(savedUser);
             return savedUser;
         } catch (DataIntegrityViolationException exception) {
             log.warn("Concurrent OAuth account creation conflict for provider={}", profile.provider());

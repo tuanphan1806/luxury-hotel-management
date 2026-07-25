@@ -38,7 +38,12 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     @Query("SELECT pt FROM PaymentTransaction pt JOIN FETCH pt.reservation WHERE pt.id = :id")
     Optional<PaymentTransaction> findByIdForUpdate(@Param("id") String id);
     
-    @Query("SELECT pt FROM PaymentTransaction pt WHERE pt.reservation.id = :reservationId")
+    @Query("""
+        SELECT pt
+        FROM PaymentTransaction pt
+        JOIN FETCH pt.reservation
+        WHERE pt.reservation.id = :reservationId
+    """)
     List<PaymentTransaction> findByReservationId(@Param("reservationId") Long reservationId);
  
     @Query("""

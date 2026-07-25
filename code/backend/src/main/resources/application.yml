@@ -209,23 +209,6 @@ hotel:
     draft-warning-minutes: ${DRAFT_WARNING_MINUTES:30}
     arrival-window-hours: ${ARRIVAL_WINDOW_HOURS:2}
     refund-alert-hours: ${REFUND_ALERT_HOURS:48}
-# Chỉ giữ VNPay để đọc giao dịch lịch sử và xử lý refund cũ. Luồng thanh toán
-# online mới dùng SePay VietQR bên dưới.
-vnpay:
-  tmn-code: ${VNPAY_TMN_CODE:}
-  hash-secret: ${VNPAY_HASH_SECRET:}
-  payment-url: ${VNPAY_PAYMENT_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
-  return-url: ${VNPAY_RETURN_URL:http://localhost:${server.port:8080}/api/payments/vnpay/return}
-  api-url: ${VNPAY_API_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
-  refund-ip-address: ${VNPAY_REFUND_IP_ADDRESS:127.0.0.1}
-  # Explicit opt-in: never send a real provider refund by default.
-  refund-enabled: ${VNPAY_REFUND_ENABLED:false}
-  version: 2.1.0
-  command: pay
-  curr-code: VND
-  locale: vn
-  order-type: hotel
-
 sepay:
   qr-bank-account: ${SEPAY_QR_BANK_ACCOUNT:${MERCHANT_BANK_ACCOUNT_NUMBER:}}
   merchant-bank-account: ${MERCHANT_BANK_ACCOUNT_NUMBER:${SEPAY_QR_BANK_ACCOUNT:}}

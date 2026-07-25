@@ -4,6 +4,29 @@
 - Trước khi kết thúc một tác vụ dài, hãy cập nhật `HANDOFF.md`.
 - Không xóa nội dung bàn giao khi công việc chưa hoàn thành.
 
+## Production release candidate — 2026-07-26
+
+- Active checkout remains `C:\Users\admin\Downloads\hotelmanagement-new`; the
+  OneDrive checkout is not the release source.
+- Backend SOLID refactor preserves the existing REST/database contracts and
+  reservation, RoomHold, SePay, refund, ledger, check-in and checkout ordering.
+- VNPay runtime code/config has been removed. PostgreSQL migration V11 fails
+  closed if unsupported provider history exists, removes VNPay-only columns and
+  constrains payment/refund/provider-event data to the supported SePay/CASH
+  contracts. The production Neon preflight was confirmed to contain no VNPay
+  history.
+- Final local release evidence: 321 backend tests, eight PostgreSQL migration
+  tests (fresh/upgrade/idempotency/legacy rejection), nine frontend unit tests,
+  16 browser E2E scenarios, frontend lint/build (42 routes) and the backend
+  Docker image build all pass.
+- Render production remains on the Free Singapore service and Vercel on the
+  Hobby project. Required Neon/JWT/OAuth/Cloudinary/SendGrid/SePay/bank and
+  frontend proxy variables are present and masked in their dashboards.
+- Remaining external evidence is intentionally tracked as PARTIAL in
+  `docs/qa/full-system-test-report.md`: SendGrid inbox deliverability and plan
+  continuity, a coordinated real SePay incoming/outgoing transfer, production
+  backup/restore and load/operator UAT.
+
 ## PostgreSQL database cutover — 2026-07-19
 
 - Runtime database support is PostgreSQL-only: PostgreSQL JDBC/Flyway modules,
@@ -73,7 +96,7 @@
   configure the exact same value in SePay, never writing it to docs/logs.
 - Local and ngrok provider-test probes both returned HTTP 200 with
   `{"success":true}` on `/api/payments/sepay/webhook`. The ngrok inspector also
-  recorded the public POST as 200. Online UI continues to expose QR, not VNPay.
+  recorded the public POST as 200. Online UI exposes SePay VietQR only.
 - Dev profile disables DevTools persistent HTTP sessions and uses target-local
   Tomcat directories to avoid Windows `ApplicationTemp` ownership failures.
 - The opt-in `postgres-migration-test` profile filters `target/classes` for the test

@@ -1,5 +1,4 @@
 package com.hotel.backend.dto.request;
-import com.hotel.backend.constant.PaymentProvider;
 import com.hotel.backend.constant.RefundChannel;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -17,10 +16,6 @@ public class RefundRequest {
     private Long amount; // Số tiền hoàn toàn bộ của giao dịch
 
     private RefundChannel refundChannel;
-
-    /** @deprecated Backend tự định tuyến theo giao dịch thu tiền gốc. */
-    @Deprecated
-    private PaymentProvider provider;
 
     private String reason; // Lý do hoàn tiền
 }

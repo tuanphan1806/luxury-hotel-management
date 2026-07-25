@@ -41,6 +41,7 @@ class CheckoutReconciliationRequestServiceTest {
 
     @BeforeEach
     void setUp() {
+        ObjectMapper objectMapper = new ObjectMapper();
         service = new CheckoutReconciliationRequestService(
                 requestRepository,
                 reservationRepository,
@@ -48,7 +49,9 @@ class CheckoutReconciliationRequestServiceTest {
                 reservationService,
                 sePayService,
                 auditService,
-                new ObjectMapper());
+                objectMapper,
+                new CheckoutReconciliationRequestMapper(objectMapper),
+                new CheckoutReconciliationAccessPolicy());
 
         reservation = new Reservation();
         reservation.setId(42L);

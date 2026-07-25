@@ -12,6 +12,8 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import com.hotel.backend.service.EmailDeliveryGateway;
+import com.hotel.backend.service.SendGridEmailDeliveryGateway;
 import com.hotel.backend.service.UserServiceDetail;
 import com.sendgrid.SendGrid;
 
@@ -67,8 +69,6 @@ public SecurityFilterChain securityFilterChain(
             .requestMatchers(HttpMethod.GET, "/facilities/**", "/room_types/**", "/galeries/**", "/avatar/**").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/chat").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/contact-messages").permitAll()
-            .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/return").permitAll()
-            .requestMatchers(HttpMethod.GET, "/api/payments/vnpay/ipn").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/payments/sepay/webhook").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/payments/result/*").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/payments/result/*/abandon").permitAll()
@@ -139,6 +139,20 @@ public SecurityFilterChain securityFilterChain(
     @Qualifier("transactionalSendGrid")
     public SendGrid transactionalSendGrid() {
         return new SendGrid(transactionalSendgridApiKey);
+    }
+
+    @Bean
+    @Qualifier("verificationEmailDeliveryGateway")
+    public EmailDeliveryGateway verificationEmailDeliveryGateway(
+            @Qualifier("verificationSendGrid") SendGrid sendGrid) {
+        return new SendGridEmailDeliveryGateway(sendGrid);
+    }
+
+    @Bean
+    @Qualifier("transactionalEmailDeliveryGateway")
+    public EmailDeliveryGateway transactionalEmailDeliveryGateway(
+            @Qualifier("transactionalSendGrid") SendGrid sendGrid) {
+        return new SendGridEmailDeliveryGateway(sendGrid);
     }
 
     @Bean
