@@ -26,6 +26,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -80,7 +81,9 @@ class BusinessMonitoringServiceTest {
                 .requestedAtUtc(now.minusSeconds(7_200))
                 .build();
         PaymentRefund recentLegacyRefund = PaymentRefund.builder()
-                .requestedAt(LocalDateTime.now().minusMinutes(10))
+                .requestedAt(LocalDateTime.ofInstant(
+                        now.minusSeconds(600),
+                        ZoneId.of("Asia/Ho_Chi_Minh")))
                 .build();
         ReconciliationState state = ReconciliationState.builder()
                 .provider(PaymentProvider.SEPAY)
