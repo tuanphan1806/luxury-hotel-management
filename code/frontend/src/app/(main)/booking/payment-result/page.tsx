@@ -18,7 +18,6 @@ interface VerifiedPaymentResult {
   purpose?: string;
   amount?: number;
   message?: string;
-  requestedBankCode?: string;
   bankCode?: string;
   cardType?: string;
   responseCode?: string;
@@ -229,13 +228,13 @@ function PaymentResultContent() {
   const refundOutstandingAmount = Math.max(0, payment?.refundOutstandingAmount ?? 0);
   const providerLabel = provider === "SEPAY"
     ? localize("Thanh toán QR", "QR payment")
-    : provider === "VNPAY"
-      ? localize("Cổng thanh toán cũ", "Legacy payment gateway")
+    : provider === "CASH"
+      ? localize("Tiền mặt", "Cash")
       : payment?.provider || localize("Cổng thanh toán", "Payment provider");
   const refundChannelLabel = refundChannel === "MANUAL_BANK_TRANSFER"
     ? localize("Hoàn qua QR", "QR refund")
-    : refundChannel === "VNPAY_ORIGINAL"
-      ? localize("Hoàn theo giao dịch gốc", "Original transaction refund")
+    : refundChannel === "CASH_AT_COUNTER"
+      ? localize("Hoàn tiền mặt tại quầy", "Cash refund at front desk")
       : localize("Theo sổ đối soát hoàn tiền", "According to the refund ledger");
   const expiryTime = getExpiryTime(payment?.expiresAt);
   const remainingSeconds = expiryTime === null ? null : Math.max(0, Math.ceil((expiryTime - nowMs) / 1000));
@@ -303,10 +302,10 @@ function PaymentResultContent() {
         `Khoản hoàn QR ${formatCurrency(refundedAmount, localeTag)} đã được ngân hàng đối soát thành công.`,
         `The ${formatCurrency(refundedAmount, localeTag)} QR refund was successfully reconciled by the bank.`,
       )
-    : refundChannel === "VNPAY_ORIGINAL"
+    : refundChannel === "CASH_AT_COUNTER"
       ? localize(
-          `Dữ liệu giao dịch lịch sử đã xác nhận hoàn ${formatCurrency(refundedAmount, localeTag)} về nguồn gốc.`,
-          `The legacy transaction record confirms a ${formatCurrency(refundedAmount, localeTag)} refund to its original source.`,
+          `Nhân viên đã xác nhận hoàn ${formatCurrency(refundedAmount, localeTag)} bằng tiền mặt tại quầy.`,
+          `Staff confirmed a ${formatCurrency(refundedAmount, localeTag)} cash refund at the front desk.`,
         )
       : localize(
           `Sổ đối soát đã ghi nhận hoàn thành ${formatCurrency(refundedAmount, localeTag)}.`,
@@ -322,10 +321,10 @@ function PaymentResultContent() {
           `Khách sạn đang xử lý khoản hoàn QR ${formatCurrency(refundOutstandingAmount, localeTag)}. Đơn chỉ được chốt sau khi ngân hàng xác nhận đúng mã hoàn và số tiền.`,
           `The hotel is processing a ${formatCurrency(refundOutstandingAmount, localeTag)} QR refund. The booking is finalized only after the bank confirms the exact refund code and amount.`,
         )
-    : refundChannel === "VNPAY_ORIGINAL"
+    : refundChannel === "CASH_AT_COUNTER"
       ? localize(
-          `Đang chờ đối soát khoản hoàn lịch sử ${formatCurrency(refundOutstandingAmount, localeTag)} theo giao dịch gốc.`,
-          `Waiting to reconcile the legacy ${formatCurrency(refundOutstandingAmount, localeTag)} refund against its original transaction.`,
+          `Đang chờ nhân viên giao ${formatCurrency(refundOutstandingAmount, localeTag)} tiền mặt và xác nhận tại quầy.`,
+          `Waiting for staff to hand over and confirm the ${formatCurrency(refundOutstandingAmount, localeTag)} cash refund at the front desk.`,
         )
       : localize(
           `Hệ thống đang theo dõi khoản hoàn ${formatCurrency(refundOutstandingAmount, localeTag)}; chưa ghi nhận là đã hoàn.`,
@@ -707,14 +706,6 @@ function PaymentResultContent() {
               <dt className="font-semibold text-[#66727C]">{localize("Cổng thanh toán", "Payment gateway")}</dt>
               <dd className="text-right font-bold text-[#091E30]">
                 {providerLabel}
-                {provider === "VNPAY" && (payment?.cardType || payment?.requestedBankCode) && (
-                  <span className="mt-0.5 block text-[10px] font-semibold text-[#66727C]">
-                    {payment.cardType === "QRCODE" || payment.requestedBankCode === "VNPAYQR"
-                      ? "QR"
-                      : payment.cardType || payment.requestedBankCode}
-                    {payment.bankCode ? ` · ${payment.bankCode}` : ""}
-                  </span>
-                )}
               </dd>
             </div>
           </dl>

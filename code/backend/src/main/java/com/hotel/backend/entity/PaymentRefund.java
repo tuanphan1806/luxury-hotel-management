@@ -93,15 +93,6 @@ public class PaymentRefund {
     @Column(name = "refund_code", nullable = false, unique = true, length = 64)
     private String refundCode;
 
-    @Column(name = "request_history", length = 1000)
-    private String requestHistory;
-
-    @Column(name = "transaction_type", nullable = false, length = 2)
-    private String transactionType;
-
-    @Column(name = "original_transaction_date", length = 14)
-    private String originalTransactionDate;
-
     @Column(name = "provider_refund_txn_id")
     private String providerRefundTxnId;
 
@@ -189,9 +180,7 @@ public class PaymentRefund {
     @PrePersist
     void inferLegacyChannel() {
         if (channel == null && provider != null) {
-            channel = provider == PaymentProvider.VNPAY
-                    ? RefundChannel.VNPAY_ORIGINAL
-                    : provider == PaymentProvider.CASH && status == RefundStatus.SUCCEEDED
+            channel = provider == PaymentProvider.CASH && status == RefundStatus.SUCCEEDED
                     ? RefundChannel.CASH_AT_COUNTER
                     : RefundChannel.MANUAL_BANK_TRANSFER;
         }

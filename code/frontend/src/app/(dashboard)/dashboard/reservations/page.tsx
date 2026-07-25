@@ -23,6 +23,7 @@ import {
   DashboardSelectField,
   FilterQuickButton,
 } from "@/components/dashboard/DashboardFilterPanel";
+import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 
 const ReservationInvoiceModal = dynamic(
   () => import("@/components/reservations/ReservationInvoiceModal"),
@@ -38,6 +39,7 @@ interface ReservationRoomType {
   roomTypeName: string;
   roomTypeNameEn?: string;
   quantity: number;
+  maxGuestsPerRoom?: number;
   subtotal?: number;
   roomHold?: {
     id: number;
@@ -108,6 +110,7 @@ interface RoomItem {
   status: string;
   cleaningStatus: string;
   price?: number;
+  maxGuestsPerRoom?: number;
 }
 
 interface WalkInPriceOverrideDraft {
@@ -176,9 +179,9 @@ interface PendingRefund {
   providerTransactionId?: string;
   bookingId: number;
   reservationCode?: string;
-  originalProvider?: "CASH" | "SEPAY" | "VNPAY";
-  refundProvider?: "CASH" | "SEPAY" | "VNPAY";
-  refundChannel?: "VNPAY_ORIGINAL" | "MANUAL_BANK_TRANSFER" | "CASH_AT_COUNTER";
+  originalProvider?: "CASH" | "SEPAY";
+  refundProvider?: "CASH" | "SEPAY";
+  refundChannel?: "MANUAL_BANK_TRANSFER" | "CASH_AT_COUNTER";
   status: "AWAITING_CUSTOMER_INFO" | "READY_FOR_MANUAL_TRANSFER" | "REQUESTED" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "MANUAL_REVIEW";
   amount: number;
   expectedAmount?: number;
@@ -186,14 +189,13 @@ interface PendingRefund {
   refundCode?: string;
   refundTransactionId?: string;
   bankReferenceCode?: string;
-  completionMethod?: "SEPAY_WEBHOOK" | "MANUAL_FALLBACK" | "CASH_HANDOVER" | "PROVIDER_API" | "LEGACY";
+  completionMethod?: "SEPAY_WEBHOOK" | "MANUAL_FALLBACK" | "CASH_HANDOVER" | "LEGACY";
   responseCode?: string;
   transactionStatus?: string;
   message?: string;
   requestedAt?: string;
   updatedAt?: string;
   canRetry?: boolean;
-  canReconcile?: boolean;
   recipientStatus?: RefundDestinationStatus | "REJECTED" | "SUPERSEDED";
   recipientBankName?: string;
   recipientBankCode?: string;
@@ -246,7 +248,6 @@ type ConfirmAction =
   | { kind: "CONFIRM_RESERVATION"; reservation: ReservationItem }
   | { kind: "CANCELLATION_DECISION"; reservation: ReservationItem; decision: CancellationDecision }
   | { kind: "NO_SHOW"; reservation: ReservationItem }
-  | { kind: "REFUND_PROVIDER"; refund: PendingRefund }
   | { kind: "CASH_REFUND"; refund: PendingRefund };
 
 interface ManualRefundDetails {
@@ -305,6 +306,7 @@ interface CheckInRoomDraft {
   roomTypeId: number;
   roomTypeName: string;
   roomTypeNameEn?: string;
+  maxGuestsPerRoom: number;
   roomId: string;
   guests: CheckInGuestDraft[];
 }
@@ -582,6 +584,15 @@ export default function ReservationsManagement() {
     () => Array.from(new Set(Object.values(walkInErrors).filter(Boolean))),
     [walkInErrors],
   );
+  const walkInEnteredGuestCount = Object.values(walkInGuestsByRoom)
+    .reduce((total, guests) => total + guests.length, 0);
+  const selectedWalkInGuestCapacity = calculateSelectedGuestCapacity(
+    walkInRooms
+      .filter((room) => selectedWalkInRoomIds.includes(room.id))
+      .map((room) => ({ quantity: 1, maxGuestsPerRoom: room.maxGuestsPerRoom })),
+  );
+  const checkInEnteredGuestCount = checkInDrafts
+    .reduce((total, draft) => total + draft.guests.length, 0);
 
   const clearWalkInError = (key: string) => {
     setWalkInErrors((current) => {
@@ -737,10 +748,33 @@ export default function ReservationsManagement() {
       [roomId]: (current[roomId] || []).map((guest, index) => index === guestIndex ? { ...guest, ...patch } : guest),
     }));
 
-  const addWalkInGuest = (roomId: number) => setWalkInGuestsByRoom((current) => ({
-    ...current,
-    [roomId]: [...(current[roomId] || []), { ...emptyGuest, isPrimary: false }],
-  }));
+  const addWalkInGuest = (roomId: number) => {
+    const room = walkInRooms.find((item) => item.id === roomId);
+    const roomGuests = walkInGuestsByRoom[roomId] || [];
+    const roomCapacity = normalizeGuestCapacity(room?.maxGuestsPerRoom);
+    const totalEnteredGuests = Object.values(walkInGuestsByRoom)
+      .reduce((total, guests) => total + guests.length, 0);
+    const declaredGuestCount = Number(walkInForm.guestCount);
+    if (roomGuests.length >= roomCapacity) {
+      showToast(localize(
+        `Phòng #${room?.roomName || roomId} chỉ chứa tối đa ${roomCapacity} khách.`,
+        `Room #${room?.roomName || roomId} allows at most ${roomCapacity} guests.`,
+      ), "error");
+      return;
+    }
+    if (Number.isInteger(declaredGuestCount) && declaredGuestCount > 0
+      && totalEnteredGuests >= declaredGuestCount) {
+      showToast(localize(
+        `Đơn chỉ khai báo tối đa ${declaredGuestCount} khách.`,
+        `This reservation declares at most ${declaredGuestCount} guests.`,
+      ), "error");
+      return;
+    }
+    setWalkInGuestsByRoom((current) => ({
+      ...current,
+      [roomId]: [...(current[roomId] || []), { ...emptyGuest, isPrimary: false }],
+    }));
+  };
 
   const removeWalkInGuest = (roomId: number, guestIndex: number) => setWalkInGuestsByRoom((current) => ({
     ...current,
@@ -1040,6 +1074,7 @@ export default function ReservationsManagement() {
             roomTypeId: roomType.roomTypeId,
             roomTypeName: roomType.roomTypeName,
             roomTypeNameEn: roomType.roomTypeNameEn,
+            maxGuestsPerRoom: normalizeGuestCapacity(roomType.maxGuestsPerRoom),
             roomId: "",
             guests: [{ ...emptyGuest, fullName: index === 0 ? detail.customerName || "" : "" }],
           });
@@ -1066,9 +1101,29 @@ export default function ReservationsManagement() {
     );
   };
 
-  const addGuestDraft = (key: string) => setCheckInDrafts((prev) => prev.map((item) =>
-    item.key === key ? { ...item, guests: [...item.guests, { ...emptyGuest, isPrimary: false }] } : item
-  ));
+  const addGuestDraft = (key: string) => {
+    const draft = checkInDrafts.find((item) => item.key === key);
+    if (!draft) return;
+    const totalEnteredGuests = checkInDrafts.reduce((total, item) => total + item.guests.length, 0);
+    if (draft.guests.length >= draft.maxGuestsPerRoom) {
+      showToast(localize(
+        `Hạng phòng này chỉ chứa tối đa ${draft.maxGuestsPerRoom} khách/phòng.`,
+        `This room type allows at most ${draft.maxGuestsPerRoom} guests per room.`,
+      ), "error");
+      return;
+    }
+    if (selectedReservation?.guestCount != null
+      && totalEnteredGuests >= selectedReservation.guestCount) {
+      showToast(localize(
+        `Đơn chỉ khai báo tối đa ${selectedReservation.guestCount} khách.`,
+        `This reservation declares at most ${selectedReservation.guestCount} guests.`,
+      ), "error");
+      return;
+    }
+    setCheckInDrafts((prev) => prev.map((item) =>
+      item.key === key ? { ...item, guests: [...item.guests, { ...emptyGuest, isPrimary: false }] } : item
+    ));
+  };
 
   const removeGuestDraft = (key: string, guestIndex: number) => setCheckInDrafts((prev) => prev.map((item) =>
     item.key === key ? { ...item, guests: item.guests.filter((_, index) => index !== guestIndex) } : item
@@ -1308,14 +1363,27 @@ export default function ReservationsManagement() {
       showToast("Mỗi phòng cần có khách lưu trú và đúng một khách đại diện", "error");
       return;
     }
+    const roomOverCapacity = checkInDrafts.find(
+      (draft) => draft.guests.length > draft.maxGuestsPerRoom,
+    );
+    if (roomOverCapacity) {
+      showToast(localize(
+        `${roomOverCapacity.roomTypeName} chỉ chứa tối đa ${roomOverCapacity.maxGuestsPerRoom} khách/phòng.`,
+        `${roomOverCapacity.roomTypeNameEn || roomOverCapacity.roomTypeName} allows at most ${roomOverCapacity.maxGuestsPerRoom} guests per room.`,
+      ), "error");
+      return;
+    }
     const assignedRoomIds = checkInDrafts.map((draft) => draft.roomId);
     if (new Set(assignedRoomIds).size !== assignedRoomIds.length) {
       showToast(localize("Mỗi phòng thực tế chỉ được gán một lần trong lượt nhận phòng.", "Each physical room can only be assigned once during check-in."), "error");
       return;
     }
     const totalGuests = checkInDrafts.reduce((total, draft) => total + draft.guests.length, 0);
-    if (totalGuests !== selectedReservation.guestCount) {
-      showToast(`Reservation yêu cầu ${selectedReservation.guestCount} khách, hiện đã nhập ${totalGuests}`, "error");
+    if (totalGuests > selectedReservation.guestCount) {
+      showToast(localize(
+        `Đơn khai báo tối đa ${selectedReservation.guestCount} khách, hiện đã nhập ${totalGuests}.`,
+        `The reservation declares at most ${selectedReservation.guestCount} guests; ${totalGuests} have been entered.`,
+      ), "error");
       return;
     }
 
@@ -1604,35 +1672,6 @@ export default function ReservationsManagement() {
     await executeCheckoutRefund();
   };
 
-  const handleRefundProviderAction = async (refund: PendingRefund) => {
-    const isVnpayOriginal = refund.refundChannel === "VNPAY_ORIGINAL"
-      || (!refund.refundChannel && refund.refundProvider === "VNPAY");
-    if (!isVnpayOriginal) return;
-    const action = refund.canRetry ? "gửi lại" : "đối soát";
-    const operationScope = `refund:${refund.refundId}:${refund.canRetry ? "RETRY" : "RECONCILE"}`;
-    setIsActionLoading(true);
-    try {
-      const response = await apiClient.patch(
-        `/api/payments/refund/${refund.refundId}/${refund.canRetry ? "retry" : "reconcile"}`,
-        undefined,
-        { headers: { "Idempotency-Key": getOrCreateIdempotencyKey(operationScope) } },
-      );
-      clearIdempotencyKey(operationScope);
-      const updated = toData<PendingRefund>(response);
-      const toastType = updated.status === "SUCCEEDED"
-        ? "success"
-        : updated.status === "FAILED" || updated.status === "MANUAL_REVIEW"
-          ? "error"
-          : "info";
-      showToast(updated.message || (refund.canRetry ? "Đã xử lý yêu cầu gửi lại refund" : "Đã đối soát trạng thái refund lịch sử"), toastType);
-      await Promise.all([loadPendingRefunds(), loadReservations()]);
-    } catch (error: unknown) {
-      showToast(getApiErrorMessage(error, `Không thể ${action} refund lịch sử`), "error");
-    } finally {
-      setIsActionLoading(false);
-    }
-  };
-
   const completeCashRefund = async (refund: PendingRefund) => {
     const operationScope = `refund:${refund.refundId}:CASH_COMPLETE`;
     setIsActionLoading(true);
@@ -1661,8 +1700,6 @@ export default function ReservationsManagement() {
       await handleCancellationDecision(action.reservation, action.decision, true);
     } else if (action.kind === "NO_SHOW") {
       await handleMarkNoShow(action.reservation);
-    } else if (action.kind === "REFUND_PROVIDER") {
-      await handleRefundProviderAction(action.refund);
     } else {
       await completeCashRefund(action.refund);
     }
@@ -1899,11 +1936,23 @@ export default function ReservationsManagement() {
       errors.rooms = localize("Vui lòng chọn ít nhất một phòng trống sạch.", "Select at least one clean available room.");
     }
     const selectedRooms = walkInRooms.filter((room) => selectedWalkInRoomIds.includes(room.id));
+    const selectedRoomCapacity = calculateSelectedGuestCapacity(selectedRooms.map((room) => ({
+      quantity: 1,
+      maxGuestsPerRoom: room.maxGuestsPerRoom,
+    })));
+    if (Number.isInteger(declaredGuestCount) && declaredGuestCount > selectedRoomCapacity) {
+      errors.guestCount = localize(
+        `Các phòng đã chọn chỉ chứa tối đa ${selectedRoomCapacity} khách.`,
+        `The selected rooms allow at most ${selectedRoomCapacity} guests.`,
+      );
+    }
     const walkInGuestGroups = selectedRooms.map((room) => walkInGuestsByRoom[room.id] || []);
     selectedRooms.forEach((room) => {
       const guests = walkInGuestsByRoom[room.id] || [];
+      const roomCapacity = normalizeGuestCapacity(room.maxGuestsPerRoom);
       if (guests.length === 0) errors[`room:${room.id}`] = localize(`Phòng #${room.roomName} phải có ít nhất một khách.`, `Room #${room.roomName} requires at least one guest.`);
       if (guests.filter((guest) => guest.isPrimary).length !== 1) errors[`room:${room.id}`] = localize(`Phòng #${room.roomName} phải có đúng một khách đại diện.`, `Room #${room.roomName} must have exactly one primary guest.`);
+      if (guests.length > roomCapacity) errors[`room:${room.id}`] = localize(`Phòng #${room.roomName} chỉ chứa tối đa ${roomCapacity} khách.`, `Room #${room.roomName} allows at most ${roomCapacity} guests.`);
       guests.forEach((guest, guestIndex) => {
         const prefix = `guest:${room.id}:${guestIndex}`;
         const guestName = guest.fullName.trim();
@@ -1917,8 +1966,8 @@ export default function ReservationsManagement() {
       });
     });
     const enteredGuestCount = walkInGuestGroups.reduce((total, guests) => total + guests.length, 0);
-    if (Number.isInteger(declaredGuestCount) && enteredGuestCount !== declaredGuestCount) {
-      errors.guestCount = localize(`Đã khai báo ${walkInForm.guestCount} khách nhưng danh sách phòng có ${enteredGuestCount} khách.`, `Declared ${walkInForm.guestCount} guests but room lists contain ${enteredGuestCount}.`);
+    if (Number.isInteger(declaredGuestCount) && enteredGuestCount > declaredGuestCount) {
+      errors.guestCount = localize(`Đơn khai báo tối đa ${walkInForm.guestCount} khách nhưng danh sách phòng có ${enteredGuestCount} khách.`, `The reservation declares at most ${walkInForm.guestCount} guests but room lists contain ${enteredGuestCount}.`);
     }
 
     const selectedRoomTypeIds = new Set(selectedRooms.map((room) => room.roomTypeId));
@@ -2123,8 +2172,6 @@ export default function ReservationsManagement() {
   const renderRefundItem = (refund: PendingRefund) => {
     const isManualTransfer = refund.refundChannel === "MANUAL_BANK_TRANSFER";
     const isCashAtCounter = refund.refundChannel === "CASH_AT_COUNTER";
-    const isVnpayOriginal = refund.refundChannel === "VNPAY_ORIGINAL"
-      || (!refund.refundChannel && refund.refundProvider === "VNPAY");
     const hasSubmittedRecipient = refund.recipientStatus === "SUBMITTED"
       || refund.recipientStatus === "VERIFIED"
       || Boolean(refund.recipientAccountMasked);
@@ -2148,7 +2195,7 @@ export default function ReservationsManagement() {
             <div className="flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${statusTone}`}>{refund.status}</span>
               <span className="rounded-full bg-[#E5E9ED] px-2 py-0.5 text-[10px] font-bold text-[#66727C]">
-                {isManualTransfer ? "QR" : isCashAtCounter ? localize("Tiền mặt", "Cash") : localize("Giao dịch cũ", "Legacy transaction")}
+                {isManualTransfer ? "QR" : localize("Tiền mặt", "Cash")}
               </span>
             </div>
             <p className="mt-2 text-sm font-semibold leading-5 text-[#66727C]">
@@ -2156,7 +2203,7 @@ export default function ReservationsManagement() {
                 ? waitingForCustomer
                   ? localize("Chờ khách bổ sung tài khoản nhận tiền", "Waiting for customer bank details")
                   : [refund.recipientBankName || refund.recipientBankCode, refund.recipientAccountMasked].filter(Boolean).join(" · ") || localize("Thông tin người nhận đã được bảo vệ", "Recipient details are protected")
-                : refund.message || (isCashAtCounter ? localize("Chờ giao tiền mặt và xác nhận phiếu nhận.", "Awaiting cash handover and receipt confirmation.") : localize("Chờ xử lý với cổng thanh toán.", "Awaiting provider processing."))}
+                : refund.message || localize("Chờ giao tiền mặt và xác nhận phiếu nhận.", "Awaiting cash handover and receipt confirmation.")}
             </p>
           </div>
           <strong className="shrink-0 text-lg tabular-nums text-amber-800">{formatVND(refund.amount || 0)}</strong>
@@ -2186,20 +2233,10 @@ export default function ReservationsManagement() {
             >
               {localize("Xác nhận đã trả tiền mặt", "Confirm cash refund")}
             </button>
-          ) : refund.status === "MANUAL_REVIEW" && isVnpayOriginal ? (
-            <span className="inline-flex min-h-10 items-center rounded-lg border border-violet-200 bg-violet-50 px-4 text-xs font-bold text-violet-800">{localize("Kiểm tra merchant portal", "Check merchant portal")}</span>
           ) : (
-            <button
-              type="button"
-              disabled={isActionLoading || !isVnpayOriginal || (!refund.canRetry && !refund.canReconcile)}
-              onClick={() => {
-                setRefundReservationTarget(null);
-                setConfirmAction({ kind: "REFUND_PROVIDER", refund });
-              }}
-              className="min-h-10 rounded-lg bg-[#0F2A43] px-4 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {refund.canRetry ? localize("Gửi / thử lại", "Send / retry") : localize("Đối soát giao dịch cũ", "Reconcile legacy transaction")}
-            </button>
+            <span className="inline-flex min-h-10 items-center rounded-lg border border-amber-200 bg-amber-50 px-4 text-xs font-bold text-amber-800">
+              {localize("Chờ cập nhật trạng thái", "Awaiting status update")}
+            </span>
           )}
         </div>
       </article>
@@ -2648,11 +2685,9 @@ export default function ReservationsManagement() {
               ? { eyebrow: localize("Không đến", "No-show"), title: localize("Đánh dấu khách không đến?", "Mark guest as no-show?"), description: localize(`Đơn ${reservation?.reservationCode} sẽ được xử lý theo chính sách no-show và không thể check-in.`, `Reservation ${reservation?.reservationCode} will follow the no-show policy and cannot be checked in.`), action: localize("Xác nhận không đến", "Confirm no-show"), tone: "bg-orange-700 hover:bg-orange-800" }
               : confirmAction.kind === "CASH_REFUND"
                 ? { eyebrow: localize("Hoàn tiền mặt", "Cash refund"), title: localize("Xác nhận đã giao tiền mặt cho khách?", "Confirm the cash handover?"), description: localize(`Chỉ xác nhận sau khi đã giao trực tiếp ${formatVND(refund?.amount || 0)} cho khách. Không cần ảnh minh chứng hoặc mã giao dịch. Nếu đóng cửa sổ này, refund và reservation vẫn giữ trạng thái chờ.`, `Confirm only after ${formatVND(refund?.amount || 0)} has been handed directly to the guest. No proof image or transaction code is required. Closing this dialog keeps both the refund and reservation pending.`), action: localize("Xác nhận đã giao tiền mặt", "Confirm cash handover"), tone: "bg-emerald-700 hover:bg-emerald-800" }
-                : confirmAction.kind === "REFUND_PROVIDER"
-                  ? { eyebrow: localize("Đối soát cũ", "Legacy reconciliation"), title: refund?.canRetry ? localize("Gửi lại yêu cầu hoàn?", "Retry refund request?") : localize("Đối soát khoản hoàn?", "Reconcile refund?"), description: localize(`Khoản ${formatVND(refund?.amount || 0)} của đơn ${refund?.reservationCode || refund?.bookingId} thuộc dữ liệu giao dịch cũ và sẽ được xử lý theo cơ chế tương thích.`, `The ${formatVND(refund?.amount || 0)} refund for reservation ${refund?.reservationCode || refund?.bookingId} belongs to legacy transaction data and will use the compatibility workflow.`), action: localize("Tiếp tục", "Continue"), tone: "bg-[#0F2A43] hover:bg-[#091E30]" }
-                  : confirmAction.decision === "reject"
-                    ? { eyebrow: localize("Yêu cầu hủy", "Cancellation request"), title: localize("Từ chối yêu cầu hủy?", "Reject cancellation request?"), description: localize(`Đơn ${reservation?.reservationCode} sẽ giữ nguyên và quyết định được lưu audit.`, `Reservation ${reservation?.reservationCode} remains active and the decision is audited.`), action: localize("Từ chối hủy", "Reject cancellation"), tone: "bg-[#0F2A43] hover:bg-[#091E30]" }
-                    : { eyebrow: localize("Yêu cầu hủy", "Cancellation request"), title: localize("Hủy không hoàn tiền?", "Cancel without refund?"), description: localize(`Đơn ${reservation?.reservationCode} sẽ bị hủy và số tiền đã trả được ghi nhận theo chính sách không hoàn.`, `Reservation ${reservation?.reservationCode} will be cancelled without creating a refund.`), action: localize("Hủy không hoàn", "Cancel without refund"), tone: "bg-rose-700 hover:bg-rose-800" };
+                : confirmAction.decision === "reject"
+                  ? { eyebrow: localize("Yêu cầu hủy", "Cancellation request"), title: localize("Từ chối yêu cầu hủy?", "Reject cancellation request?"), description: localize(`Đơn ${reservation?.reservationCode} sẽ giữ nguyên và quyết định được lưu audit.`, `Reservation ${reservation?.reservationCode} remains active and the decision is audited.`), action: localize("Từ chối hủy", "Reject cancellation"), tone: "bg-[#0F2A43] hover:bg-[#091E30]" }
+                  : { eyebrow: localize("Yêu cầu hủy", "Cancellation request"), title: localize("Hủy không hoàn tiền?", "Cancel without refund?"), description: localize(`Đơn ${reservation?.reservationCode} sẽ bị hủy và số tiền đã trả được ghi nhận theo chính sách không hoàn.`, `Reservation ${reservation?.reservationCode} will be cancelled without creating a refund.`), action: localize("Hủy không hoàn", "Cancel without refund"), tone: "bg-rose-700 hover:bg-rose-800" };
           return (
             <>
               <header className="border-b border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-4 sm:px-6"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#80632F]">{copy.eyebrow}</p><h2 id="dashboard-confirm-title" className="mt-1 text-xl font-bold text-[#0F2A43]">{copy.title}</h2></header>
@@ -2785,15 +2820,23 @@ export default function ReservationsManagement() {
                       const selected = selectedWalkInRoomIds.includes(room.id);
                       return <label key={room.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 transition ${selected ? "border-[#0F2A43] bg-[#E5E9ED]" : "border-[#D8DDE1] bg-white hover:border-[#66727C]"}`}>
                         <input type="checkbox" checked={selected} onChange={() => toggleWalkInRoom(room.id)} className="h-4 w-4 accent-[#0F2A43]" />
-                        <span><span className="block text-sm font-bold text-[#0F2A43]">{localize("Phòng", "Room")} #{room.roomName}</span><span className="block text-[10px] font-medium text-[#66727C]">{localize(room.roomTypeName, room.roomTypeNameEn)}</span></span>
+                        <span><span className="block text-sm font-bold text-[#0F2A43]">{localize("Phòng", "Room")} #{room.roomName}</span><span className="block text-[10px] font-medium text-[#66727C]">{localize(room.roomTypeName, room.roomTypeNameEn)} · {localize(`Tối đa ${normalizeGuestCapacity(room.maxGuestsPerRoom)} khách`, `Up to ${normalizeGuestCapacity(room.maxGuestsPerRoom)} guests`)}</span></span>
                       </label>;
                     })}
                   </div>
                 )}
+                {selectedWalkInRoomIds.length > 0 && (
+                  <p className={`rounded-lg px-3 py-2 text-xs font-semibold ${walkInEnteredGuestCount <= Number(walkInForm.guestCount || 0) && Number(walkInForm.guestCount || 0) <= selectedWalkInGuestCapacity ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>
+                    {localize(
+                      `Đã nhập ${walkInEnteredGuestCount}/${walkInForm.guestCount || 0} khách · Sức chứa các phòng ${selectedWalkInGuestCapacity}`,
+                      `${walkInEnteredGuestCount}/${walkInForm.guestCount || 0} guests entered · Room capacity ${selectedWalkInGuestCapacity}`,
+                    )}
+                  </p>
+                )}
                 <div className="space-y-3">
                   {walkInRooms.filter((room) => selectedWalkInRoomIds.includes(room.id)).map((room) => (
                     <div key={`guests-${room.id}`} className={`min-w-0 rounded-xl border bg-[#FBFAF6] p-3 ${walkInErrors[`room:${room.id}`] ? "border-rose-300" : "border-[#D8DDE1]"}`}>
-                      <div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold text-[#0F2A43]">Khách phòng #{room.roomName}</p><button type="button" onClick={() => addWalkInGuest(room.id)} className="text-xs font-bold text-[#80632F]">+ Thêm khách</button></div>
+                      <div className="mb-3 flex items-center justify-between gap-3"><p className="text-sm font-bold text-[#0F2A43]">Khách phòng #{room.roomName} <span className="text-xs font-semibold text-[#66727C]">({(walkInGuestsByRoom[room.id] || []).length}/{normalizeGuestCapacity(room.maxGuestsPerRoom)})</span></p><button type="button" disabled={(walkInGuestsByRoom[room.id] || []).length >= normalizeGuestCapacity(room.maxGuestsPerRoom) || (Number(walkInForm.guestCount) > 0 && walkInEnteredGuestCount >= Number(walkInForm.guestCount))} onClick={() => addWalkInGuest(room.id)} className="text-xs font-bold text-[#80632F] disabled:cursor-not-allowed disabled:opacity-40">+ Thêm khách</button></div>
                       {walkInErrors[`room:${room.id}`] && <p id={`walk-in-room:${room.id}`} tabIndex={-1} className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{walkInErrors[`room:${room.id}`]}</p>}
                       <div className="space-y-2">
                         {(walkInGuestsByRoom[room.id] || []).map((guest, guestIndex) => (
@@ -2834,6 +2877,7 @@ export default function ReservationsManagement() {
               <div className="flex flex-wrap items-center gap-3">
                 <h2 id="check-in-modal-title" className="font-serif text-2xl font-bold text-[#0F2A43]">{localize("Nhận phòng", "Check in")} {selectedReservation.reservationCode}</h2>
                 <span className="rounded-full bg-[#E5E9ED] px-3 py-1 text-xs font-bold text-[#0F2A43]">{localize(`${checkInDrafts.length} phòng`, `${checkInDrafts.length} rooms`)}</span>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${checkInEnteredGuestCount <= selectedReservation.guestCount ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"}`}>{localize(`${checkInEnteredGuestCount}/${selectedReservation.guestCount} khách`, `${checkInEnteredGuestCount}/${selectedReservation.guestCount} guests`)}</span>
               </div>
               <p className="text-sm font-semibold text-[#66727C]">{localize("Chọn phòng thực tế; hệ thống sẽ đối chiếu đúng loại phòng trong đơn.", "Select a physical room; the system maps it to the correct reserved room type.")}</p>
             </div>
@@ -2842,7 +2886,7 @@ export default function ReservationsManagement() {
                 const roomsForType = availableRooms.filter((room) => room.roomTypeId === draft.roomTypeId);
                 return (
                   <div key={draft.key} className="rounded-[1.25rem] border border-[#0F2A43]/10 bg-[#F1F0EA] p-4">
-                    <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[#80632F]">{localize(draft.roomTypeName, draft.roomTypeNameEn)}</p>
+                    <div className="mb-3 flex items-center justify-between gap-3"><p className="text-xs font-bold uppercase tracking-wider text-[#80632F]">{localize(draft.roomTypeName, draft.roomTypeNameEn)}</p><span className="text-xs font-semibold text-[#66727C]">{draft.guests.length}/{draft.maxGuestsPerRoom} {localize("khách", "guests")}</span></div>
                     <div className="grid gap-3 md:grid-cols-2">
                       <select value={draft.roomId} onChange={(e) => updateDraft(draft.key, { roomId: e.target.value })} className="rounded-xl border border-[#0F2A43]/10 px-3 py-2.5 text-sm outline-none focus:border-[#B8944F] md:col-span-2">
                         <option value="">{localize("Chọn phòng còn trống", "Select available room")}</option>
@@ -2861,7 +2905,7 @@ export default function ReservationsManagement() {
                             {draft.guests.length > 1 && <button type="button" onClick={() => removeGuestDraft(draft.key, guestIndex)} className="justify-self-end text-xs font-bold text-rose-700">{localize("Xóa", "Remove")}</button>}
                           </div>
                         ))}
-                        <button type="button" onClick={() => addGuestDraft(draft.key)} className="text-xs font-bold text-[#80632F]">+ {localize("Thêm khách vào phòng này", "Add guest to this room")}</button>
+                        <button type="button" disabled={draft.guests.length >= draft.maxGuestsPerRoom || checkInEnteredGuestCount >= selectedReservation.guestCount} onClick={() => addGuestDraft(draft.key)} className="text-xs font-bold text-[#80632F] disabled:cursor-not-allowed disabled:opacity-40">+ {localize("Thêm khách vào phòng này", "Add guest to this room")}</button>
                       </div>
                     </div>
                   </div>

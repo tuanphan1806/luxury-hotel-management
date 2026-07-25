@@ -18,6 +18,7 @@ import FacilityDetailModal, { type FacilityDetailItem } from "@/components/guest
 import { ROOMS_CONTENT } from "@/constants/content";
 import { useFavorites } from "@/components/favorites/FavoritesProvider";
 import { getRoomGalleryImages, normalizeCatalogText } from "@/lib/room-gallery";
+import { minimumRoomsForGuests, normalizeGuestCapacity } from "@/lib/guest-capacity";
 
 
 interface RoomDetails {
@@ -82,6 +83,7 @@ interface RoomTypePayload {
 interface AvailabilityOption {
   roomTypeId: number | string;
   availableRooms?: number;
+  maxGuestsPerRoom?: number;
 }
 
 interface RoomRecommendation {
@@ -159,6 +161,26 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
       setToast({ message: "Số lượng phòng phải từ 1 trở lên.", type: "error" });
       return;
     }
+    const requestedAdults = Number(adults);
+    const requestedChildren = Number(childrenCount);
+    if (!Number.isInteger(requestedAdults) || requestedAdults < 1
+      || !Number.isInteger(requestedChildren) || requestedChildren < 0) {
+      setToast({ message: localize("Số người lớn và trẻ em chưa hợp lệ.", "Adult and child counts are invalid."), type: "error" });
+      return;
+    }
+    const requestedGuests = requestedAdults + requestedChildren;
+    const catalogCapacityPerRoom = normalizeGuestCapacity(room?.maxGuests);
+    if (requestedQuantity * catalogCapacityPerRoom < requestedGuests) {
+      const minimumRooms = minimumRoomsForGuests(requestedGuests, catalogCapacityPerRoom);
+      setToast({
+        message: localize(
+          `Hạng phòng này chứa tối đa ${catalogCapacityPerRoom} khách/phòng. ${requestedGuests} khách cần ít nhất ${minimumRooms} phòng.`,
+          `This room type allows ${catalogCapacityPerRoom} guests per room. ${requestedGuests} guests need at least ${minimumRooms} rooms.`,
+        ),
+        type: "error",
+      });
+      return;
+    }
     setIsCheckingAvailability(true);
     try {
       const response = await apiClient.get(`/api/reservations/availability?checkIn=${checkIn}:00&checkOut=${checkOut}:00`);
@@ -166,6 +188,18 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
       const currentRoomType = options.find((option) => Number(option.roomTypeId) === Number(roomId));
       if (!currentRoomType || Number(currentRoomType.availableRooms || 0) < requestedQuantity) {
         setToast({ message: `Loại phòng này chỉ còn ${Number(currentRoomType?.availableRooms || 0)} phòng trong thời gian đã chọn.`, type: "error" });
+        return;
+      }
+      const currentCapacityPerRoom = normalizeGuestCapacity(currentRoomType.maxGuestsPerRoom);
+      if (requestedQuantity * currentCapacityPerRoom < requestedGuests) {
+        const minimumRooms = minimumRoomsForGuests(requestedGuests, currentCapacityPerRoom);
+        setToast({
+          message: localize(
+            `Sức chứa hiện tại là ${currentCapacityPerRoom} khách/phòng. Vui lòng chọn ít nhất ${minimumRooms} phòng.`,
+            `Current capacity is ${currentCapacityPerRoom} guests per room. Select at least ${minimumRooms} rooms.`,
+          ),
+          type: "error",
+        });
         return;
       }
       const query = new URLSearchParams({ roomTypes: `${roomId}:${requestedQuantity}`, checkIn, checkOut, adults, children: childrenCount });
@@ -310,6 +344,13 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
 
   const favoriteRoomId = Number(room.id || roomId);
   const favorite = isFavorite(favoriteRoomId);
+  const requestedGuestCount = Math.max(0, Number(adults || 0) + Number(childrenCount || 0));
+  const selectedRoomCapacity = Math.max(0, Number(quantity || 0))
+    * normalizeGuestCapacity(room.maxGuests);
+  const suggestedRoomQuantity = minimumRoomsForGuests(
+    requestedGuestCount,
+    normalizeGuestCapacity(room.maxGuests),
+  );
 
   return (
     <div className="bg-[#F1F0EA]">
@@ -556,6 +597,11 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
                 <label><span className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Trẻ em", "Children")}</span><input type="number" min="0" value={childrenCount} onChange={(event) => setChildrenCount(event.target.value)} className="w-full rounded-xl border border-[#0F2A43]/15 px-3 py-3 text-sm" /></label>
                 <label><span className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Số phòng", "Rooms")}</span><input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="w-full rounded-xl border border-[#0F2A43]/15 px-3 py-3 text-sm" /></label>
               </div>
+              <p className={`rounded-xl px-3 py-2 text-xs font-semibold ${selectedRoomCapacity >= requestedGuestCount ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>
+                {selectedRoomCapacity >= requestedGuestCount
+                  ? localize(`Đủ sức chứa: ${requestedGuestCount}/${selectedRoomCapacity} khách`, `Capacity covered: ${requestedGuestCount}/${selectedRoomCapacity} guests`)
+                  : localize(`Cần ít nhất ${suggestedRoomQuantity} phòng cho ${requestedGuestCount} khách`, `At least ${suggestedRoomQuantity} rooms are needed for ${requestedGuestCount} guests`)}
+              </p>
               <button disabled={isCheckingAvailability} className="flex w-full items-center justify-center rounded-xl bg-[#0F2A43] px-5 py-4 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-[#091E30] disabled:opacity-50">{isCheckingAvailability ? localize("Đang kiểm tra...", "Checking...") : localize("Kiểm tra và tiếp tục", "Check and continue")}</button>
             </form>
             <Link href={`/reservation?roomTypeId=${roomId}`} className="block text-center text-[11px] font-bold text-[#80632F] hover:underline">{localize("Cần đặt nhiều loại phòng? Mở trang đặt phòng chi tiết", "Need multiple room types? Open the detailed reservation page")}</Link>

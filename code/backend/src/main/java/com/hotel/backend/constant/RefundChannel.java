@@ -6,7 +6,6 @@ package com.hotel.backend.constant;
  * không phụ thuộc giao dịch thu ban đầu.
  */
 public enum RefundChannel {
-    VNPAY_ORIGINAL,
     MANUAL_BANK_TRANSFER,
     CASH_AT_COUNTER
 }

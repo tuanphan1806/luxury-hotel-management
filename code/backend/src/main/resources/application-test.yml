@@ -58,8 +58,6 @@ jwt:
     # Base64 của hai khóa 32-byte chỉ dùng cho test; không dùng lại ở dev/prod.
     accessKey: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
     refreshKey: MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=
-vnpay:
-    refund-enabled: false
 sepay:
     qr-bank-account: 012345678901
     qr-bank-code: NCB

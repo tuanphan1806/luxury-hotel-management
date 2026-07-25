@@ -21,27 +21,19 @@ import com.hotel.backend.repository.RoomRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
 import com.hotel.backend.service.RoomService;
 import com.hotel.backend.service.ReservationAuditService;
+import com.hotel.backend.service.RoomPageableFactory;
+import com.hotel.backend.service.RoomViewMapper;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import org.springframework.util.StringUtils;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import org.springframework.data.domain.Sort;
-import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -76,7 +68,7 @@ public class RoomServiceImpl implements RoomService {
 
         roomRepository.save(room);
         auditRoom(room, ReservationAuditAction.ROOM_CREATED,
-                "Tạo phòng", null, roomSnapshot(room), null);
+                "Tạo phòng", null, RoomViewMapper.auditSnapshot(room), null);
         log.info("Room created successfully with roomId={}", room.getId());
         return RoomResponse.from(room);
     }
@@ -87,7 +79,7 @@ public class RoomServiceImpl implements RoomService {
         log.info("Updating roomId={}", id);
 
         Room room = getRoomById(id);
-        Map<String, Object> oldValue = roomSnapshot(room);
+        Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
 
         ensureRoomHasNoActiveStay(room, "Không thể sửa phòng đang có khách lưu trú");
 
@@ -105,7 +97,7 @@ public class RoomServiceImpl implements RoomService {
 
         roomRepository.save(room);
         auditRoom(room, ReservationAuditAction.ROOM_UPDATED,
-                "Cập nhật thông tin phòng", oldValue, roomSnapshot(room), null);
+                "Cập nhật thông tin phòng", oldValue, RoomViewMapper.auditSnapshot(room), null);
         log.info("Update room successfully roomId={}", id);
         return RoomResponse.from(room);
     }
@@ -178,7 +170,7 @@ public class RoomServiceImpl implements RoomService {
     public void delete(Long id) {
         log.info("Deleting roomId={}", id);
         Room room = getRoomById(id);
-        Map<String, Object> oldValue = roomSnapshot(room);
+        Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
         ensureRoomHasNoActiveStay(room, "Không thể xóa phòng đang có khách lưu trú");
         if (reservationRoomRepository.existsByRoomId(room.getId())) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
@@ -195,7 +187,7 @@ public class RoomServiceImpl implements RoomService {
     public RoomResponse updateStatus(Long id, RoomStatus status) {
         log.info("Updating status roomId={}, status={}", id, status);
         Room room = getRoomByIdForUpdate(id);
-        Map<String, Object> oldValue = roomSnapshot(room);
+        Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
         ensureRoomHasNoActiveStay(room, "Phòng đang có khách; chỉ được chuyển phòng hoặc checkout");
         if (status == RoomStatus.CHECKED_IN || status == RoomStatus.BOOKED) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
@@ -212,7 +204,7 @@ public class RoomServiceImpl implements RoomService {
         room.setStatus(status);
         roomRepository.save(room);
         auditRoom(room, ReservationAuditAction.ROOM_UPDATED,
-                "Cập nhật trạng thái phòng", oldValue, roomSnapshot(room),
+                "Cập nhật trạng thái phòng", oldValue, RoomViewMapper.auditSnapshot(room),
                 Map.of("operation", "STATUS_CHANGE"));
         log.info("Update status successfully roomId={}", id);
         return RoomResponse.from(room);
@@ -223,11 +215,11 @@ public class RoomServiceImpl implements RoomService {
     public RoomResponse updateCleaningStatus(Long id, CleaningStatus cleaningStatus) {
         log.info("Updating cleaning status roomId={}, cleaningStatus={}", id, cleaningStatus);
         Room room = getRoomById(id);
-        Map<String, Object> oldValue = roomSnapshot(room);
+        Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
         room.setCleaningStatus(cleaningStatus);
         roomRepository.save(room);
         auditRoom(room, ReservationAuditAction.ROOM_UPDATED,
-                "Cập nhật trạng thái dọn phòng", oldValue, roomSnapshot(room),
+                "Cập nhật trạng thái dọn phòng", oldValue, RoomViewMapper.auditSnapshot(room),
                 Map.of("operation", "CLEANING_STATUS_CHANGE"));
         log.info("Update cleaning status successfully roomId={}", id);
         return RoomResponse.from(room);
@@ -244,8 +236,8 @@ public class RoomServiceImpl implements RoomService {
         Room secondLocked = getRoomByIdForUpdate(Math.max(sourceRoomId, targetRoomId));
         Room sourceRoom = firstLocked.getId().equals(sourceRoomId) ? firstLocked : secondLocked;
         Room targetRoom = firstLocked.getId().equals(targetRoomId) ? firstLocked : secondLocked;
-        Map<String, Object> sourceBefore = roomSnapshot(sourceRoom);
-        Map<String, Object> targetBefore = roomSnapshot(targetRoom);
+        Map<String, Object> sourceBefore = RoomViewMapper.auditSnapshot(sourceRoom);
+        Map<String, Object> targetBefore = RoomViewMapper.auditSnapshot(targetRoom);
         ReservationRoom activeStay = reservationRoomRepository
                 .findFirstByRoomIdAndStatus(sourceRoomId, AssignStatus.CHECKED_IN)
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_REQUEST,
@@ -280,9 +272,11 @@ public class RoomServiceImpl implements RoomService {
                 "sourceRoomId", sourceRoomId,
                 "targetRoomId", targetRoomId);
         auditRoom(sourceRoom, ReservationAuditAction.ROOM_UPDATED,
-                "Chuyển khách sang phòng khác", sourceBefore, roomSnapshot(sourceRoom), transferDetail);
+                "Chuyển khách sang phòng khác", sourceBefore,
+                RoomViewMapper.auditSnapshot(sourceRoom), transferDetail);
         auditRoom(targetRoom, ReservationAuditAction.ROOM_UPDATED,
-                "Nhận khách được chuyển phòng", targetBefore, roomSnapshot(targetRoom), transferDetail);
+                "Nhận khách được chuyển phòng", targetBefore,
+                RoomViewMapper.auditSnapshot(targetRoom), transferDetail);
 
         log.info("Transferred active stay reservationRoomId={} from roomId={} to roomId={}",
                 activeStay.getId(), sourceRoomId, targetRoomId);
@@ -305,7 +299,7 @@ public class RoomServiceImpl implements RoomService {
     @Transactional(rollbackFor = Exception.class)
     public RoomResponse startMaintenance(Long roomId, RoomMaintenanceRequest request) {
         Room room = getRoomByIdForUpdate(roomId);
-        Map<String, Object> oldValue = roomSnapshot(room);
+        Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
         ensureRoomHasNoActiveStay(room, "Không thể bảo trì phòng đang có khách lưu trú");
         if (room.getStatus() == RoomStatus.MAINTENANCE) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Phòng đã ở trạng thái bảo trì");
@@ -317,7 +311,7 @@ public class RoomServiceImpl implements RoomService {
         addMaintenanceEntry(room, "Khởi tạo bảo trì", request.getReason().trim());
         Room saved = roomRepository.save(room);
         auditRoom(saved, ReservationAuditAction.ROOM_UPDATED,
-                "Bắt đầu bảo trì phòng", oldValue, roomSnapshot(saved),
+                "Bắt đầu bảo trì phòng", oldValue, RoomViewMapper.auditSnapshot(saved),
                 Map.of("operation", "START_MAINTENANCE", "reason", request.getReason().trim()));
         return RoomResponse.from(saved);
     }
@@ -341,7 +335,7 @@ public class RoomServiceImpl implements RoomService {
     @Transactional(rollbackFor = Exception.class)
     public RoomResponse completeMaintenance(Long roomId) {
         Room room = getRoomByIdForUpdate(roomId);
-        Map<String, Object> oldValue = roomSnapshot(room);
+        Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
         if (room.getStatus() != RoomStatus.MAINTENANCE) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Phòng không ở trạng thái bảo trì");
         }
@@ -353,7 +347,7 @@ public class RoomServiceImpl implements RoomService {
         room.setMaintenanceExpectedCompletedDate(null);
         Room saved = roomRepository.save(room);
         auditRoom(saved, ReservationAuditAction.ROOM_UPDATED,
-                "Hoàn tất bảo trì phòng", oldValue, roomSnapshot(saved),
+                "Hoàn tất bảo trì phòng", oldValue, RoomViewMapper.auditSnapshot(saved),
                 Map.of("operation", "COMPLETE_MAINTENANCE"));
         return RoomResponse.from(saved);
     }
@@ -362,41 +356,15 @@ public class RoomServiceImpl implements RoomService {
     public RoomPageResponse findAll(String keyword, String sort, int page, int size) {
         log.info("Fetching rooms keyword={}, sort={}, page={}, size={}", keyword, sort, page, size);
 
-        Sort.Order order = new Sort.Order(Sort.Direction.ASC, "id");
-        if (StringUtils.hasLength(sort)) {
-            Pattern pattern = Pattern.compile("^(\\w+?)(:)(.*)");
-            Matcher matcher = pattern.matcher(sort);
-            if (matcher.find()) {
-                String columnName = matcher.group(1);
-                order = matcher.group(3).equalsIgnoreCase("asc")
-                        ? new Sort.Order(Sort.Direction.ASC, columnName)
-                        : new Sort.Order(Sort.Direction.DESC, columnName);
-            }
-        }
-
         int pageNo = page > 0 ? page - 1 : 0;
-        Pageable pageable = PageRequest.of(pageNo, size, Sort.by(order));
+        Pageable pageable = RoomPageableFactory.create(sort, page, size);
 
         Page<Room> entityPage = StringUtils.hasLength(keyword)
                 ? roomRepository.searchByKeyword("%" + keyword.toLowerCase() + "%", pageable)
                 : roomRepository.findAll(pageable);
 
         log.info("Found {} rooms", entityPage.getTotalElements());
-        return getRoomPageResponse(pageNo, size, entityPage);
-    }
-
-    private static RoomPageResponse getRoomPageResponse(int page, int size, Page<Room> rooms) {
-        List<RoomResponse> roomList = rooms.stream()
-                .map(RoomResponse::from)
-                .toList();
-
-        RoomPageResponse response = new RoomPageResponse();
-        response.setPageNumber(page);
-        response.setPageSize(size);
-        response.setTotalElements(rooms.getTotalElements());
-        response.setTotalPages(rooms.getTotalPages());
-        response.setRooms(roomList);
-        return response;
+        return RoomViewMapper.toPage(pageNo, size, entityPage);
     }
 
 
@@ -446,20 +414,6 @@ public class RoomServiceImpl implements RoomService {
                 detail,
                 null,
                 null);
-    }
-
-    private Map<String, Object> roomSnapshot(Room room) {
-        Map<String, Object> value = new LinkedHashMap<>();
-        value.put("id", room.getId());
-        value.put("roomName", room.getRoomName());
-        value.put("roomTypeId", room.getRoomType() != null ? room.getRoomType().getId() : null);
-        value.put("floor", room.getFloor());
-        value.put("status", room.getStatus() != null ? room.getStatus().name() : null);
-        value.put("cleaningStatus", room.getCleaningStatus() != null
-                ? room.getCleaningStatus().name() : null);
-        value.put("maintenanceReason", room.getMaintenanceReason());
-        value.put("maintenanceExpectedCompletedDate", room.getMaintenanceExpectedCompletedDate());
-        return value;
     }
 
     private RoomType getRoomTypeById(Long id) {

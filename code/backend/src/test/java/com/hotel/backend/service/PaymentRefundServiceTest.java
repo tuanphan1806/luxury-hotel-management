@@ -1,6 +1,5 @@
 package com.hotel.backend.service;
 
-import com.hotel.backend.config.VNPayConfig;
 import com.hotel.backend.constant.PaymentProvider;
 import com.hotel.backend.constant.PaymentStatus;
 import com.hotel.backend.constant.RefundStatus;
@@ -20,9 +19,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.transaction.PlatformTransactionManager;
 
 import java.util.List;
 import java.util.Optional;
@@ -43,13 +42,12 @@ class PaymentRefundServiceTest {
     @Mock PaymentTransactionRepository transactionRepository;
     @Mock ReservationRepository reservationRepository;
     @Mock RoomHoldRepository roomHoldRepository;
-    @Mock VNPayRefundGateway vnPayGateway;
-    @Mock VNPayConfig vnPayConfig;
     @Mock ApplicationEventPublisher eventPublisher;
-    @Mock PlatformTransactionManager transactionManager;
     @Mock RefundDataCipher refundDataCipher;
     @Mock ReservationAuditService reservationAuditService;
     @Mock MediaAssetService mediaAssetService;
+    @Mock ReservationRefundSummaryEnricher refundSummaryEnricher;
+    @Spy RefundLedgerCalculator ledgerCalculator = new RefundLedgerCalculator();
     @InjectMocks PaymentRefundService refundService;
 
     @Test
@@ -62,7 +60,6 @@ class PaymentRefundServiceTest {
                 .build();
         when(refundRepository.findBySourceKey("unmatched:unmatched-event"))
                 .thenReturn(Optional.empty());
-        when(vnPayGateway.newRequestId()).thenReturn("REQUEST-UNMATCHED");
         when(refundRepository.save(any(PaymentRefund.class))).thenAnswer(invocation -> {
             PaymentRefund refund = invocation.getArgument(0);
             refund.setId("refund-unmatched");
@@ -169,13 +166,13 @@ class PaymentRefundServiceTest {
     void failedRefundKeepsPaymentRefundPending() {
         PaymentTransaction payment = PaymentTransaction.builder()
                 .id("failed-refund-payment")
-                .provider(PaymentProvider.VNPAY)
+                .provider(PaymentProvider.SEPAY)
                 .status(PaymentStatus.REFUND_PENDING)
                 .amount(100_000L)
                 .build();
         PaymentRefund failed = PaymentRefund.builder()
                 .paymentTransaction(payment)
-                .channel(com.hotel.backend.constant.RefundChannel.VNPAY_ORIGINAL)
+                .channel(com.hotel.backend.constant.RefundChannel.MANUAL_BANK_TRANSFER)
                 .status(RefundStatus.FAILED)
                 .amount(30_000L)
                 .build();
@@ -194,14 +191,14 @@ class PaymentRefundServiceTest {
     void completedFullRefundMarksPaymentRefunded() {
         PaymentTransaction payment = PaymentTransaction.builder()
                 .id("full-refund-payment")
-                .provider(PaymentProvider.VNPAY)
+                .provider(PaymentProvider.SEPAY)
                 .status(PaymentStatus.REFUND_PENDING)
                 .amount(100_000L)
                 .build();
         java.time.LocalDateTime completedAt = java.time.LocalDateTime.now();
         PaymentRefund completed = PaymentRefund.builder()
                 .paymentTransaction(payment)
-                .channel(com.hotel.backend.constant.RefundChannel.VNPAY_ORIGINAL)
+                .channel(com.hotel.backend.constant.RefundChannel.MANUAL_BANK_TRANSFER)
                 .status(RefundStatus.SUCCEEDED)
                 .amount(100_000L)
                 .completedAt(completedAt)
@@ -254,7 +251,7 @@ class PaymentRefundServiceTest {
                 .id("legacy-unmigrated")
                 .reservation(reservation)
                 .txnRef("LEGACY-UNMIGRATED")
-                .provider(PaymentProvider.VNPAY)
+                .provider(PaymentProvider.SEPAY)
                 .status(PaymentStatus.REFUNDED)
                 .amount(100_000L)
                 .refundAmount(30_000L)
@@ -271,7 +268,7 @@ class PaymentRefundServiceTest {
                 .thenReturn(List.of());
 
         assertThrows(RuntimeException.class, () -> refundService.requestReservationRefund(
-                reservationId, 70_000L, PaymentProvider.VNPAY,
+                reservationId, 70_000L,
                 "Không được hoàn trùng dữ liệu cũ", "unit_test"));
     }
 }

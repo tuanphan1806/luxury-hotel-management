@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "10";
+    private static final String LATEST_VERSION = "11";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -61,6 +61,12 @@ class FlywayPostgresMigrationIT {
             assertColumn(connection, "payment_provider_events", "bank_reference_code");
             assertColumn(connection, "payment_refunds", "completion_provider_event_id");
             assertColumn(connection, "payment_refunds", "refund_detail_json");
+            assertColumnAbsent(connection, "payment_transactions", "requested_bank_code");
+            assertColumnAbsent(connection, "payment_transactions", "provider_create_date");
+            assertColumnAbsent(connection, "payment_transactions", "card_token");
+            assertColumnAbsent(connection, "payment_refunds", "request_history");
+            assertColumnAbsent(connection, "payment_refunds", "transaction_type");
+            assertColumnAbsent(connection, "payment_refunds", "original_transaction_date");
             assertColumn(connection, "reservation_audit_logs", "detail_json");
             assertColumn(connection, "reservation_audit_logs", "risk_level");
             assertColumn(connection, "oauth_login_tickets", "token_hash");
@@ -91,6 +97,13 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_media_assets_owner");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
+            assertConstraint(connection, "chk_payment_transactions_provider");
+            assertConstraint(connection, "chk_payment_transactions_refund_provider");
+            assertConstraint(connection, "chk_payment_refunds_provider");
+            assertConstraint(connection, "chk_payment_refunds_channel");
+            assertConstraint(connection, "chk_payment_refunds_completion_method");
+            assertConstraint(connection, "chk_payment_provider_events_provider");
+            assertConstraint(connection, "chk_reconciliation_state_provider");
             assertConstraint(connection, "uk_oauth_login_tickets_token_hash");
             assertConstraint(connection, "fk_oauth_login_tickets_user");
             assertConstraint(connection, "uk_oauth_profile_completion_token_hash");
@@ -209,6 +222,68 @@ class FlywayPostgresMigrationIT {
                                 + "|https://cdn.example/static/room_types/room-executive-work.webp"
                                 + "|https://cdn.example/static/room_types/room-executive-bathroom.webp");
             }
+        }
+    }
+
+    @Test
+    void v11RefusesToRelabelHistoricalVnpayFinancialRows() throws Exception {
+        Flyway v10 = flyway("10");
+        v10.clean();
+        v10.migrate();
+
+        try (Connection connection = POSTGRES.createConnection("");
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO customer_profiles (
+                        full_name, source
+                    ) VALUES (
+                        'VNPay migration preflight', 'STAFF_CREATED'
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO reservations (
+                        check_in, check_out, discount_amount, guest_count,
+                        late_checkout_fee, reservation_code, status, tax_amount,
+                        total_amount, required_initial_payment, customer_profile_id,
+                        cancellation_fee, refundable_amount,
+                        early_checkout_adjustment, checkout_additional_fee
+                    ) VALUES (
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 day',
+                        0, 1, 0, 'RES-VNPAY-MIGRATION', 'PENDING', 0,
+                        100000, 50000,
+                        (SELECT id FROM customer_profiles
+                         WHERE full_name = 'VNPay migration preflight'),
+                        0, 100000, 0, 0
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO payment_transactions (
+                        id, amount, currency, provider, status, txn_ref,
+                        reservation_id, purpose, version
+                    )
+                    SELECT
+                        'pay-vnpay-migration', 100000, 'VND', 'VNPAY',
+                        'SUCCESS', 'VNPAY-MIGRATION-REF', id,
+                        'DEPOSIT', 0
+                    FROM reservations
+                    WHERE reservation_code = 'RES-VNPAY-MIGRATION'
+                    """);
+        }
+
+        Flyway latest = flyway();
+        assertThatThrownBy(latest::migrate)
+                .hasMessageContaining("V11 cannot remove VNPay")
+                .hasMessageContaining("payment_transactions");
+
+        try (Connection connection = POSTGRES.createConnection("");
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT provider
+                     FROM payment_transactions
+                     WHERE id = 'pay-vnpay-migration'
+                     """);
+             ResultSet resultSet = statement.executeQuery()) {
+            assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getString("provider")).isEqualTo("VNPAY");
         }
     }
 
@@ -378,6 +453,23 @@ class FlywayPostgresMigrationIT {
                 assertThat(resultSet.next())
                         .as("column %s.%s exists", tableName, columnName)
                         .isTrue();
+            }
+        }
+    }
+
+    private void assertColumnAbsent(Connection connection, String tableName, String columnName)
+            throws SQLException {
+        String sql = """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, tableName);
+            statement.setString(2, columnName);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                assertThat(resultSet.next())
+                        .as("column %s.%s is absent", tableName, columnName)
+                        .isFalse();
             }
         }
     }

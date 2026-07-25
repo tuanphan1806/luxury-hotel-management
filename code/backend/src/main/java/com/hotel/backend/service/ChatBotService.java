@@ -10,6 +10,8 @@ import com.hotel.backend.dto.response.GalleryResponse;
 import com.hotel.backend.dto.response.ReviewResponse;
 import com.hotel.backend.dto.response.RoomTypeRatingResponse;
 import com.hotel.backend.dto.response.RoomTypeResponse;
+import com.hotel.backend.service.chatbot.ChatInputPolicy;
+import com.hotel.backend.service.chatbot.InMemoryChatRateLimiter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,14 +21,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 @Service
@@ -46,9 +46,6 @@ public class ChatBotService {
      * - Không đưa tên/số phòng vật lý cụ thể vào prompt.
      * - Không đưa reservation, payment, user account hoặc dữ liệu cá nhân vào prompt.
      */
-    private static final int MAX_QUESTION_LENGTH = 500;
-    private static final int MAX_REQUESTS_PER_WINDOW = 10;
-    private static final Duration RATE_LIMIT_WINDOW = Duration.ofMinutes(1);
     private static final Duration HOTEL_CONTEXT_TTL = Duration.ofMinutes(10);
     private static final int MAX_GALLERY_ITEMS_IN_CONTEXT = 30;
     private static final String DEFAULT_ERROR_MESSAGE =
@@ -60,43 +57,6 @@ public class ChatBotService {
     private static final String CREATE_RESERVATION_CONFIRM_ACTION = "CREATE_RESERVATION_CONFIRM";
     private static final String CONTINUE_RESERVATION_ACTION = "CONTINUE_RESERVATION";
 
-    private static final List<String> HOTEL_KEYWORDS = List.of(
-            "khach san", "phong", "dat phong", "gia", "tien", "thanh toan",
-            "nhan phong", "tra phong", "check in", "check out", "tien ich",
-            "dich vu", "wifi", "ho boi", "nha hang", "bua sang", "an sang",
-            "buffet", "giuong", "tang", "gallery", "hinh anh", "anh",
-            "dia chi", "lien he", "le tan", "don dep", "hanh ly", "xe dua don",
-            "dua don", "san bay", "parking", "dau xe", "vat nuoi", "tre em",
-            "nguoi lon", "phu thu", "huy phong", "doi lich", "con trong",
-            "trong khong", "co khong", "may gio", "view", "ban cong", "bon tam",
-            "may lanh", "dieu hoa", "mini bar", "laundry", "giat ui", "spa",
-            "gym", "fitness", "bar", "cafe", "ca phe", "danh gia", "rating",
-            "review", "sao", "dep khong", "gan bien", "gan trung tam",
-            "gia dinh", "nguoi khuyet tat", "khong hut thuoc", "hut thuoc",
-            "yen tinh", "thang may", "dat coc", "hoan tien", "hoa don", "vat",
-            "the tin dung", "chuyen khoan", "tien mat", "sepay", "vietqr", "vnpay", "an toan",
-            "chinh sach", "giay to", "can cuoc", "ho chieu", "cong tac",
-            "cuoi tuan", "phuong tien cong cong", "bien", "trung tam thanh pho",
-            "reservation", "booking", "room", "facility", "hotel", "breakfast",
-            "restaurant", "pool", "airport", "available", "availability"
-    );
-
-    private static final List<String> HOTEL_QUESTION_PHRASES = List.of(
-            "o day co", "ben minh co", "khach san co", "cho minh hoi",
-            "toi muon hoi", "minh muon hoi", "co con", "con khong"
-    );
-
-    private static final List<String> GREETING_KEYWORDS = List.of(
-            "xin chao", "chao", "hello", "hi", "hey", "alo"
-    );
-
-    private static final List<String> PROMPT_INJECTION_PATTERNS = List.of(
-            "bo qua", "ignore", "previous instruction", "system prompt",
-            "developer message", "jailbreak", "khong gioi han", "dong vai",
-            "roleplay", "prompt injection", "tra loi bat ky", "khong can tuan thu"
-    );
-
-    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern ISO_DATE_PATTERN =
             Pattern.compile("\\b(\\d{4})-(\\d{1,2})-(\\d{1,2})\\b");
     private static final Pattern VI_DATE_PATTERN =
@@ -108,8 +68,9 @@ public class ChatBotService {
     private static final Pattern TIME_PATTERN =
             Pattern.compile("(?<![\\d/-])(\\d{1,2})[:hH](\\d{1,2})?\\b(?![/-]\\d)");
 
-    private final Map<String, RateLimitBucket> rateLimitBuckets = new ConcurrentHashMap<>();
     private final ThreadLocal<List<String>> apiFetchErrors = ThreadLocal.withInitial(ArrayList::new);
+    private final ChatInputPolicy inputPolicy = new ChatInputPolicy();
+    private final InMemoryChatRateLimiter rateLimiter = new InMemoryChatRateLimiter();
 
     private volatile String cachedHotelContext;
     private volatile Instant hotelContextCachedAt;
@@ -139,26 +100,26 @@ public class ChatBotService {
     public ChatResponse askWithAction(String question, String clientIp) {
         apiFetchErrors.get().clear();
 
-        String normalizedQuestion = sanitizeQuestion(question);
+        String normalizedQuestion = inputPolicy.sanitizeQuestion(question);
 
         // Guard cứng trước khi gọi Gemini để giảm chi phí và tránh abuse.
         if (normalizedQuestion.isBlank()) {
             return answerOnly("Vui lòng nhập câu hỏi để tôi hỗ trợ bạn.");
         }
 
-        if (isRateLimited(clientIp)) {
+        if (rateLimiter.isRateLimited(clientIp)) {
             log.warn("Chat rate limit exceeded for clientIp={}", clientIp);
             return answerOnly("Bạn đang gửi câu hỏi quá nhanh. Vui lòng thử lại sau ít phút.");
         }
 
-        if (looksLikePromptInjection(normalizedQuestion)) {
+        if (inputPolicy.looksLikePromptInjection(normalizedQuestion)) {
             log.warn("Blocked suspicious chatbot question from clientIp={}: {}",
                     clientIp,
                     abbreviate(normalizedQuestion, 120));
             return answerOnly(OUT_OF_SCOPE_MESSAGE);
         }
 
-        if (isGreeting(normalizedQuestion)) {
+        if (inputPolicy.isGreeting(normalizedQuestion)) {
             return answerOnly("Xin chào! Tôi có thể hỗ trợ bạn về phòng, giá, tiện nghi và thông tin đặt phòng của khách sạn.");
         }
 
@@ -183,7 +144,7 @@ public class ChatBotService {
             return answerOnly(publicFaqAnswer.get());
         }
 
-        if (!isHotelRelated(normalizedQuestion)) {
+        if (!inputPolicy.isHotelRelated(normalizedQuestion)) {
             log.info("Blocked out-of-scope chatbot question from clientIp={}: {}",
                     clientIp,
                     abbreviate(normalizedQuestion, 120));
@@ -227,7 +188,7 @@ public class ChatBotService {
 
         if (!DEFAULT_ERROR_MESSAGE.equals(answer)
                 && !OUT_OF_SCOPE_MESSAGE.equals(answer)
-                && !isHotelRelated(answer)) {
+                && !inputPolicy.isHotelRelated(answer)) {
             log.warn("Blocked out-of-scope chatbot answer for clientIp={}: {}",
                     clientIp,
                     abbreviate(answer, 160));
@@ -249,78 +210,6 @@ public class ChatBotService {
                 .action(CONTINUE_RESERVATION_ACTION)
                 .payload(Map.of("context", context))
                 .build();
-    }
-
-    /**
-     * Chuẩn hóa input để tránh control character, prompt quá dài và whitespace bất thường.
-     */
-    private String sanitizeQuestion(String question) {
-        if (question == null) {
-            return "";
-        }
-
-        String sanitized = question
-                .replace('\u0000', ' ')
-                .replaceAll("[\\p{Cntrl}&&[^\r\n\t]]", " ");
-
-        sanitized = WHITESPACE.matcher(sanitized).replaceAll(" ").trim();
-
-        if (sanitized.length() > MAX_QUESTION_LENGTH) {
-            sanitized = sanitized.substring(0, MAX_QUESTION_LENGTH).trim();
-        }
-
-        return sanitized;
-    }
-
-    /**
-     * Rate limit đơn giản theo IP trong bộ nhớ. Nếu deploy nhiều instance, nên thay bằng Redis/Bucket4j.
-     */
-    private boolean isRateLimited(String clientIp) {
-        String key = (clientIp == null || clientIp.isBlank()) ? "unknown" : clientIp;
-        Instant now = Instant.now();
-
-        RateLimitBucket bucket = rateLimitBuckets.compute(key, (ignored, existing) -> {
-            if (existing == null
-                    || Duration.between(existing.windowStartedAt(), now).compareTo(RATE_LIMIT_WINDOW) >= 0) {
-                return new RateLimitBucket(now, 1);
-            }
-
-            return new RateLimitBucket(existing.windowStartedAt(), existing.count() + 1);
-        });
-
-        cleanupOldRateLimitBuckets(now);
-
-        return bucket.count() > MAX_REQUESTS_PER_WINDOW;
-    }
-
-    private void cleanupOldRateLimitBuckets(Instant now) {
-        if (rateLimitBuckets.size() < 500) {
-            return;
-        }
-
-        rateLimitBuckets.entrySet().removeIf(entry ->
-                Duration.between(entry.getValue().windowStartedAt(), now)
-                        .compareTo(RATE_LIMIT_WINDOW.multipliedBy(2)) > 0
-        );
-    }
-
-    private boolean looksLikePromptInjection(String text) {
-        String normalized = normalizeForMatching(text);
-        return PROMPT_INJECTION_PATTERNS.stream().anyMatch(normalized::contains);
-    }
-
-    private boolean isGreeting(String text) {
-        String normalized = normalizeForMatching(text);
-        return normalized.length() <= 40
-                && GREETING_KEYWORDS.stream().anyMatch(greeting ->
-                        normalized.equals(greeting) || normalized.startsWith(greeting + " ")
-                );
-    }
-
-    private boolean isHotelRelated(String text) {
-        String normalized = normalizeForMatching(text);
-        return HOTEL_KEYWORDS.stream().anyMatch(normalized::contains)
-                || HOTEL_QUESTION_PHRASES.stream().anyMatch(normalized::contains);
     }
 
     /**
@@ -679,7 +568,7 @@ public class ChatBotService {
                 || normalized.contains("chuyen khoan") || normalized.contains("tien mat")
                 || normalized.contains("tra tien khi nhan phong")
                 || normalized.contains("sepay") || normalized.contains("vietqr")
-                || normalized.contains("vnpay") || normalized.contains("an toan"))) {
+                || normalized.contains("an toan"))) {
             return Optional.empty();
         }
 
@@ -1373,13 +1262,7 @@ public class ChatBotService {
     }
 
     private String normalizeForMatching(String text) {
-        String withoutAccents = Normalizer.normalize(text, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "")
-                .replace('đ', 'd')
-                .replace('Đ', 'D');
-        return WHITESPACE.matcher(withoutAccents.toLowerCase(Locale.ROOT))
-                .replaceAll(" ")
-                .trim();
+        return inputPolicy.normalizeForMatching(text);
     }
 
     private String abbreviate(String value, int maxLength) {
@@ -1641,10 +1524,6 @@ public class ChatBotService {
             log.error("Lỗi gọi Gemini API: {}", e.getMessage(), e);
             return DEFAULT_ERROR_MESSAGE;
         }
-    }
-
-    // State dùng cho rate limit trong một cửa sổ thời gian.
-    private record RateLimitBucket(Instant windowStartedAt, int count) {
     }
 
     // Kết quả parser ngày/giờ trong câu hỏi availability.

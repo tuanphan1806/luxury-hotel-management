@@ -6,14 +6,6 @@ import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.ReservationRepository;
 import com.hotel.backend.repository.UserRepository;
-import com.sendgrid.Method;
-import com.sendgrid.Request;
-import com.sendgrid.Response;
-import com.sendgrid.SendGrid;
-import com.sendgrid.helpers.mail.Mail;
-import com.sendgrid.helpers.mail.objects.Content;
-import com.sendgrid.helpers.mail.objects.Email;
-import com.sendgrid.helpers.mail.objects.Personalization;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -79,20 +71,22 @@ public class EmailService {
     @Value("${app.email-verification-ttl-hours:48}")
     private long verificationTtlHours;
 
-    private final SendGrid verificationSendGrid;
-    private final SendGrid transactionalSendGrid;
+    private final EmailDeliveryGateway verificationDeliveryGateway;
+    private final EmailDeliveryGateway transactionalDeliveryGateway;
     private final UserRepository userRepository;
     private final ReservationRepository reservationRepository;
     private final HotelEmailTemplateRenderer templateRenderer;
 
     public EmailService(
-            @Qualifier("verificationSendGrid") SendGrid verificationSendGrid,
-            @Qualifier("transactionalSendGrid") SendGrid transactionalSendGrid,
+            @Qualifier("verificationEmailDeliveryGateway")
+            EmailDeliveryGateway verificationDeliveryGateway,
+            @Qualifier("transactionalEmailDeliveryGateway")
+            EmailDeliveryGateway transactionalDeliveryGateway,
             UserRepository userRepository,
             ReservationRepository reservationRepository,
             HotelEmailTemplateRenderer templateRenderer) {
-        this.verificationSendGrid = verificationSendGrid;
-        this.transactionalSendGrid = transactionalSendGrid;
+        this.verificationDeliveryGateway = verificationDeliveryGateway;
+        this.transactionalDeliveryGateway = transactionalDeliveryGateway;
         this.userRepository = userRepository;
         this.reservationRepository = reservationRepository;
         this.templateRenderer = templateRenderer;
@@ -183,7 +177,7 @@ public class EmailService {
                 sendVerificationTemplate(to, name, verifyUrl);
             } else {
                 sendHtml(
-                        verificationSendGrid,
+                        verificationDeliveryGateway,
                         verificationFrom,
                         to,
                         "Xác thực tài khoản " + hotelName,
@@ -260,7 +254,7 @@ public class EmailService {
             HotelEmailTemplateRenderer.RenderedEmail rendered,
             String purpose) {
         try {
-            sendHtml(transactionalSendGrid, transactionalFrom, to, subject, rendered, purpose);
+            sendHtml(transactionalDeliveryGateway, transactionalFrom, to, subject, rendered, purpose);
         } catch (IOException exception) {
             log.warn("SendGrid transport failed purpose={}: {}", purpose, exception.getMessage());
             throw new AppException(ErrorCode.EMAIL_DELIVERY_FAILED);
@@ -278,7 +272,7 @@ public class EmailService {
         try {
             if (dynamicTemplateId != null && !dynamicTemplateId.isBlank()) {
                 sendDynamicTemplate(
-                        transactionalSendGrid,
+                        transactionalDeliveryGateway,
                         transactionalFrom,
                         to,
                         recipientName,
@@ -286,7 +280,7 @@ public class EmailService {
                         dynamicData,
                         purpose);
             } else {
-                sendHtml(transactionalSendGrid, transactionalFrom, to, subject, fallback, purpose);
+                sendHtml(transactionalDeliveryGateway, transactionalFrom, to, subject, fallback, purpose);
             }
         } catch (IOException exception) {
             log.warn("SendGrid transport failed purpose={}: {}", purpose, exception.getMessage());
@@ -305,7 +299,7 @@ public class EmailService {
         dynamicData.put("verification_ttl_hours", verificationTtlHours);
 
         sendDynamicTemplate(
-                verificationSendGrid,
+                verificationDeliveryGateway,
                 verificationFrom,
                 to,
                 name,
@@ -315,72 +309,39 @@ public class EmailService {
     }
 
     private void sendDynamicTemplate(
-            SendGrid client,
+            EmailDeliveryGateway gateway,
             String from,
             String to,
             String recipientName,
             String dynamicTemplateId,
             Map<String, Object> dynamicData,
             String purpose) throws IOException {
-        requireEmailAddress(from, "from-email");
-        requireEmailAddress(to, "recipient");
-
-        Mail mail = new Mail();
-        mail.setFrom(new Email(from.trim(), hotelName));
-        mail.setReplyTo(new Email(replyToAddress(), hotelName));
-        mail.setTemplateId(dynamicTemplateId.trim());
-
-        Personalization personalization = new Personalization();
-        personalization.addTo(new Email(to.trim(), normalizedName(recipientName)));
-        dynamicData.forEach(personalization::addDynamicTemplateData);
-        mail.addPersonalization(personalization);
-
-        requireAccepted(execute(client, mail), purpose);
+        gateway.sendDynamicTemplate(
+                from,
+                replyToAddress(),
+                hotelName,
+                to,
+                normalizedName(recipientName),
+                dynamicTemplateId,
+                dynamicData,
+                purpose);
     }
 
     private void sendHtml(
-            SendGrid client,
+            EmailDeliveryGateway gateway,
             String from,
             String to,
             String subject,
             HotelEmailTemplateRenderer.RenderedEmail rendered,
             String purpose) throws IOException {
-        requireEmailAddress(from, "from-email");
-        requireEmailAddress(to, "recipient");
-
-        Mail mail = new Mail();
-        mail.setFrom(new Email(from.trim(), hotelName));
-        mail.setReplyTo(new Email(replyToAddress(), hotelName));
-        mail.setSubject(subject);
-        Personalization personalization = new Personalization();
-        personalization.addTo(new Email(to.trim()));
-        mail.addPersonalization(personalization);
-        mail.addContent(new Content("text/plain", rendered.plainText()));
-        mail.addContent(new Content("text/html", rendered.html()));
-
-        requireAccepted(execute(client, mail), purpose);
-    }
-
-    private Response execute(SendGrid client, Mail mail) throws IOException {
-        Request request = new Request();
-        request.setMethod(Method.POST);
-        request.setEndpoint("mail/send");
-        request.setBody(mail.build());
-        return client.api(request);
-    }
-
-    private void requireAccepted(Response response, String purpose) throws IOException {
-        int status = response == null ? 0 : response.getStatusCode();
-        if (status >= 200 && status < 300) {
-            log.info("SendGrid accepted email purpose={} status={}", purpose, status);
-            return;
-        }
-        String diagnostic = response == null || response.getBody() == null
-                ? ""
-                : response.getBody().replaceAll("[\\r\\n]+", " ");
-        if (diagnostic.length() > 300) diagnostic = diagnostic.substring(0, 300);
-        log.warn("SendGrid rejected email purpose={} status={} response={}", purpose, status, diagnostic);
-        throw new IOException("SendGrid rejected " + purpose + " email with status " + status);
+        gateway.sendHtml(
+                from,
+                replyToAddress(),
+                hotelName,
+                to,
+                subject,
+                rendered,
+                purpose);
     }
 
     private void restoreVerificationState(

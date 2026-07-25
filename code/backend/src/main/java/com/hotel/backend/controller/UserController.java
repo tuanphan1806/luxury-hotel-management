@@ -40,7 +40,7 @@ import com.hotel.backend.dto.request.UserUpdateRequest;
 import com.hotel.backend.dto.request.AdminResetPasswordRequest;
 import com.hotel.backend.dto.response.UserPageResponse;
 import com.hotel.backend.dto.response.UserResponse;
-import com.hotel.backend.service.UserService;
+import com.hotel.backend.service.UserOperationsUseCases;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.constant.UserType;
 
@@ -50,7 +50,7 @@ import com.hotel.backend.constant.UserType;
 @Slf4j(topic = "USER-CONTROLLER")
 public class UserController {
 
-    private final UserService userService;
+    private final UserOperationsUseCases userService;
 
     @Operation(summary = "Create User", description = "API add new user to database")
     @PostMapping("")

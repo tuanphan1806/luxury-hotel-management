@@ -1,14 +1,10 @@
 package com.hotel.backend.service.Impl;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
-import com.hotel.backend.constant.CustomerProfileSource;
 import com.hotel.backend.constant.MediaAssetOwnerType;
 import com.hotel.backend.constant.UploadFolder;
 import com.hotel.backend.constant.ReservationAuditAction;
@@ -25,16 +21,17 @@ import com.hotel.backend.service.EmailService;
 import com.hotel.backend.service.MediaAssetService;
 import com.hotel.backend.service.UserService;
 import com.hotel.backend.service.ReservationAuditService;
+import com.hotel.backend.service.CustomerProfileLinkService;
+import com.hotel.backend.service.UserIdentityNormalizer;
+import com.hotel.backend.service.UserPageableFactory;
+import com.hotel.backend.service.UserViewMapper;
 import com.hotel.backend.repository.UserRepository;
-import com.hotel.backend.repository.CustomerProfileRepository;
 import com.hotel.backend.repository.UserTokenRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -42,7 +39,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.hotel.backend.entity.User;
-import com.hotel.backend.entity.CustomerProfile;
 import com.hotel.backend.exception.DuplicateResourceException;
 import com.hotel.backend.exception.InvalidDataException;
 import com.hotel.backend.exception.ResourceNotFoundException;
@@ -54,8 +50,8 @@ public class UserServiceImpl implements UserService {
 
     // inject your repos/mappers here via constructor (Lombok handles it)
     private final UserRepository userRepository;
-    private final CustomerProfileRepository customerProfileRepository;
     private final UserTokenRepository userTokenRepository;
+    private final CustomerProfileLinkService customerProfileLinkService;
 
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
@@ -65,32 +61,10 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserPageResponse findAll(String keyword,String sort, int page,int size) {
-        
+        int pageNo = page > 0 ? page - 1 : 0;
+        Pageable pageable = UserPageableFactory.create(sort, page, size);
 
-        //Sorting
-        Sort.Order order= new Sort.Order(Sort.Direction.ASC, "id");
-        if (StringUtils.hasLength(sort)) {
-            Pattern pattern= Pattern.compile("^(\\w+?)(:)(.*)");//ten cot:asc desc
-            Matcher matcher=pattern.matcher(sort);
-            if (matcher.find()) {
-                String columnName =matcher.group(1);
-                if (matcher.group(3).equalsIgnoreCase("asc")) {
-                    order= new Sort.Order(Sort.Direction.ASC, columnName);
-                } else{
-                    order= new Sort.Order(Sort.Direction.DESC, columnName);
-                }
-            }
-        }
-
-        // xu ly TH FE muon bat dau voi page =1
-        int pageNo=0;
-        if (page>0) {
-            pageNo=page-1;
-        }
-        //Paging
-        Pageable pageable= PageRequest.of(pageNo, size, Sort.by(order));
-
-        Page<User> entityPage=null;
+        Page<User> entityPage;
         if (StringUtils.hasLength(keyword)) {
             keyword="%"+keyword.toLowerCase()+"%";
             entityPage=userRepository.searchByKeyword(keyword,pageable);
@@ -98,34 +72,23 @@ public class UserServiceImpl implements UserService {
             entityPage= userRepository.findAll(pageable);
         }
 
-        UserPageResponse response= getUserPageResponse(pageNo, size, entityPage);
-        return response;
+        return UserViewMapper.toPage(pageNo, size, entityPage);
     }
     
     @Override
     public UserResponse findById(Long id) {
         User user = getUserById(id);
-        return UserResponse.builder()
-                .id(id)
-                .fullName(user.getFullName())
-                .username(user.getUsername())
-                .email(user.getEmail())
-                .phone(user.getPhone())
-                .address(user.getAddress())
-                .type(user.getType())
-                .status(user.getStatus())
-                .imageUrl(user.getImageUrl())
-                .build();
+        return UserViewMapper.toResponse(user);
     }
 
 
     @Override
     @Transactional(rollbackFor=Exception.class)
     public Long save(UserCreationRequest req) {
-        log.info("Saving user", req.getUsername());
+        log.info("Saving user {}", req.getUsername());
 
-        String username = normalizeUsername(req.getUsername());
-        String email = normalizeEmail(req.getEmail());
+        String username = UserIdentityNormalizer.username(req.getUsername());
+        String email = UserIdentityNormalizer.email(req.getEmail());
 
         if (userRepository.existsByUsernameIgnoreCase(username)) {
             throw new DuplicateResourceException("User", "username", username);
@@ -155,7 +118,7 @@ public class UserServiceImpl implements UserService {
                 UploadFolder.AVATAR,
                 MediaAssetOwnerType.USER_AVATAR,
                 user.getId()));
-        ensureCustomerProfileForUser(user);
+        customerProfileLinkService.ensureForUser(user);
         eventPublisher.publishEvent(new UserRegisteredEvent(user.getId()));
         return user.getId();
     }
@@ -165,8 +128,8 @@ public class UserServiceImpl implements UserService {
     public Long createUserWithType(UserCreationWithTypeRequest req) {
         log.info("Saving user {} with type {}", req.getUsername(),req.getType());
 
-        String username = normalizeUsername(req.getUsername());
-        String email = normalizeEmail(req.getEmail());
+        String username = UserIdentityNormalizer.username(req.getUsername());
+        String email = UserIdentityNormalizer.email(req.getEmail());
 
         if (userRepository.existsByUsernameIgnoreCase(username)) {
             throw new DuplicateResourceException("User", "username", username);
@@ -199,7 +162,7 @@ public class UserServiceImpl implements UserService {
                 MediaAssetOwnerType.USER_AVATAR,
                 user.getId()));
         if (UserType.CUSTOMER.equals(user.getType())) {
-            ensureCustomerProfileForUser(user);
+            customerProfileLinkService.ensureForUser(user);
         }
         log.info("User create with type {} successfully",user.getType());
         reservationAuditService.recordTarget(
@@ -224,8 +187,8 @@ public class UserServiceImpl implements UserService {
         validateUniqueFieldsForUpdate(req, id);
         //set data
         user.setFullName(req.getFullName());
-        user.setUsername(normalizeUsername(req.getUsername()));
-        user.setEmail(normalizeEmail(req.getEmail()));
+        user.setUsername(UserIdentityNormalizer.username(req.getUsername()));
+        user.setEmail(UserIdentityNormalizer.email(req.getEmail()));
         UserType oldType = user.getType();
         boolean roleChanged = req.getType() != null && !req.getType().equals(oldType);
         if (roleChanged) {
@@ -244,7 +207,7 @@ public class UserServiceImpl implements UserService {
         }
         //save to db
         userRepository.save(user);
-        syncLinkedCustomerProfile(user);
+        customerProfileLinkService.sync(user);
         if (roleChanged) {
             reservationAuditService.recordTarget(
                     "USER", String.valueOf(user.getId()),
@@ -260,23 +223,17 @@ public class UserServiceImpl implements UserService {
     }
 
     private void validateUniqueFieldsForUpdate(UserUpdateRequest req, Long id) {
-        if (userRepository.existsByUsernameIgnoreCaseAndIdNot(normalizeUsername(req.getUsername()), id)) {
+        if (userRepository.existsByUsernameIgnoreCaseAndIdNot(
+                UserIdentityNormalizer.username(req.getUsername()), id)) {
             throw new DuplicateResourceException("User", "username", req.getUsername());
         }
-        if (userRepository.existsByEmailIgnoreCaseAndIdNot(normalizeEmail(req.getEmail()), id)) {
+        if (userRepository.existsByEmailIgnoreCaseAndIdNot(
+                UserIdentityNormalizer.email(req.getEmail()), id)) {
             throw new DuplicateResourceException("User", "email", req.getEmail());
         }
         if (userRepository.existsByPhoneAndIdNot(req.getPhone(), id)) {
             throw new DuplicateResourceException("User", "phone", req.getPhone());
         }
-    }
-
-    private String normalizeUsername(String username) {
-        return username == null ? "" : username.trim();
-    }
-
-    private String normalizeEmail(String email) {
-        return email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     @Override
@@ -343,55 +300,6 @@ public class UserServiceImpl implements UserService {
                 null);
         log.info("Admin reset password for userId={}", userId);
     }
-
-    private CustomerProfile ensureCustomerProfileForUser(User user) {
-        return customerProfileRepository.findByLinkedUserId(user.getId())
-                .orElseGet(() -> customerProfileRepository.save(CustomerProfile.builder()
-                        .fullName(user.getFullName())
-                        .phone(user.getPhone())
-                        .email(user.getEmail())
-                        .address(user.getAddress())
-                        .source(CustomerProfileSource.ONLINE)
-                        .linkedUser(user)
-                        .build()));
-    }
-
-    private void syncLinkedCustomerProfile(User user) {
-        customerProfileRepository.findByLinkedUserId(user.getId()).ifPresent(profile -> {
-            profile.setFullName(user.getFullName());
-            profile.setPhone(user.getPhone());
-            profile.setEmail(user.getEmail());
-            profile.setAddress(user.getAddress());
-            customerProfileRepository.save(profile);
-        });
-    }
-
-
-    //convert user entity to userResponse
-    private static UserPageResponse getUserPageResponse (int page,int size, Page<User> users){
-        List<UserResponse> userList = users.stream()
-                .map(entity -> UserResponse.builder()
-                .id(entity.getId())
-                .fullName(entity.getFullName())
-                .username(entity.getUsername())
-                .email(entity.getEmail())
-                .phone(entity.getPhone())
-                .address(entity.getAddress())
-                .type((entity.getType()))
-                .status(entity.getStatus())
-                .imageUrl(entity.getImageUrl())
-                .build()
-                ).toList();
-
-        UserPageResponse response= new UserPageResponse();
-        response.setPageNumber(page);
-        response.setPageSize(size);
-        response.setTotalElements(users.getTotalElements());
-        response.setTotalPages(users.getTotalPages());
-        response.setUsers(userList);
-        return response;
-    }
-    
 
     @Transactional(rollbackFor = Exception.class)
     public Long verifyEmail(String secretCode) {

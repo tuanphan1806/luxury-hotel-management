@@ -66,8 +66,6 @@ Quy uoc:
 - `POST /api/payments/create` (public o lop security, nhung service van kiem tra user so huu reservation hoac `X-Guest-Token` hop le va bat buoc `Idempotency-Key`)
 - `POST /api/payments/sepay/webhook` (khong dung JWT; bat buoc `Authorization: Apikey ...` hop le)
 - `GET /api/payments/result/{transactionId}`
-- `GET /api/payments/vnpay/return` (legacy/history)
-- `GET /api/payments/vnpay/ipn` (legacy/history)
 
 ### Can dang nhap
 
@@ -219,8 +217,6 @@ Base path: `/api/payments`
 | GET | `/api/payments/sepay/events/review` | Khong co | Staff/Admin lay cac receipt SePay `REVIEW_REQUIRED` chua ghep duoc payment; response `no-store` |
 | GET | `/api/payments/result/{transactionId}` | UUID giao dich noi bo | Public polling cho trang ket qua; tra status, amount/expectedAmount/receivedAmount va thong tin VietQR neu la SePay |
 | POST | `/api/payments/cash` | Body `PaymentRequest`, header `Idempotency-Key` | Staff/Admin ghi nhan tien mat tai quay |
-| GET | `/api/payments/vnpay/return` | Query params tu VNPay | Endpoint legacy de nhan browser return cua giao dich VNPay lich su; khong dung de tao payment moi |
-| GET | `/api/payments/vnpay/ipn` | Query params tu VNPay | Endpoint legacy de nhan IPN/late callback cua giao dich VNPay lich su |
 | GET | `/api/payments/{transactionId}` | Path `transactionId` | Lay chi tiet giao dich |
 | GET | `/api/payments/booking/{reservationId}` | Path `reservationId` | Lay cac giao dich cua mot reservation |
 | POST | `/api/payments/refund` | Body `RefundRequest`, header `Idempotency-Key` | Staff/Admin tao yeu cau hoan; response co status/source legacy va canonical |
@@ -229,8 +225,7 @@ Base path: `/api/payments`
 | GET | `/api/payments/refund/{refundId}/manual-details` | Path `refundId` | Staff/Admin lay ba thong tin nguoi nhan, noi dung hoan duy nhat va URL VietQR de chuyen khoan |
 | PATCH | `/api/payments/refund/{refundId}/manual-fallback/open` | Body `{ "reason": "..." }`, header `Idempotency-Key` | Chi Admin mo fallback truoc timeout; khong hoan tat refund |
 | PATCH | `/api/payments/refund/{refundId}/manual-complete` | Body `ManualRefundCompleteRequest`, header `Idempotency-Key` | Fallback sau timeout/Admin mo; bat buoc ly do, proof tuy chon |
-| PATCH | `/api/payments/refund/{refundId}/reconcile` | Header `Idempotency-Key` | QueryDR chi danh cho refund VNPay lich su dang `PROCESSING` |
-| PATCH | `/api/payments/refund/{refundId}/retry` | Header `Idempotency-Key` | Retry/reactivate o trang thai cho phep |
+| PATCH | `/api/payments/refund/{refundId}/retry` | Header `Idempotency-Key` | Reactivate nghia vu hoan QR/tien mat da `CANCELLED`; khong go bo nghia vu hoan |
 
 ### Xac thuc webhook SePay
 
@@ -257,13 +252,13 @@ Base path: `/api/payments`
 - Scheduler doc ca giao dich tien vao va tien ra trong khoang lookback cau hinh, co the gioi han dung tai khoan bang `SEPAY_API_BANK_ACCOUNT_ID`, moi trang toi da 100 ban ghi, tiep tuc theo `meta.pagination.has_more` den `sepay.reconciliation-max-pages` (backend gioi han 1-100 trang).
 - Moi event xu ly idempotent theo thu tu provider event ID -> merchant + provider transaction ID -> fingerprint; scoped bank reference la alias compatibility cuoi. Event `REVIEW_REQUIRED` duoc phep thu ghep lai, con event da `PROCESSED`/`IGNORED` khong xu ly lai.
 
-### Hoan tien theo provider goc
+### Hoan tien
 
 - `SEPAY`: he thong khong phat lenh chuyen tien; Staff/Admin quet QR trong app ngan hang. SePay tu dong xac nhan giao dich tien ra qua webhook/reconciliation.
 - Khach chi nhap ba thong tin nhin thay: ngan hang, so tai khoan, ho ten chu tai khoan. `bankCode` duoc suy ra tu lua chon ngan hang; du lieu nhay cam duoc ma hoa trong DB va API khach chi doc ban da che.
 - Staff/Admin lay `manual-details`, quet VietQR va ghi dung `refund_code`. UI cho SePay tu dong cap nhat `SUCCEEDED`; `manual-complete` chi la fallback sau timeout/Admin mo, bat buoc ly do va proof tuy chon.
-- `VNPAY`: chi giu cho giao dich/refund lich su. Neu du du lieu giao dich goc va `VNPAY_REFUND_ENABLED=true`, refund di theo `VNPAY_ORIGINAL`; giao dich cu thieu `providerCreateDate` phai vao `MANUAL_REVIEW`. `reconcile`/`retry` chi ap dung kenh VNPay. Khong cho tao payment VNPay moi qua `/api/payments/create`.
-- Reservation co ca giao dich VNPay lich su va SePay co the co `refundRoute: "MIXED"`; moi phan tien van theo dung kenh cua giao dich goc.
+- `CASH`: Staff/Admin xac nhan da giao tien tai quay; khong can anh minh chung.
+- `refundRoute: "MIXED"` nghia la reservation co ca nghia vu hoan chuyen khoan QR va tien mat.
 
 ## Review
 
@@ -479,7 +474,7 @@ Base path: `/api/chat`
 
 Ghi chu:
 - Frontend khong tu quyet dinh `amount`, tai khoan nhan hoac noi dung chuyen khoan; backend tu tinh tien coc 50% khi reservation `PAYMENT_PENDING`, hoac tinh `remainingAmount` khi thanh toan cuoi.
-- Thanh toan online moi chi dung `provider: "SEPAY"`; neu bo trong provider backend cung mac dinh SePay. `provider: "VNPAY"` bi tu choi khi tao payment moi.
+- Thanh toan online chi dung `provider: "SEPAY"`; neu bo trong provider backend cung mac dinh SePay. Gia tri provider khac contract bi tu choi.
 - `bankCode` trong request cu khong duoc tin de chon tai khoan SePay; tai khoan merchant lay tu cau hinh server.
 - Tien mat dung `POST /api/payments/cash` va chi hop le khi reservation dang `CHECKED_IN`.
 - Response SePay co `transactionId`, `paymentUrl`, `qrCodeUrl`, `transferContent`, `bankAccountNumber`, `bankCode`, `bankName`, `accountHolder`, `expectedAmount`, `expiresAt`.
@@ -573,11 +568,10 @@ UI chi hien ba truong. `bankCode` la metadata noi bo cua muc ngan hang da chon.
 | `RoomStatus` | `AVAILABLE`, `BOOKED`, `CHECKED_IN`, `MAINTENANCE` |
 | `CleaningStatus` | `CLEAN`, `DIRTY`, `IN_PROGRESS` |
 | `ReservationStatus` | `PAYMENT_PENDING`, `DRAFT`, `CONFIRMED`, `CANCELLATION_PENDING`, `CANCELLED`, `CHECKED_IN`, `CHECKED_OUT`, `NO_SHOW` |
-| `PaymentProvider` | `SEPAY`, `VNPAY`, `CASH` |
-| `PaymentMethod` | `CASH`, `BANKING`, `VNPAY`, `MOMO` (enum legacy, khong dung de chon provider SePay) |
+| `PaymentProvider` | `SEPAY`, `CASH` |
 | `PaymentStatus` | `PENDING`, `SUCCESS`, `FAILED`, `CANCELLED`, `REFUNDED`, `REFUND_PENDING` |
-| `RefundChannel` | `VNPAY_ORIGINAL`, `MANUAL_BANK_TRANSFER`, `CASH_AT_COUNTER` |
-| `RefundRoute` | `NONE`, `VNPAY_ORIGINAL`, `MANUAL_BANK_TRANSFER`, `MIXED` |
-| `RefundStatus` | `AWAITING_CUSTOMER_INFO`, `READY_FOR_MANUAL_TRANSFER`, `REQUESTED`, `PROCESSING`, `SUCCEEDED`, `FAILED`, `MANUAL_REVIEW` |
+| `RefundChannel` | `MANUAL_BANK_TRANSFER`, `CASH_AT_COUNTER` |
+| `RefundRoute` | `NONE`, `MANUAL_BANK_TRANSFER`, `CASH_AT_COUNTER`, `MIXED` |
+| `RefundStatus` | `AWAITING_CUSTOMER_INFO`, `READY_FOR_MANUAL_TRANSFER`, `REQUESTED`, `PROCESSING`, `SUCCEEDED`, `FAILED`, `MANUAL_REVIEW`, `CANCELLED` |
 | `IdCardType` | `CMND`, `CCCD`, `PASSPORT` |
 | `UploadFolder` | `AVATAR`, `FACILITIES`, `GALLERY`, `ROOM_TYPES`, `ROOMS` |

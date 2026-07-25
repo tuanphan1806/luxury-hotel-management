@@ -311,12 +311,10 @@ function GuestBookingLookupContent() {
 
             <RefundProgressCard refunds={reservation.refunds} />
 
-            {(reservation.refundRoute === "VNPAY_ORIGINAL" || reservation.refundRoute === "MIXED") && (
+            {reservation.refundRoute === "MIXED" && (
               <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                <p className="font-bold">Hoàn theo giao dịch trực tuyến ban đầu</p>
-                <p className="mt-1 leading-6">{reservation.refundRoute === "MIXED"
-                  ? "Phần giao dịch lịch sử sẽ hoàn theo nguồn gốc; phần hoàn QR thủ công cần tài khoản ngân hàng bên dưới."
-                  : "Hệ thống xử lý hoàn tiền trên giao dịch gốc. Bạn không cần cung cấp tài khoản ngân hàng."}</p>
+                <p className="font-bold">Đơn có nhiều kênh hoàn tiền</p>
+                <p className="mt-1 leading-6">Các khoản hoàn QR và tiền mặt được theo dõi độc lập trong sổ đối soát.</p>
               </div>
             )}
 
