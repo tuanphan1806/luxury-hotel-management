@@ -36,6 +36,8 @@ services:
         value: "false"
       - key: APP_SEED_MASTER_DATA_ENABLED
         value: "false"
+      - key: APP_SEED_ADD_ON_SERVICES_ENABLED
+        value: "false"
       - key: APP_SEED_DEMO_USERS_ENABLED
         value: "false"
       - key: APP_BOOTSTRAP_ADMIN_ENABLED

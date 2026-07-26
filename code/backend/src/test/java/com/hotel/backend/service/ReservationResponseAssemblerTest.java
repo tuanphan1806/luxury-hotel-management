@@ -29,15 +29,21 @@ class ReservationResponseAssemblerTest {
     @Mock
     private PaymentRefundService paymentRefundService;
 
+    @Mock
+    private ReservationAddOnService reservationAddOnService;
+
     private ReservationResponseAssembler assembler;
 
     @BeforeEach
     void setUp() {
-        assembler = new ReservationResponseAssembler(paymentRefundService);
+        assembler = new ReservationResponseAssembler(
+                paymentRefundService, reservationAddOnService);
     }
 
     @Test
     void preservesRoomHoldInDetailedReservationResponse() {
+        when(reservationAddOnService.enrich(any(ReservationResponse.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         Reservation reservation = baseReservation();
         RoomType roomType = RoomType.builder()
                 .typeName("Deluxe")

@@ -87,6 +87,14 @@ const ACTION_LABELS: Record<string, string> = {
   GALLERY_CREATED: "Tạo ảnh thư viện",
   GALLERY_UPDATED: "Cập nhật ảnh thư viện",
   GALLERY_DELETED: "Xóa ảnh thư viện",
+  SERVICE_CATALOG_CREATED: "Tạo dịch vụ thêm",
+  SERVICE_CATALOG_UPDATED: "Cập nhật dịch vụ thêm",
+  SERVICE_CATALOG_DEACTIVATED: "Ngừng cung cấp dịch vụ",
+  SERVICE_CATALOG_REACTIVATED: "Kích hoạt lại dịch vụ",
+  RESERVATION_SERVICE_ADDED: "Thêm yêu cầu dịch vụ",
+  RESERVATION_SERVICE_CONFIRMED: "Xác nhận dịch vụ",
+  RESERVATION_SERVICE_FULFILLED: "Hoàn tất phục vụ dịch vụ",
+  RESERVATION_SERVICE_CANCELLED: "Hủy dịch vụ",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -99,6 +107,8 @@ const TARGET_LABELS: Record<string, string> = {
   ROOM_TYPE: "Hạng phòng",
   FACILITY: "Tiện nghi",
   GALLERY: "Thư viện ảnh",
+  ADD_ON_SERVICE: "Danh mục dịch vụ thêm",
+  RESERVATION_SERVICE: "Dịch vụ của đơn đặt phòng",
   USER: "Tài khoản vận hành",
   SEPAY_WEBHOOK: "Webhook SePay",
   CHECKOUT_RECONCILIATION_REQUEST: "Yêu cầu đối soát checkout",
@@ -137,9 +147,11 @@ const MANAGEMENT_ACTIONS = new Set([
   "ROOM_TYPE_CREATED", "ROOM_TYPE_UPDATED", "ROOM_TYPE_DELETED",
   "FACILITY_CREATED", "FACILITY_UPDATED", "FACILITY_DELETED",
   "GALLERY_CREATED", "GALLERY_UPDATED", "GALLERY_DELETED",
+  "SERVICE_CATALOG_CREATED", "SERVICE_CATALOG_UPDATED",
+  "SERVICE_CATALOG_DEACTIVATED", "SERVICE_CATALOG_REACTIVATED",
 ]);
 
-const MANAGEMENT_TARGETS = new Set(["USER", "ROOM", "ROOM_TYPE", "FACILITY", "GALLERY"]);
+const MANAGEMENT_TARGETS = new Set(["USER", "ROOM", "ROOM_TYPE", "FACILITY", "GALLERY", "ADD_ON_SERVICE"]);
 
 function belongsToScope(value: string, scope: "" | AuditScope, managementValues: Set<string>) {
   if (!value || !scope) return true;

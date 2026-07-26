@@ -12,6 +12,14 @@ import {
   DashboardSelectField,
   FilterQuickButton,
 } from "@/components/dashboard/DashboardFilterPanel";
+import DashboardTimeGroupingControl from "@/components/dashboard/DashboardTimeGroupingControl";
+import {
+  DashboardTimeGrouping,
+  DashboardTimeScope,
+  formatDashboardTimeGroupLabel,
+  groupByCalendarTime,
+  matchesIntervalTimeScope,
+} from "@/lib/dashboard-time";
 
 interface ReservationGuestRow {
   id: number | string;
@@ -84,11 +92,20 @@ const formatDate = (value?: string, localeTag = "vi-VN") => {
   return date.toLocaleDateString(localeTag, { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
+const reservationDashboardHref = (reservationCode: string, reservationId: number) => {
+  const lookup = reservationCode
+    ? `reservationCode=${encodeURIComponent(reservationCode)}`
+    : `reservationId=${reservationId}`;
+  return `/dashboard/reservations?${lookup}#reservation-list-title`;
+};
+
 export default function DashboardGuestPage() {
   const { locale, localeTag, localize } = useLanguage();
   const [rows, setRows] = useState<ReservationGuestRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [timeScope, setTimeScope] = useState<DashboardTimeScope>("ALL");
+  const [timeGrouping, setTimeGrouping] = useState<DashboardTimeGrouping>("DAY");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -194,12 +211,13 @@ export default function DashboardGuestPage() {
           row.email.toLowerCase().includes(keyword) ||
           row.phone.toLowerCase().includes(keyword) ||
           row.roomSummary.toLowerCase().includes(keyword);
-        return matchesStatus && matchesSearch;
+        const matchesTime = matchesIntervalTimeScope(row.checkIn, row.checkOut, timeScope);
+        return matchesStatus && matchesSearch && matchesTime;
       })
       .sort((left, right) => (priority[left.status] ?? 99) - (priority[right.status] ?? 99)
         || Number(right.isPrimary) - Number(left.isPrimary)
         || new Date(right.checkIn).getTime() - new Date(left.checkIn).getTime());
-  }, [rows, searchQuery, statusFilter]);
+  }, [rows, searchQuery, statusFilter, timeScope]);
 
   const filteredReservationGroups = useMemo(() => {
     const matchedReservationIds = new Set(filteredRows.map((row) => row.reservationId));
@@ -231,6 +249,19 @@ export default function DashboardGuestPage() {
       .sort((left, right) => (priority[left.status] ?? 99) - (priority[right.status] ?? 99)
         || new Date(right.checkIn).getTime() - new Date(left.checkIn).getTime());
   }, [filteredRows, localeTag, rows]);
+
+  const timeGroupedReservationGroups = useMemo(
+    () => groupByCalendarTime(filteredReservationGroups, (group) => group.checkIn, timeGrouping),
+    [filteredReservationGroups, timeGrouping],
+  );
+
+  const timeGroupLabel = (group: (typeof timeGroupedReservationGroups)[number]) => formatDashboardTimeGroupLabel(
+    group,
+    timeGrouping,
+    localeTag,
+    localize("Tuần", "Week"),
+    localize("Chưa xác định ngày nhận phòng", "Unknown arrival date"),
+  );
 
   const openEditGuest = (row: ReservationGuestRow) => {
     setEditingGuest(row);
@@ -267,7 +298,7 @@ export default function DashboardGuestPage() {
   const renderGuestActions = (row: ReservationGuestRow, includeReservationLink = true) => (
     <div className="flex flex-wrap justify-end gap-2">
       {row.source === "STAY_GUEST" && <button type="button" onClick={() => openEditGuest(row)} className="min-h-10 rounded-lg bg-[#0F2A43] px-3 text-xs font-bold text-white hover:bg-[#091E30]">{localize("Sửa thông tin", "Edit guest")}</button>}
-      {includeReservationLink && <Link href={`/dashboard/reservations?reservationId=${row.reservationId}`} className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] hover:bg-[#E5E9ED]">
+      {includeReservationLink && <Link href={reservationDashboardHref(row.reservationCode, row.reservationId)} className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] hover:bg-[#E5E9ED]">
         {localize("Xem đơn", "View reservation")}
       </Link>}
     </div>
@@ -300,12 +331,13 @@ export default function DashboardGuestPage() {
         resultCount={filteredReservationGroups.length}
         resultLabel={localize("đơn phù hợp", "matching reservations")}
         resultNote={localize(`${filteredRows.length} hồ sơ khách · đơn đang lưu trú được ưu tiên`, `${filteredRows.length} guest records · current stays appear first`)}
-        hasActiveFilters={Boolean(searchQuery || statusFilter !== "All")}
-        activeFilterCount={Number(Boolean(searchQuery)) + Number(statusFilter !== "All")}
+        hasActiveFilters={Boolean(searchQuery || statusFilter !== "All" || timeScope !== "ALL")}
+        activeFilterCount={Number(Boolean(searchQuery)) + Number(statusFilter !== "All") + Number(timeScope !== "ALL")}
         activeFilterLabel={localize("bộ lọc đang dùng", "active filters")}
         onReset={() => {
           setSearchQuery("");
           setStatusFilter("All");
+          setTimeScope("ALL");
         }}
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={(
@@ -319,7 +351,7 @@ export default function DashboardGuestPage() {
           </>
         )}
       >
-        <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(13rem,1fr)_minmax(13rem,1fr)]">
           <DashboardSearchField
             id="guest-search"
             label={localize("Tìm kiếm", "Search")}
@@ -338,6 +370,17 @@ export default function DashboardGuestPage() {
               <option key={status} value={status}>{status === "All" ? localize("Tất cả", "All") : statusLabel(status)}</option>
             ))}
           </DashboardSelectField>
+          <DashboardSelectField
+            id="guest-time-scope"
+            label={localize("Thời gian lưu trú", "Stay period")}
+            value={timeScope}
+            onChange={(event) => setTimeScope(event.target.value as DashboardTimeScope)}
+          >
+            <option value="ALL">{localize("Tất cả thời gian", "All time")}</option>
+            <option value="TODAY">{localize("Hôm nay", "Today")}</option>
+            <option value="WEEK">{localize("Tuần này", "This week")}</option>
+            <option value="MONTH">{localize("Tháng này", "This month")}</option>
+          </DashboardSelectField>
         </div>
       </DashboardFilterPanel>
 
@@ -345,7 +388,13 @@ export default function DashboardGuestPage() {
 
       <div className="flex flex-col gap-2 border-b border-[#0F2A43]/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 id="guest-list-title" className="font-bold text-[#0F2A43]">{localize("Khách được nhóm theo đơn đặt phòng", "Guests grouped by reservation")}</h2><p className="mt-0.5 text-xs text-[#66727C]">{filteredReservationGroups.length} {localize(`đơn · ${filteredRows.length} hồ sơ khách`, `reservations · ${filteredRows.length} guest records`)}</p></div>
-        <span className="text-xs font-semibold text-[#66727C] sm:text-right">{localize("Mỗi khối là một đơn; phòng và khách nằm cùng một nhóm", "Each block is one reservation with its rooms and guests")}</span>
+        <DashboardTimeGroupingControl
+          value={timeGrouping}
+          onChange={setTimeGrouping}
+          title={localize("Nhóm theo ngày nhận phòng", "Group by arrival")}
+          ariaLabel={localize("Nhóm đơn và khách lưu trú theo ngày nhận phòng", "Group reservations and guests by arrival date")}
+          labels={{ day: localize("Ngày", "Day"), week: localize("Tuần", "Week"), month: localize("Tháng", "Month") }}
+        />
       </div>
 
       {loadError && <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700" role="alert">{loadError}</div>}
@@ -354,8 +403,15 @@ export default function DashboardGuestPage() {
         ) : filteredReservationGroups.length === 0 ? (
           <div className="px-6 py-14 text-center"><p className="font-bold text-[#0F2A43]">{localize("Không có khách phù hợp", "No matching guests")}</p><p className="mt-2 text-sm text-[#66727C]">{localize("Thử thay đổi từ khóa hoặc bộ lọc trạng thái.", "Try a different keyword or status filter.")}</p></div>
         ) : (
-          <div className="space-y-2 bg-[#F7F4EC]/55 p-3">
-            {filteredReservationGroups.map((group) => {
+          <div className="space-y-4 bg-[#F7F4EC]/55 p-3">
+            {timeGroupedReservationGroups.map((timeGroup) => (
+              <section key={timeGroup.key} aria-labelledby={`guest-time-group-${timeGroup.key}`}>
+                <div className="mb-2 flex min-h-8 items-center justify-between rounded-md border border-[#0F2A43]/8 bg-[#EAE2D2]/70 px-3 py-1.5">
+                  <h3 id={`guest-time-group-${timeGroup.key}`} className="text-[11px] font-black uppercase tracking-[0.12em] text-[#80632F]">{timeGroupLabel(timeGroup)}</h3>
+                  <span className="text-[11px] font-semibold text-[#66727C]">{timeGroup.items.length} {localize("đơn", "reservations")}</span>
+                </div>
+                <div className="space-y-2">
+            {timeGroup.items.map((group) => {
               const roomNames = Array.from(new Set(
                 group.rows.map((row) => row.roomName).filter((roomName): roomName is string => Boolean(roomName)),
               )).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
@@ -406,7 +462,7 @@ export default function DashboardGuestPage() {
                     </button>
 
                     <div className="flex shrink-0 items-center border-l border-[#0F2A43]/10 px-3">
-                      <Link href={`/dashboard/reservations?reservationId=${group.reservationId}`} className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#FBFAF6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B8944F]">
+                      <Link href={reservationDashboardHref(group.reservationCode, group.reservationId)} className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/20 bg-white px-3 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#FBFAF6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B8944F]">
                         {localize("Xem đơn", "View")}
                       </Link>
                     </div>
@@ -431,6 +487,9 @@ export default function DashboardGuestPage() {
                 </article>
               );
             })}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </section>

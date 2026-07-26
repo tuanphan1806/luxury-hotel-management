@@ -5,7 +5,14 @@ export const IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 export const IMAGE_UPLOAD_ACCEPT = "image/jpeg,image/png,image/webp";
 export const REFUND_PROOF_UPLOAD_ACCEPT = `${IMAGE_UPLOAD_ACCEPT},application/pdf`;
 
-export type ImageUploadFolder = "AVATAR" | "FACILITIES" | "GALLERY" | "ROOM_TYPES" | "ROOMS" | "REFUND_PROOFS";
+export type ImageUploadFolder =
+  | "AVATAR"
+  | "FACILITIES"
+  | "GALLERY"
+  | "ROOM_TYPES"
+  | "ROOMS"
+  | "ADD_ON_SERVICES"
+  | "REFUND_PROOFS";
 export type ImageUploadErrorCode =
   | "EMPTY_FILE"
   | "FILE_TOO_LARGE"
