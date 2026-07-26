@@ -43,20 +43,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import jakarta.persistence.EntityManager;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.temporal.ChronoField;
 import java.time.temporal.ChronoUnit;
-import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.EnumSet;
@@ -80,14 +71,6 @@ public class SePayService {
             RefundStatus.PROCESSING,
             RefundStatus.READY_FOR_MANUAL_TRANSFER);
     private static final ZoneId HOTEL_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
-    private static final DateTimeFormatter PROVIDER_LOCAL_DATE_TIME =
-            new DateTimeFormatterBuilder()
-                    .appendPattern("yyyy-MM-dd HH:mm:ss")
-                    .optionalStart()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
-                    .optionalEnd()
-                    .toFormatter();
-
     private final SePayConfig config;
     private final ObjectMapper objectMapper;
     private final EntityManager entityManager;
@@ -96,10 +79,12 @@ public class SePayService {
     private final PaymentRefundRepository refundRepository;
     private final PaymentProviderEventService providerEventService;
     private final ReservationRepository reservationRepository;
-    private final ReservationService reservationService;
+    private final RoomHoldLifecyclePort reservationService;
     private final PaymentRefundService paymentRefundService;
     private final ReservationAuditService reservationAuditService;
     private final ApplicationEventPublisher eventPublisher;
+    private final SePayWebhookAuthenticator webhookAuthenticator;
+    private final SePayEventIdentity eventIdentity;
 
     public void validateCheckoutConfig() {
         validateQrConfig();
@@ -183,30 +168,7 @@ public class SePayService {
     }
 
     public boolean verifyWebhookSignature(byte[] rawBody, String signature, String timestampValue) {
-        if (!hasText(config.getWebhookSecret()) || rawBody == null || rawBody.length == 0
-                || !hasText(signature) || !hasText(timestampValue)) {
-            return false;
-        }
-        try {
-            long timestamp = Long.parseLong(timestampValue);
-            long now = Instant.now().getEpochSecond();
-            long tolerance = Math.min(3_600L,
-                    Math.max(0L, config.getWebhookTimestampToleranceSeconds()));
-            if (timestamp < now - tolerance || timestamp > now + tolerance) {
-                return false;
-            }
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(config.getWebhookSecret().getBytes(StandardCharsets.UTF_8),
-                    "HmacSHA256"));
-            mac.update((timestampValue + ".").getBytes(StandardCharsets.US_ASCII));
-            String expected = "sha256=" + HexFormat.of().formatHex(mac.doFinal(rawBody));
-            return MessageDigest.isEqual(
-                    expected.getBytes(StandardCharsets.US_ASCII),
-                    signature.trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.US_ASCII));
-        } catch (Exception exception) {
-            log.warn("Không thể xác thực chữ ký webhook SePay: {}", exception.getMessage());
-            return false;
-        }
+        return webhookAuthenticator.verifySignature(rawBody, signature, timestampValue);
     }
 
     /**
@@ -220,16 +182,8 @@ public class SePayService {
             String authorization,
             String signature,
             String timestampValue) {
-        if (hasText(config.getWebhookApiKey())) {
-            if (!hasText(authorization)
-                    || !authorization.regionMatches(true, 0, "Apikey ", 0, 7)) {
-                return false;
-            }
-            byte[] expected = config.getWebhookApiKey().trim().getBytes(StandardCharsets.UTF_8);
-            byte[] presented = authorization.substring(7).trim().getBytes(StandardCharsets.UTF_8);
-            return MessageDigest.isEqual(expected, presented);
-        }
-        return verifyWebhookSignature(rawBody, signature, timestampValue);
+        return webhookAuthenticator.verifyAuthentication(
+                rawBody, authorization, signature, timestampValue);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -256,7 +210,7 @@ public class SePayService {
                     payload.getGateway(),
                     payload.getTransactionDate(),
                     "sepay_webhook",
-                    sha256(rawBody));
+                    eventIdentity.sha256(rawBody));
             return Map.of("success", true, "message", outcome);
         } catch (java.io.IOException exception) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Payload webhook SePay không hợp lệ");
@@ -281,7 +235,7 @@ public class SePayService {
                 transaction.bankBrandName(),
                 transaction.transactionDate(),
                 "sepay_reconciliation",
-                sha256(String.join("|",
+                eventIdentity.sha256(String.join("|",
                         value(transaction.id()),
                         value(transaction.referenceNumber()),
                         value(transaction.accountNumber()),
@@ -583,13 +537,13 @@ public class SePayService {
         long transferAmount = transferAmount(transaction);
         long accumulated = transaction.accumulated() != null
                 ? transaction.accumulated().longValue() : 0L;
-        String payloadHash = sha256(String.join("|",
+        String payloadHash = eventIdentity.sha256(String.join("|",
                 value(transaction.id()),
                 value(transaction.referenceNumber()),
                 value(transaction.accountNumber()),
                 value(transaction.transactionContent()),
                 String.valueOf(transferAmount)));
-        String durableReference = stableProviderReference(
+        String durableReference = eventIdentity.stableProviderReference(
                 transaction.referenceNumber(),
                 transaction.accountNumber(),
                 transaction.transferType(),
@@ -599,8 +553,8 @@ public class SePayService {
                 transaction.transactionContent());
         String eventId = hasText(transaction.id())
                 ? transaction.id() : "missing-" + payloadHash.substring(0, 24);
-        String merchantAccountId = merchantAccountId(transaction.accountNumber());
-        String dedupKey = canonicalDedupKey(
+        String merchantAccountId = eventIdentity.merchantAccountId(transaction.accountNumber());
+        String dedupKey = eventIdentity.canonicalDedupKey(
                 merchantAccountId,
                 durableReference,
                 eventId,
@@ -614,11 +568,12 @@ public class SePayService {
     }
 
     public String configuredMerchantAccountId() {
-        return merchantAccountId(configuredMerchantAccountNumber());
+        return eventIdentity.merchantAccountId(configuredMerchantAccountNumber());
     }
 
     public Instant providerOccurredAtUtc(SePayApiTransaction transaction) {
-        return transaction != null ? parseProviderOccurredAt(transaction.transactionDate()) : null;
+        return transaction != null
+                ? eventIdentity.parseProviderOccurredAt(transaction.transactionDate()) : null;
     }
 
     private long transferAmount(SePayApiTransaction transaction) {
@@ -655,7 +610,7 @@ public class SePayService {
             log.warn("Bỏ qua giao dịch SePay từ merchant account không khớp trong reconciliation");
             return "ignored_different_account";
         }
-        String durableReference = stableProviderReference(
+        String durableReference = eventIdentity.stableProviderReference(
                 providerReference,
                 accountNumber,
                 transferType,
@@ -666,8 +621,8 @@ public class SePayService {
         String eventId = hasText(providerTransactionId)
                 ? providerTransactionId : "missing-" + payloadHash.substring(0, 24);
         String paymentCode = resolvePaymentCode(extractedCode, content);
-        String merchantAccountId = merchantAccountId(accountNumber);
-        String dedupKey = canonicalDedupKey(
+        String merchantAccountId = eventIdentity.merchantAccountId(accountNumber);
+        String dedupKey = eventIdentity.canonicalDedupKey(
                 merchantAccountId,
                 durableReference,
                 eventId,
@@ -677,7 +632,7 @@ public class SePayService {
                 receivedAmount,
                 transactionDate,
                 content);
-        Instant providerOccurredAtUtc = parseProviderOccurredAt(transactionDate);
+        Instant providerOccurredAtUtc = eventIdentity.parseProviderOccurredAt(transactionDate);
         PaymentProviderEvent duplicateEvent = findExistingEvent(
                 dedupKey, eventId, durableReference);
         String duplicateOutcome = existingEventOutcome(duplicateEvent);
@@ -1099,73 +1054,6 @@ public class SePayService {
         }
     }
 
-    private String merchantAccountId(String accountNumber) {
-        if (hasText(config.getApiBankAccountId())) {
-            return config.getApiBankAccountId().trim();
-        }
-        String normalized = normalizeAccount(accountNumber);
-        return "acct:" + sha256(normalized).substring(0, 32);
-    }
-
-    /** Canonical order required by the provider-event contract. */
-    private String canonicalDedupKey(
-            String merchantAccountId,
-            String providerReference,
-            String providerEventId,
-            String providerTxnId,
-            String payloadHash,
-            String transferType,
-            Long receivedAmount,
-            String providerOccurredAt,
-            String normalizedContent) {
-        String namespace;
-        String identity;
-        if (hasText(providerEventId) && !providerEventId.startsWith("missing-")) {
-            namespace = "event";
-            identity = providerEventId.trim();
-        } else if (hasText(providerTxnId)) {
-            namespace = "txn";
-            identity = providerTxnId.trim();
-        } else {
-            namespace = "payload";
-            identity = sha256(String.join("|",
-                    value(merchantAccountId),
-                    value(transferType).trim().toLowerCase(Locale.ROOT),
-                    String.valueOf(receivedAmount != null ? receivedAmount : 0L),
-                    normalizeProviderDate(providerOccurredAt),
-                    value(normalizedContent).trim().replaceAll("\\s+", " ")
-                            .toUpperCase(Locale.ROOT)));
-        }
-        return namespace + ":" + sha256(String.join("|",
-                PaymentProvider.SEPAY.name(),
-                value(merchantAccountId),
-                identity));
-    }
-
-    private Instant parseProviderOccurredAt(String rawValue) {
-        if (!hasText(rawValue)) return null;
-        String trimmed = rawValue.trim();
-        try {
-            return Instant.parse(trimmed);
-        } catch (Exception ignored) {
-            // Continue with provider formats below.
-        }
-        try {
-            return OffsetDateTime.parse(trimmed, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                    .toInstant();
-        } catch (Exception ignored) {
-            // Continue with SePay local bank time below.
-        }
-        try {
-            String localValue = trimmed.replace('T', ' ');
-            return LocalDateTime.parse(localValue, PROVIDER_LOCAL_DATE_TIME)
-                    .atZone(HOTEL_ZONE)
-                    .toInstant();
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
     private PaymentTransaction findPayment(String extractedCode, String content) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
         String code = normalizeCode(extractedCode);
@@ -1211,8 +1099,8 @@ public class SePayService {
         String configuredAccount = configuredMerchantAccountNumber();
         return hasText(accountNumber)
                 && hasText(configuredAccount)
-                && normalizeAccount(configuredAccount)
-                .equals(normalizeAccount(accountNumber));
+                && eventIdentity.normalizeAccount(configuredAccount)
+                .equals(eventIdentity.normalizeAccount(accountNumber));
     }
 
     private String configuredMerchantAccountNumber() {
@@ -1233,40 +1121,6 @@ public class SePayService {
                 .startsWith("TEST")
                 && value(payload.getDescription()).trim().toLowerCase(Locale.ROOT)
                 .contains("sepay test webhook");
-    }
-
-    private String stableProviderReference(
-            String providerReference,
-            String accountNumber,
-            String transferType,
-            Long amount,
-            Long accumulated,
-            String transactionDate,
-            String content) {
-        if (hasText(providerReference)) {
-            // SePay does not guarantee that a bank reference is globally unique.
-            // Scope it with the receiving account and the transaction attributes
-            // that are stable across webhook and API v2 reconciliation.
-            String scopedReference = sha256(String.join("|",
-                    normalizeAccount(accountNumber),
-                    providerReference.trim().toUpperCase(Locale.ROOT),
-                    value(transferType).trim().toLowerCase(Locale.ROOT),
-                    String.valueOf(amount != null ? amount : 0L),
-                    normalizeProviderDate(transactionDate)));
-            return "SEPAY-REF-" + scopedReference.substring(0, 48);
-        }
-        String fingerprint = sha256(String.join("|",
-                normalizeAccount(accountNumber),
-                String.valueOf(amount != null ? amount : 0L),
-                String.valueOf(accumulated != null ? accumulated : 0L),
-                normalizeProviderDate(transactionDate),
-                value(content).trim().replaceAll("\\s+", " ").toUpperCase(Locale.ROOT)));
-        return "SEPAY-FP-" + fingerprint.substring(0, 48);
-    }
-
-    private String normalizeProviderDate(String value) {
-        String normalized = value(value).trim().replace('T', ' ');
-        return normalized.length() > 19 ? normalized.substring(0, 19) : normalized;
     }
 
     /**
@@ -1304,8 +1158,8 @@ public class SePayService {
                 .providerPayDate(transactionDate)
                 .responseCode("00")
                 .paidAt(LocalDateTime.now())
-                .paidAtUtc(parseProviderOccurredAt(transactionDate) != null
-                        ? parseProviderOccurredAt(transactionDate) : Instant.now())
+                .paidAtUtc(eventIdentity.parseProviderOccurredAt(transactionDate) != null
+                        ? eventIdentity.parseProviderOccurredAt(transactionDate) : Instant.now())
                 .message("Khách chuyển thêm sau khi mã thanh toán đã được xử lý; phải hoàn toàn bộ")
                 .build();
         return transactionRepository.save(captured);
@@ -1357,31 +1211,14 @@ public class SePayService {
         return hasText(value) ? java.util.Optional.of(value.trim()) : java.util.Optional.empty();
     }
 
-    private String normalizeAccount(String value) {
-        return value(value).replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
-    }
-
     private String normalizeCode(String value) {
         return value(value).replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
     }
 
     private String maskAccount(String value) {
-        String normalized = normalizeAccount(value);
+        String normalized = eventIdentity.normalizeAccount(value);
         if (normalized.length() <= 4) return normalized;
         return "****" + normalized.substring(normalized.length() - 4);
-    }
-
-    private String sha256(String value) {
-        return sha256(value(value).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private String sha256(byte[] value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value != null ? value : new byte[0]));
-        } catch (Exception exception) {
-            throw new IllegalStateException("Không thể tạo hash sự kiện SePay", exception);
-        }
     }
 
     private boolean hasText(String value) {

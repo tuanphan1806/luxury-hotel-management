@@ -296,6 +296,21 @@ html.hotel-reduce-motion *::after {
     background-color: var(--home-gold-soft);
   }
 
+  .botanical-line-art {
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .auth-botanical-drift,
+  .guest-botanical-drift {
+    animation: botanical-drift 16s ease-in-out infinite alternate;
+  }
+
+  .auth-botanical-drift-reverse,
+  .guest-botanical-drift-reverse {
+    animation: botanical-drift-reverse 19s ease-in-out infinite alternate;
+  }
+
   .guest-navigation {
     background-color: var(--home-navy-mist);
   }
@@ -718,6 +733,16 @@ html.hotel-reduce-motion *::after {
   @keyframes guest-card-enter {
     from { opacity: 0; transform: translate3d(0, 18px, 0); }
     to { opacity: 1; transform: translate3d(0, 0, 0); }
+  }
+
+  @keyframes botanical-drift {
+    from { transform: translate3d(0, -2px, 0) rotate(-0.7deg); }
+    to { transform: translate3d(-3px, 4px, 0) rotate(0.7deg); }
+  }
+
+  @keyframes botanical-drift-reverse {
+    from { transform: translate3d(0, 2px, 0) rotate(0.7deg) scaleX(-1); }
+    to { transform: translate3d(3px, -4px, 0) rotate(-0.7deg) scaleX(-1); }
   }
 
   @keyframes hotel-shimmer {

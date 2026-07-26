@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
@@ -160,8 +161,8 @@ class AuthenticatedCustomerRoutesIntegrationTest {
     }
 
     /**
-     * Trang VNPay return phải xác minh trạng thái bằng UUID giao dịch tại backend,
-     * không tin tham số status trên URL và không yêu cầu access token của khách.
+     * Trang theo dõi SePay phải xác minh trạng thái bằng UUID giao dịch tại backend
+     * và không yêu cầu access token của khách.
      */
     @Test
     void publicPaymentResultReturnsOnlyVerifiedTransactionState() throws Exception {
@@ -178,7 +179,7 @@ class AuthenticatedCustomerRoutesIntegrationTest {
         PaymentTransaction transaction = paymentTransactionRepository.save(PaymentTransaction.builder()
                 .reservation(reservation)
                 .txnRef("PUBLIC-RESULT-" + UUID.randomUUID())
-                .provider(PaymentProvider.VNPAY)
+                .provider(PaymentProvider.SEPAY)
                 .purpose(PaymentPurpose.DEPOSIT)
                 .status(PaymentStatus.SUCCESS)
                 .amount(300_000L)
@@ -194,6 +195,32 @@ class AuthenticatedCustomerRoutesIntegrationTest {
                 .andExpect(jsonPath("$.purpose").value("DEPOSIT"))
                 .andExpect(jsonPath("$.customerProfile").doesNotExist())
                 .andExpect(jsonPath("$.guestToken").doesNotExist());
+    }
+
+    @Test
+    void retiredVnpayCallbackRoutesAreNotMapped() throws Exception {
+        mockMvc.perform(get("/api/payments/vnpay/return")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/payments/vnpay/ipn")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void retiredVnpayProviderIsRejectedInsteadOfBeingRelabeledAsSepay() throws Exception {
+        mockMvc.perform(post("/api/payments/create")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "reservationId": 1,
+                                  "provider": "VNPAY",
+                                  "purpose": "DEPOSIT"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
     }
 
     /** Guest token được truyền bằng header, không xuất hiện trong query string/access log. */

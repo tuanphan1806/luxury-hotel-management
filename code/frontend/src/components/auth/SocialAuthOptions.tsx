@@ -111,7 +111,11 @@ export default function SocialAuthOptions({ mode }: SocialAuthOptionsProps) {
                 onClick={() => startAuthorization(provider)}
                 disabled={activeProvider !== null || !isConfigured}
                 aria-describedby={!isConfigured ? "oauth-provider-status" : undefined}
-                className="flex min-h-12 items-center justify-center gap-3 rounded-xl border border-[#0F2A43]/14 bg-white px-4 text-sm font-semibold text-[#0F2A43] shadow-sm transition hover:-translate-y-0.5 hover:border-[#B8944F] hover:bg-[#FBFAF6] active:translate-y-px disabled:cursor-not-allowed disabled:bg-[#F1F0EA] disabled:text-[#66727C] disabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-2"
+                className={`flex min-h-12 items-center justify-center gap-3 rounded-xl border border-[#0F2A43]/14 bg-white px-4 text-sm font-semibold text-[#0F2A43] shadow-sm transition hover:-translate-y-0.5 active:translate-y-px disabled:cursor-not-allowed disabled:bg-[#F1F0EA] disabled:text-[#66727C] disabled:opacity-80 disabled:hover:translate-y-0 disabled:hover:border-[#0F2A43]/14 disabled:hover:bg-[#F1F0EA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                  provider === "facebook"
+                    ? "hover:border-[#1877F2] hover:bg-[#F0F6FF] hover:text-[#145DBF] focus-visible:ring-[#1877F2]"
+                    : "hover:border-[#B8944F] hover:bg-[#FBFAF6] focus-visible:ring-[#B8944F]"
+                }`}
               >
                 <ProviderIcon provider={provider} />
                 <span>

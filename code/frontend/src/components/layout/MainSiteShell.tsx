@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LanguageSwitcher, useLanguage } from "@/components/i18n/LanguageProvider";
 import FavoriteRoomsMenu from "@/components/favorites/FavoriteRoomsMenu";
 import { useFavorites } from "@/components/favorites/FavoritesProvider";
+import BotanicalLineArt from "@/components/decor/BotanicalLineArt";
 import HotelBrand from "@/components/HotelBrand";
 import { apiClient, authSession } from "@/lib/api";
 import { scheduleIdleTask, shouldConserveData } from "@/lib/performance";
@@ -41,6 +42,9 @@ const normalizeRole = (value?: string): MainAccountRole => {
   return role === "ADMIN" || role === "STAFF" ? role : "CUSTOMER";
 };
 
+const BOTANICAL_LEFT_STOPS = ["8%", "30%", "52%", "74%", "92%"] as const;
+const BOTANICAL_RIGHT_STOPS = ["18%", "40%", "62%", "84%", "94%"] as const;
+
 export default function MainSiteShell({ children }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
   const router = useRouter();
@@ -57,6 +61,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const languageMenuRef = useRef<HTMLDivElement>(null);
   const favoriteMenuRef = useRef<HTMLDivElement>(null);
+  const botanicalRailTopClass = pathname === "/" ? "top-[50rem]" : "top-[39rem]";
 
   useEffect(() => {
     setMounted(true);
@@ -548,8 +553,34 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
         </div>
       )}
 
-      <main id="main-content" tabIndex={-1} className={`home-color-story min-h-screen flex-1 focus:outline-none ${showMobileBookingBar ? "pb-20 lg:pb-0" : ""}`}>
-        {children}
+      <main id="main-content" tabIndex={-1} className={`home-color-story relative isolate min-h-screen flex-1 overflow-x-clip focus:outline-none ${showMobileBookingBar ? "pb-20 lg:pb-0" : ""}`}>
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute bottom-0 z-20 hidden w-24 overflow-hidden 2xl:block ${botanicalRailTopClass}`}
+          style={{ left: "max(1rem, calc((100% - 87.5rem) / 2 - 5.5rem))" }}
+        >
+          {BOTANICAL_LEFT_STOPS.map((top, index) => (
+            <BotanicalLineArt
+              key={`left-botanical-${top}`}
+              className={`${index % 2 === 0 ? "guest-botanical-drift-reverse left-0 h-28 w-20 opacity-[0.92]" : "guest-botanical-drift left-2 h-32 w-24 opacity-[0.82]"} absolute`}
+              style={{ top }}
+            />
+          ))}
+        </div>
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute bottom-0 z-20 hidden w-24 overflow-hidden 2xl:block ${botanicalRailTopClass}`}
+          style={{ right: "max(1rem, calc((100% - 87.5rem) / 2 - 5.5rem))" }}
+        >
+          {BOTANICAL_RIGHT_STOPS.map((top, index) => (
+            <BotanicalLineArt
+              key={`right-botanical-${top}`}
+              className={`${index % 2 === 0 ? "guest-botanical-drift right-0 h-28 w-20 opacity-[0.9]" : "guest-botanical-drift-reverse right-2 h-32 w-24 opacity-[0.8]"} absolute`}
+              style={{ top }}
+            />
+          ))}
+        </div>
+        <div className="relative z-10">{children}</div>
       </main>
 
       {showMobileBookingBar && (
@@ -570,8 +601,18 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
         <ChatWidget />
       </div>
 
-      <footer className="guest-footer relative mt-auto border-t border-white/8 px-6 pb-28 pt-14 text-white md:px-10 lg:pb-10">
-        <div className="mx-auto max-w-[1400px]">
+      <footer className="guest-footer relative mt-auto overflow-hidden border-t border-white/8 px-6 pb-28 pt-14 text-white md:px-10 lg:pb-10">
+        <BotanicalLineArt
+          tone="inverse"
+          className="pointer-events-none absolute -top-10 hidden h-40 w-28 -scale-x-100 rotate-[12deg] opacity-[0.3] min-[1720px]:block"
+          style={{ left: "max(1rem, calc((100% - 87.5rem) / 2 - 7rem))" }}
+        />
+        <BotanicalLineArt
+          tone="inverse"
+          className="pointer-events-none absolute -bottom-12 hidden h-48 w-32 opacity-[0.36] min-[1720px]:block"
+          style={{ right: "max(1rem, calc((100% - 87.5rem) / 2 - 8rem))" }}
+        />
+        <div className="relative z-10 mx-auto max-w-[1400px]">
           <div className="grid gap-7 border-b border-white/12 pb-10 lg:grid-cols-[1fr_auto] lg:items-end">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#B8944F]">{localize("Đặt phòng trực tiếp", "Book direct")}</p>

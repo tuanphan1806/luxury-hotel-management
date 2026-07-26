@@ -5,14 +5,14 @@ import { useId } from "react";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 
 export type CustomerRefund = {
-  channel: "VNPAY_ORIGINAL" | "MANUAL_BANK_TRANSFER" | "CASH_AT_COUNTER";
+  channel: "MANUAL_BANK_TRANSFER" | "CASH_AT_COUNTER";
   status: "AWAITING_CUSTOMER_INFO" | "READY_FOR_MANUAL_TRANSFER" | "REQUESTED" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "MANUAL_REVIEW";
   amount: number;
   requestedAt?: string;
   completedAt?: string;
   transferredAt?: string;
   proofImageUrl?: string;
-  completionMethod?: "SEPAY_WEBHOOK" | "MANUAL_FALLBACK" | "CASH_HANDOVER" | "PROVIDER_API" | "LEGACY";
+  completionMethod?: "SEPAY_WEBHOOK" | "MANUAL_FALLBACK" | "CASH_HANDOVER" | "LEGACY";
 };
 
 interface RefundProgressCardProps {

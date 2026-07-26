@@ -1,10 +1,7 @@
 package com.hotel.backend.service.Impl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotel.backend.constant.AssignStatus;
 import com.hotel.backend.constant.CleaningStatus;
-import com.hotel.backend.constant.CustomerProfileSource;
 import com.hotel.backend.constant.HoldStatus;
 import com.hotel.backend.constant.PaymentStatus;
 import com.hotel.backend.constant.PaymentProvider;
@@ -40,10 +37,13 @@ import com.hotel.backend.repository.*;
 import com.hotel.backend.service.ReservationService;
 import com.hotel.backend.service.PricingService;
 import com.hotel.backend.service.ReservationAuditService;
+import com.hotel.backend.service.ReservationResponseAssembler;
+import com.hotel.backend.service.ReservationInvoiceSnapshotService;
+import com.hotel.backend.service.ReservationCustomerProfileService;
 import com.hotel.backend.service.CustomerProfileClaimService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundRecipientService;
-import com.hotel.backend.util.VNPayUtil;
+import com.hotel.backend.util.PaymentUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -56,9 +56,6 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -78,31 +75,21 @@ public class ReservationServiceImpl implements ReservationService {
     private final ReservationRoomTypeRepository  reservationRoomTypeRepository;
     private final ReservationRoomRepository      reservationRoomRepository;
     private final RoomHoldRepository             roomHoldRepository;
-    private final CustomerProfileRepository      customerProfileRepository;
     private final RoomTypeRepository             roomTypeRepository;
     private final UserRepository                 userRepository;
     private final RoomRepository                 roomRepository;
     private final GuestRepository                guestRepository;
     private final PaymentTransactionRepository   paymentTransactionRepository;
-    private final ReservationInvoiceRepository   reservationInvoiceRepository;
     private final ApplicationEventPublisher      eventPublisher;
-    private final ObjectMapper                   objectMapper;
     private final PricingService                 pricingService;
     private final ReservationAuditService        auditService;
     private final CustomerProfileClaimService    customerProfileClaimService;
     private final PaymentRefundService           paymentRefundService;
     private final RefundRecipientService         refundRecipientService;
+    private final ReservationResponseAssembler   responseAssembler;
+    private final ReservationInvoiceSnapshotService invoiceSnapshotService;
+    private final ReservationCustomerProfileService customerProfileService;
 
-    @Value("${app.hotel-name:Luxury Hotel}")
-    private String hotelName;
-    @Value("${app.hotel-address:}")
-    private String hotelAddress;
-    @Value("${app.hotel-phone:}")
-    private String hotelPhone;
-    @Value("${app.hotel-email:}")
-    private String hotelEmail;
-    @Value("${app.hotel-tax-code:}")
-    private String hotelTaxCode;
     @Value("${app.reservation.no-show-grace-minutes:360}")
     private long noShowGraceMinutes;
     // ─────────────────────────────────────────────────────────────────────────
@@ -128,8 +115,8 @@ public class ReservationServiceImpl implements ReservationService {
         validateReservationRequest(request.getGuestCount(), request.getRoomTypes());
 
         CustomerProfile customerProfile = currentUser != null
-                ? findOrCreateOnlineCustomerProfile(currentUser)
-                : resolveGuestOnlineCustomerProfile(request.getCustomer());
+                ? customerProfileService.findOrCreateOnlineCustomerProfile(currentUser)
+                : customerProfileService.resolveGuestOnlineCustomerProfile(request.getCustomer());
         String guestToken = currentUser == null
                 ? resolveGuestToken(deterministicGuestToken)
                 : null;
@@ -452,7 +439,7 @@ public class ReservationServiceImpl implements ReservationService {
         validateInterval(actualCheckIn, request.getCheckOut());
         validateReservationRequest(request.getGuestCount(), request.getRoomTypes());
 
-        CustomerProfile customerProfile = resolveWalkInCustomerProfile(request);
+        CustomerProfile customerProfile = customerProfileService.resolveWalkInCustomerProfile(request);
 
         BigDecimal totalAmount = BigDecimal.ZERO;
         int totalCapacity = 0;
@@ -609,6 +596,11 @@ public class ReservationServiceImpl implements ReservationService {
             lockedRooms.put(roomId, room);
         }
 
+        int selectedRoomCapacity = lockedRooms.values().stream()
+                .mapToInt(room -> roomCapacity(room.getRoomType()))
+                .sum();
+        validateCapacity(request.getGuestCount(), selectedRoomCapacity);
+
         int submittedGuestCount = 0;
         Map<Long, List<AssignRoomRequest>> assignmentsByRoomType = new LinkedHashMap<>();
         for (AssignRoomRequest assignment : assignments) {
@@ -637,9 +629,9 @@ public class ReservationServiceImpl implements ReservationService {
                     .computeIfAbsent(room.getRoomType().getId(), ignored -> new ArrayList<>())
                     .add(assignment);
         }
-        if (submittedGuestCount != request.getGuestCount()) {
+        if (submittedGuestCount > request.getGuestCount()) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
-                    String.format("Walk-in khai báo %d khách nhưng danh sách phòng có %d khách",
+                    String.format("Walk-in khai báo tối đa %d khách nhưng danh sách phòng có %d khách",
                             request.getGuestCount(), submittedGuestCount));
         }
 
@@ -684,7 +676,7 @@ public class ReservationServiceImpl implements ReservationService {
             }
         }
 
-        CustomerProfile customerProfile = resolveWalkInCustomerProfile(
+        CustomerProfile customerProfile = customerProfileService.resolveWalkInCustomerProfile(
                 request.getCustomerProfileId(), request.getCustomer());
         Reservation reservation = Reservation.builder()
                 .reservationCode(generateCode())
@@ -775,7 +767,7 @@ public class ReservationServiceImpl implements ReservationService {
             PaymentTransaction cashPayment = paymentTransactionRepository.saveAndFlush(
                     PaymentTransaction.builder()
                             .reservation(reservation)
-                            .txnRef(VNPayUtil.generateTxnRef("CASH-WALKIN-" + reservation.getId()))
+                            .txnRef(PaymentUtil.generateTxnRef("CASH-WALKIN-" + reservation.getId()))
                             .provider(PaymentProvider.CASH)
                             .purpose(PaymentPurpose.WALK_IN)
                             .status(PaymentStatus.SUCCESS)
@@ -822,17 +814,7 @@ public class ReservationServiceImpl implements ReservationService {
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
         ensureCanAccessReservation(currentUser, reservation, guestToken);
 
-        List<ReservationRoomTypeResponse> roomTypeResponses = reservation.getRoomTypes().stream()
-                .map(rrt -> {
-                    ReservationRoomTypeResponse res = ReservationRoomTypeResponse.from(rrt);
-                    if (rrt.getRoomHold() != null) {
-                        res.setRoomHold(RoomHoldResponse.from(rrt.getRoomHold()));
-                    }
-                    return res;
-                }).toList();
-
-        return paymentRefundService.applyReservationRefundSummary(
-                ReservationResponse.fromWithDetails(reservation, roomTypeResponses));
+        return responseAssembler.withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -845,17 +827,7 @@ public class ReservationServiceImpl implements ReservationService {
         Reservation reservation = reservationRepository.findByGuestTokenWithDetails(guestToken)
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_OWNER));
 
-        List<ReservationRoomTypeResponse> roomTypeResponses = reservation.getRoomTypes().stream()
-                .map(rrt -> {
-                    ReservationRoomTypeResponse res = ReservationRoomTypeResponse.from(rrt);
-                    if (rrt.getRoomHold() != null) {
-                        res.setRoomHold(RoomHoldResponse.from(rrt.getRoomHold()));
-                    }
-                    return res;
-                }).toList();
-
-        return paymentRefundService.applyReservationRefundSummary(
-                ReservationResponse.fromWithDetails(reservation, roomTypeResponses));
+        return responseAssembler.withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -872,18 +844,7 @@ public class ReservationServiceImpl implements ReservationService {
 
       return reservationRepository.findByLinkedUserIdOrderByCreatedAtDesc(currentUser.getId())
             .stream()
-            .map(reservation -> {
-                List<ReservationRoomTypeResponse> roomTypeResponses = reservation.getRoomTypes().stream()
-                        .map(rrt -> {
-                            ReservationRoomTypeResponse res = ReservationRoomTypeResponse.from(rrt);
-                            if (rrt.getRoomHold() != null) {
-                                res.setRoomHold(RoomHoldResponse.from(rrt.getRoomHold()));
-                            }
-                            return res;
-                        }).toList();
-                return paymentRefundService.applyReservationRefundSummary(
-                        ReservationResponse.fromWithDetails(reservation, roomTypeResponses));
-            })
+            .map(responseAssembler::withRoomTypeDetailsAndRefundSummary)
             .toList();
 }
     // ─────────────────────────────────────────────────────────────────────────
@@ -1230,9 +1191,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         int submittedGuestCount = requests.stream()
                 .mapToInt(request -> request.getGuests() == null ? 0 : request.getGuests().size())
                 .sum();
-        if (reservation.getGuestCount() != null && submittedGuestCount != reservation.getGuestCount()) {
+        if (reservation.getGuestCount() != null && submittedGuestCount > reservation.getGuestCount()) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
-                    String.format("Reservation khai báo %d khách nhưng danh sách check-in có %d khách",
+                    String.format("Reservation khai báo tối đa %d khách nhưng danh sách check-in có %d khách",
                             reservation.getGuestCount(), submittedGuestCount));
         }
 
@@ -1296,7 +1257,19 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
 
             ensureRoomHasNoOverlappingAssignment(room, reservation);
 
-            long primaryCount = req.getGuests().stream()
+            List<GuestRequest> guests = req.getGuests();
+            if (guests == null || guests.isEmpty()) {
+                throw new AppException(ErrorCode.INVALID_REQUEST,
+                        String.format("Phòng '%s' phải có ít nhất một khách", room.getRoomName()));
+            }
+            int roomGuestCapacity = roomCapacity(room.getRoomType());
+            if (guests.size() > roomGuestCapacity) {
+                throw new AppException(ErrorCode.INVALID_REQUEST,
+                        String.format("Phòng '%s' chỉ chứa tối đa %d khách",
+                                room.getRoomName(), roomGuestCapacity));
+            }
+
+            long primaryCount = guests.stream()
             .filter(g -> Boolean.TRUE.equals(g.getIsPrimary()))
             .count();
             if (primaryCount == 0) {
@@ -1309,7 +1282,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             //nv check lai de xem co the tao nhieu guest
             List<Guest> existingGuests = guestRepository.findByReservationRoomId(rr.getId());
             if (existingGuests.isEmpty()) {
-                for (GuestRequest g : req.getGuests()) {
+                for (GuestRequest g : guests) {
                     Guest guest = Guest.builder()
                             .reservationRoom(rr)
                             .fullName(g.getFullName())
@@ -1460,7 +1433,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         reservation.setStatus(ReservationStatus.CHECKED_OUT);
         reservation.setActualCheckOut(now);
         reservationRepository.save(reservation);
-        createInvoiceSnapshot(reservation);
+        invoiceSnapshotService.createSnapshot(reservation);
         Map<String, Object> reconciliationDetail = new LinkedHashMap<>();
         reconciliationDetail.put("requiredAmount", reconciliation.getRequiredAmount());
         reconciliationDetail.put("acceptedAmount", reconciliation.getAcceptedAmount());
@@ -1683,29 +1656,15 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         return reservationRepository.findAllWithDetails()
                 .stream()
                 .map(reservation -> {
-                    List<ReservationRoomTypeResponse> roomTypeResponses = reservation.getRoomTypes().stream()
-                            .map(rrt -> {
-                                ReservationRoomTypeResponse res = ReservationRoomTypeResponse.from(rrt);
-                                if (rrt.getRoomHold() != null) {
-                                    res.setRoomHold(RoomHoldResponse.from(rrt.getRoomHold()));
-                                }
-                                return res;
-                            }).toList();
-                    ReservationResponse response = ReservationResponse.fromWithDetails(reservation, roomTypeResponses);
-                    response.setRooms(reservation.getRoomTypes().stream()
-                            .flatMap(roomType -> roomType.getRooms().stream())
-                            .map(ReservationRoomResponse::from)
-                            .sorted(Comparator.comparing(
-                                    ReservationRoomResponse::getRoomName,
-                                    Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
-                            .toList());
+                    ReservationResponse response = responseAssembler.withRoomTypeDetails(reservation);
+                    response.setRooms(responseAssembler.assignedRooms(reservation));
                     response.setPaidAmount(BigDecimal.valueOf(getNetPaidAmount(reservation.getId())));
                     LocalDateTime eligibleAt = noShowEligibleAt(reservation);
                     response.setNoShowEligibleAt(eligibleAt);
                     response.setNoShowEligible(reservation.getStatus() == ReservationStatus.CONFIRMED
                             && reservation.getActualCheckIn() == null
                             && !LocalDateTime.now().isBefore(eligibleAt));
-                    return paymentRefundService.applyReservationRefundSummary(response);
+                    return responseAssembler.applyRefundSummary(response);
                 })
                 .toList();
     }
@@ -1805,174 +1764,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     "Chỉ có thể xuất hóa đơn cho reservation đã CHECKED_OUT");
         }
 
-        ReservationInvoiceResponse invoice = reservationInvoiceRepository.findByReservationId(reservationId)
-                .map(snapshot -> readInvoiceSnapshot(snapshot.getSnapshotJson()))
-                .orElseGet(() -> createInvoiceSnapshot(reservation));
-        return invoice;
-    }
-
-    private ReservationInvoiceResponse createInvoiceSnapshot(Reservation reservation) {
-        var existing = reservationInvoiceRepository.findByReservationId(reservation.getId());
-        if (existing.isPresent()) {
-            return readInvoiceSnapshot(existing.get().getSnapshotJson());
-        }
-
-        BigDecimal lateFee = amountOrZero(reservation.getLateCheckoutFee());
-        BigDecimal additionalFee = amountOrZero(reservation.getCheckoutAdditionalFee());
-        BigDecimal earlyAdjustment = amountOrZero(reservation.getEarlyCheckoutAdjustment());
-        BigDecimal discount = amountOrZero(reservation.getDiscountAmount());
-        BigDecimal tax = amountOrZero(reservation.getTaxAmount());
-        BigDecimal total = amountOrZero(reservation.getTotalAmount());
-        BigDecimal roomCharge = total.subtract(lateFee).subtract(additionalFee).max(BigDecimal.ZERO);
-        BigDecimal plannedRoomCharge = roomCharge.add(earlyAdjustment);
-
-        List<PaymentTransaction> transactions = paymentTransactionRepository
-                .findByReservationId(reservation.getId()).stream()
-                .filter(transaction -> transaction.getStatus() == PaymentStatus.SUCCESS
-                        || transaction.getStatus() == PaymentStatus.REFUND_PENDING
-                        || transaction.getStatus() == PaymentStatus.REFUNDED)
-                .sorted(Comparator.comparing(PaymentTransaction::getCreatedAt,
-                        Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
-
-        long grossPaid = transactions.stream()
-                .mapToLong(transaction -> transaction.getReceivedAmount() != null
-                        ? transaction.getReceivedAmount()
-                        : transaction.getAmount() != null ? transaction.getAmount() : 0L)
-                .sum();
-        long acceptedPaid = transactions.stream()
-                .mapToLong(transaction -> transaction.getAcceptedAmount() != null
-                        ? transaction.getAcceptedAmount()
-                        : transaction.getAmount() != null ? transaction.getAmount() : 0L)
-                .sum();
-        long netPaid = paymentRefundService.getNetPaidAmount(reservation.getId());
-        long refunded = Math.max(0L, grossPaid - netPaid);
-        long balance = total.longValue() - netPaid;
-        boolean refundPending = transactions.stream()
-                .anyMatch(transaction -> transaction.getStatus() == PaymentStatus.REFUND_PENDING);
-
-        CustomerProfile customer = reservation.getCustomerProfile();
-        LocalDateTime issuedAt = reservation.getActualCheckOut() != null
-                ? reservation.getActualCheckOut() : LocalDateTime.now();
-        Instant issuedAtUtc = issuedAt.atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))
-                .toInstant();
-        ReservationInvoiceResponse response = ReservationInvoiceResponse.builder()
-                .invoiceNumber("INV-" + reservation.getReservationCode())
-                .reservationId(reservation.getId())
-                .reservationCode(reservation.getReservationCode())
-                .issuedAt(issuedAt)
-                .issuedAtUtc(issuedAtUtc)
-                .hotelName(hotelName)
-                .hotelAddress(hotelAddress)
-                .hotelPhone(hotelPhone)
-                .hotelEmail(hotelEmail)
-                .hotelTaxCode(hotelTaxCode)
-                .customerName(customer.getFullName())
-                .customerPhone(customer.getPhone())
-                .customerEmail(customer.getEmail())
-                .customerAddress(customer.getAddress())
-                .plannedCheckIn(reservation.getCheckIn())
-                .plannedCheckOut(reservation.getCheckOut())
-                .actualCheckIn(reservation.getActualCheckIn())
-                .actualCheckOut(reservation.getActualCheckOut())
-                .guestCount(reservation.getGuestCount())
-                .note(reservation.getNote())
-                .roomTypes(reservation.getRoomTypes().stream()
-                        .map(item -> ReservationInvoiceResponse.RoomTypeLine.builder()
-                                .roomTypeName(item.getRoomType().getTypeName())
-                                .quantity(item.getQuantity())
-                                .pricePerRoomForStay(item.getRoomPrice())
-                                .plannedSubtotal(item.getSubtotal())
-                                .build())
-                        .toList())
-                .payments(transactions.stream()
-                        .map(transaction -> ReservationInvoiceResponse.PaymentLine.builder()
-                                .transactionId(transaction.getId())
-                                .transactionReference(transaction.getTxnRef())
-                                .provider(transaction.getProvider().name())
-                                .purpose(transaction.getPurpose() != null ? transaction.getPurpose().name() : null)
-                                .status(transaction.getStatus().name())
-                                .amount(transaction.getAmount())
-                                .refundAmount(transaction.getRefundAmount())
-                                .refundProvider(transaction.getRefundProvider() != null
-                                        ? transaction.getRefundProvider().name() : null)
-                                .refundChannel(paymentRefundService.latestChannelForPayment(transaction.getId()))
-                                .paidAt(transaction.getPaidAt())
-                                .paidAtUtc(transaction.getPaidAtUtc())
-                                .createdAt(transaction.getCreatedAt())
-                                .build())
-                        .toList())
-                .plannedRoomCharge(plannedRoomCharge)
-                .roomCharge(roomCharge)
-                .actualRoomCharge(roomCharge)
-                .earlyCheckoutAdjustment(earlyAdjustment)
-                .lateCheckoutFee(lateFee)
-                .checkoutAdditionalFee(additionalFee)
-                .discountAmount(discount)
-                .taxAmount(tax)
-                .totalAmount(total)
-                .grossPaidAmount(grossPaid)
-                .refundedAmount(refunded)
-                .completedRefundAmount(refunded)
-                .netPaidAmount(netPaid)
-                .balanceAmount(balance)
-                .remainingAmount(balance)
-                .settlementStatus(refundPending ? "REFUND_PENDING"
-                        : balance > 0 ? "BALANCE_DUE"
-                        : balance < 0 ? "OVERPAID" : "PAID")
-                .build();
-
-        try {
-            String snapshot = objectMapper.writeValueAsString(response);
-            reservationInvoiceRepository.save(ReservationInvoice.builder()
-                    .reservation(reservation)
-                    .invoiceNumber(response.getInvoiceNumber())
-                    .issuedAt(response.getIssuedAt())
-                    .totalAmount(total)
-                    .currency("VND")
-                    .roomCharge(roomCharge)
-                    .actualRoomCharge(roomCharge)
-                    .plannedRoomCharge(plannedRoomCharge)
-                    .earlyCheckoutAdjustment(earlyAdjustment)
-                    .lateCheckoutFee(lateFee)
-                    .additionalFee(additionalFee)
-                    .discountAmount(discount)
-                    .taxAmount(tax)
-                    .grossReceivedAmount(grossPaid)
-                    .acceptedPaidAmount(acceptedPaid)
-                    .refundedAmount(refunded)
-                    .completedRefundAmount(refunded)
-                    .balanceAmount(balance)
-                    .remainingAmount(balance)
-                    .settlementStatus(response.getSettlementStatus())
-                    .snapshotJson(snapshot)
-                    .snapshotHash(sha256(snapshot))
-                    .snapshotCreatedAtUtc(Instant.now())
-                    .issuedAtUtc(issuedAtUtc)
-                    .createdAtUtc(Instant.now())
-                    .build());
-            return response;
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Không thể tạo snapshot hóa đơn", exception);
-        }
-    }
-
-    private ReservationInvoiceResponse readInvoiceSnapshot(String snapshotJson) {
-        try {
-            return objectMapper.readValue(snapshotJson, ReservationInvoiceResponse.class);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Snapshot hóa đơn không hợp lệ", exception);
-        }
-    }
-
-    private String sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(
-                    digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception exception) {
-            throw new IllegalStateException("Không thể tạo hash snapshot", exception);
-        }
+        return invoiceSnapshotService.findExisting(reservationId)
+                .orElseGet(() -> invoiceSnapshotService.createSnapshot(reservation));
     }
 
     private BigDecimal amountOrZero(BigDecimal amount) {
@@ -1995,133 +1788,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
-    private CustomerProfile findOrCreateOnlineCustomerProfile(User user) {
-        return customerProfileRepository.findByLinkedUserId(user.getId())
-                .orElseGet(() -> customerProfileRepository.save(CustomerProfile.builder()
-                        .fullName(user.getFullName())
-                        .phone(user.getPhone())
-                        .email(user.getEmail())
-                        .address(user.getAddress())
-                        .source(CustomerProfileSource.ONLINE)
-                        .linkedUser(user)
-                        .build()));
-    }
-
-    private CustomerProfile resolveWalkInCustomerProfile(CreateWalkInReservationRequest request) {
-        return resolveWalkInCustomerProfile(request.getCustomerProfileId(), request.getCustomer());
-    }
-
-    private CustomerProfile resolveWalkInCustomerProfile(
-            Long customerProfileId,
-            CustomerProfileRequest customer) {
-        if (customerProfileId != null) {
-            return customerProfileRepository.findById(customerProfileId)
-                    .orElseThrow(() -> new AppException(ErrorCode.CUSTOMER_NOT_FOUND));
-        }
-
-        return resolveCustomerProfileFromRequest(
-                customer,
-                CustomerProfileSource.WALK_IN,
-                "customerProfileId hoặc thông tin khách vãng lai là bắt buộc",
-                "Tên khách vãng lai không được để trống khi tạo hồ sơ mới",
-                true);
-    }
-
-    private CustomerProfile resolveGuestOnlineCustomerProfile(CustomerProfileRequest customer) {
-        if (customer == null) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Thông tin khách đặt phòng là bắt buộc khi chưa đăng nhập");
-        }
-        if (!hasText(customer.getEmail())) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Email là bắt buộc khi đặt phòng online");
-        }
-        validateCustomerProfile(customer, "Tên khách đặt phòng không được để trống khi chưa đăng nhập");
-        // Không cập nhật profile tìm bằng email/số điện thoại từ một request public.
-        // Sau khi xác minh email, luồng claim sẽ liên kết/ghép các profile cùng email.
-        return customerProfileRepository.save(CustomerProfile.builder()
-                .fullName(customer.getFullName().trim())
-                .phone(trimToNull(customer.getPhone()))
-                .email(customer.getEmail().trim())
-                .address(trimToNull(customer.getAddress()))
-                .idCardNumber(trimToNull(customer.getIdCardNumber()))
-                .source(CustomerProfileSource.ONLINE)
-                .build());
-    }
-
-    private CustomerProfile resolveCustomerProfileFromRequest(
-            CustomerProfileRequest customer,
-            CustomerProfileSource source,
-            String missingCustomerMessage,
-            String missingNameMessage,
-            boolean allowLinkedProfileReuse) {
-        if (customer == null) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, missingCustomerMessage);
-        }
-        validateCustomerProfile(customer, missingNameMessage);
-
-        // Chỉ dùng lại hồ sơ khi tất cả định danh được gửi lên cùng khớp một profile.
-        // Không lấy profile chỉ vì trùng một trường rồi ghi đè các trường còn lại.
-        if (hasText(customer.getIdCardNumber())) {
-            var existing = customerProfileRepository.findFirstByIdCardNumber(customer.getIdCardNumber().trim());
-            if (existing.isPresent()
-                    && canReuseCustomerProfile(existing.get(), allowLinkedProfileReuse)
-                    && matchesProvidedIdentity(existing.get(), customer)) {
-                return updateCustomerProfile(existing.get(), customer, source);
-            }
-        }
-        return customerProfileRepository.save(CustomerProfile.builder()
-                .fullName(customer.getFullName().trim())
-                .phone(trimToNull(customer.getPhone()))
-                .email(trimToNull(customer.getEmail()))
-                .address(trimToNull(customer.getAddress()))
-                .idCardNumber(trimToNull(customer.getIdCardNumber()))
-                .source(source)
-                .build());
-    }
-
-    private boolean matchesProvidedIdentity(CustomerProfile profile, CustomerProfileRequest request) {
-        return (!hasText(request.getPhone()) || request.getPhone().trim().equals(profile.getPhone()))
-                && (!hasText(request.getEmail()) || request.getEmail().trim().equalsIgnoreCase(profile.getEmail()))
-                && (!hasText(request.getIdCardNumber())
-                    || request.getIdCardNumber().trim().equals(profile.getIdCardNumber()));
-    }
-
-    private boolean canReuseCustomerProfile(CustomerProfile profile, boolean allowLinkedProfileReuse) {
-        return allowLinkedProfileReuse || profile.getLinkedUser() == null;
-    }
-
-    private CustomerProfile updateCustomerProfile(
-            CustomerProfile profile,
-            CustomerProfileRequest request,
-            CustomerProfileSource source) {
-        if (hasText(request.getFullName())) {
-            profile.setFullName(request.getFullName().trim());
-        }
-        if (hasText(request.getPhone())) {
-            profile.setPhone(request.getPhone().trim());
-        }
-        if (hasText(request.getEmail())) {
-            profile.setEmail(request.getEmail().trim());
-        }
-        if (hasText(request.getAddress())) {
-            profile.setAddress(request.getAddress().trim());
-        }
-        if (hasText(request.getIdCardNumber())) {
-            profile.setIdCardNumber(request.getIdCardNumber().trim());
-        }
-        if (profile.getSource() == null) {
-            profile.setSource(source);
-        }
-        return customerProfileRepository.save(profile);
-    }
-
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
-    }
-
-    private String trimToNull(String value) {
-        return hasText(value) ? value.trim() : null;
     }
 
     private void validateInterval(LocalDateTime checkIn, LocalDateTime checkOut) {
@@ -2167,21 +1835,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     }
 
     private void validateCustomerProfile(CustomerProfileRequest customer, String missingNameMessage) {
-        if (customer == null || !hasText(customer.getFullName())) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, missingNameMessage);
-        }
-        if (customer.getFullName().trim().length() > 150) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Tên khách không được quá 150 ký tự");
-        }
-        if (hasText(customer.getPhone()) && !customer.getPhone().trim().matches("^(0|\\+84)[0-9]{9,10}$")) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Số điện thoại không hợp lệ");
-        }
-        if (hasText(customer.getEmail()) && customer.getEmail().trim().length() > 255) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Email không được quá 255 ký tự");
-        }
-        if (hasText(customer.getIdCardNumber()) && customer.getIdCardNumber().trim().length() > 50) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Số giấy tờ không được quá 50 ký tự");
-        }
+        customerProfileService.validateCustomerProfile(customer, missingNameMessage);
     }
 
     private void validateWalkInInputDetails(CreateWalkInCheckedInRequest request) {

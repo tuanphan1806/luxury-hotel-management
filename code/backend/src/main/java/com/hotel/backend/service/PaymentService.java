@@ -16,12 +16,11 @@ import com.hotel.backend.constant.PaymentPurpose;
 import com.hotel.backend.constant.ReservationStatus;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.HoldStatus;
-import com.hotel.backend.constant.UserType;
 import com.hotel.backend.repository.PaymentTransactionRepository;
 import com.hotel.backend.repository.ReservationRepository;
 import com.hotel.backend.repository.RoomHoldRepository;
 import com.hotel.backend.repository.ReservationRoomTypeRepository;
-import com.hotel.backend.util.VNPayUtil;
+import com.hotel.backend.util.PaymentUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,8 +28,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -48,11 +45,14 @@ public class PaymentService {
     private final ReservationRepository reservationRepository;
     private final RoomHoldRepository roomHoldRepository;
     private final ReservationRoomTypeRepository reservationRoomTypeRepository;
-    private final ReservationService reservationService;
+    private final PaymentReservationPort reservationService;
     private final ReservationAuditService reservationAuditService;
     private final PaymentRefundService paymentRefundService;
     private final PaymentSessionExpiryService paymentSessionExpiryService;
     private final ApplicationEventPublisher eventPublisher;
+    private final PaymentResponseMapper responseMapper;
+    private final PaymentReservationAccessPolicy accessPolicy;
+    private final PaymentBalanceCalculator balanceCalculator;
     // ==================== TẠO GIAO DỊCH MỚI ====================
 
     @Transactional
@@ -61,13 +61,13 @@ public class PaymentService {
             HttpServletRequest httpRequest,
             User currentUser,
             String guestToken) {
-        String ipAddress = VNPayUtil.getClientIp(httpRequest);
+        String ipAddress = PaymentUtil.getClientIp(httpRequest);
         // Lock the payment aggregate before validation and insert. This prevents
         // concurrent requests from both observing an unpaid balance and creating
         // duplicate deposit/final-payment transactions.
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getBookingId())
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
-        ensureCanAccessReservation(currentUser, reservation, guestToken);
+        accessPolicy.ensureCanAccessReservation(currentUser, reservation, guestToken);
         validateReservationCanAcceptPayment(reservation);
         validateOnlinePaymentAllowed(reservation);
 
@@ -79,12 +79,12 @@ public class PaymentService {
         }
         if (requestedProvider != PaymentProvider.SEPAY) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Thanh toán online mới chỉ dùng SePay VietQR; VNPay chỉ được giữ cho giao dịch lịch sử");
+                    "Thanh toán online chỉ dùng SePay VietQR");
         }
 
         // Số tiền và mục đích phải khớp với phiên cũ trước khi cho
         // phép idempotent reuse; không trả nhầm QR đã cũ khi phụ phí thay đổi.
-        PaymentBalance balance = resolvePaymentBalance(reservation);
+        PaymentBalanceCalculator.PaymentBalance balance = balanceCalculator.resolve(reservation);
         long amount = balance.defaultAmount();
         validatePaymentAmount(amount, balance.remainingAmount());
         PaymentPurpose purpose = resolvePaymentPurpose(reservation, request.getPurpose());
@@ -148,16 +148,16 @@ public class PaymentService {
             Long requestedAmount,
             HttpServletRequest httpRequest,
             User currentUser) {
-        String ipAddress = VNPayUtil.getClientIp(httpRequest);
+        String ipAddress = PaymentUtil.getClientIp(httpRequest);
         Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
-        ensureCanAccessReservation(currentUser, reservation);
+        accessPolicy.ensureCanAccessReservation(currentUser, reservation);
         if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
                     "Chỉ tạo SePay walk-in sau khi reservation đã CHECKED_IN");
         }
 
-        PaymentBalance balance = resolvePaymentBalance(reservation);
+        PaymentBalanceCalculator.PaymentBalance balance = balanceCalculator.resolve(reservation);
         long amount = requestedAmount != null ? requestedAmount : balance.defaultAmount();
         validatePaymentAmount(amount, balance.remainingAmount());
         PaymentTransaction reusable = findReusablePendingPayment(
@@ -201,19 +201,19 @@ public class PaymentService {
 
     @Transactional
     public PaymentResponse createCashPayment(PaymentRequest request, HttpServletRequest httpRequest, User currentUser) {
-        String ipAddress = VNPayUtil.getClientIp(httpRequest);
+        String ipAddress = PaymentUtil.getClientIp(httpRequest);
         // Cash collection shares the same critical section as online payment so
         // two front-desk requests cannot collect the same remaining balance.
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getBookingId())
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
-        ensureCanAccessReservation(currentUser, reservation);
+        accessPolicy.ensureCanAccessReservation(currentUser, reservation);
         validateReservationCanAcceptPayment(reservation);
         validateCashPaymentAllowed(reservation);
-        PaymentBalance balance = resolvePaymentBalance(reservation);
+        PaymentBalanceCalculator.PaymentBalance balance = balanceCalculator.resolve(reservation);
         long amount = balance.defaultAmount();
         validatePaymentAmount(amount, balance.remainingAmount());
 
-        String txnRef = VNPayUtil.generateTxnRef("CASH-" + request.getBookingId());
+        String txnRef = PaymentUtil.generateTxnRef("CASH-" + request.getBookingId());
         String orderInfo = request.getOrderInfo() != null
                 ? request.getOrderInfo()
                 : "Thanh toan tien mat dat phong " + request.getBookingId();
@@ -240,6 +240,10 @@ public class PaymentService {
 
         transaction = transactionRepository.save(transaction);
         reservationService.convertHoldsAfterPayment(reservation.getId());
+        reservationAuditService.record(
+                reservation,
+                ReservationAuditAction.PAYMENT_RECEIVED,
+                "Thu tiền mặt " + amount + " VND cho " + transaction.getPurpose());
         eventPublisher.publishEvent(new CheckoutReconciliationChangedEvent(
                 reservation.getId(), "CASH_PAYMENT_SUCCEEDED"));
 
@@ -265,18 +269,20 @@ public class PaymentService {
 
     // ==================== TRUY VẤN ====================
 
+    @Transactional(readOnly = true)
     public PaymentTransaction getTransaction(String transactionId, User currentUser) {
         PaymentTransaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Không tìm thấy giao dịch: " + transactionId));
-        ensureCanAccessReservation(currentUser, transaction.getReservation());
+        accessPolicy.ensureCanAccessReservation(currentUser, transaction.getReservation());
         return transaction;
     }
 
+    @Transactional(readOnly = true)
     public List<PaymentTransaction> getTransactionsByReservation(Long reservationId, User currentUser) {
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
-        ensureCanAccessReservation(currentUser, reservation);
+        accessPolicy.ensureCanAccessReservation(currentUser, reservation);
         return transactionRepository.findByReservationId(reservationId);
     }
  
@@ -292,19 +298,19 @@ public class PaymentService {
         PaymentTransaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Không tìm thấy giao dịch thanh toán"));
-        ensureCanAccessReservation(currentUser, transaction.getReservation(), guestToken);
+        accessPolicy.ensureCanAccessReservation(currentUser, transaction.getReservation(), guestToken);
         if (transaction.getProvider() == PaymentProvider.SEPAY
                 && transaction.getStatus() == PaymentStatus.PENDING) {
             return toSePayCreateResponse(transaction, "Phiên VietQR đang chờ thanh toán");
         }
-        return toResponse(transaction);
+        return responseMapper.toResponse(transaction);
     }
 
     @Transactional(readOnly = true)
     public PaymentResponse getLatestWalkInPayment(Long reservationId, User currentUser) {
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
-        ensureCanAccessReservation(currentUser, reservation);
+        accessPolicy.ensureCanAccessReservation(currentUser, reservation);
         PaymentTransaction transaction = transactionRepository.findByReservationId(reservationId).stream()
                 .filter(payment -> payment.getPurpose() == PaymentPurpose.WALK_IN)
                 .max(java.util.Comparator.comparing(
@@ -316,7 +322,7 @@ public class PaymentService {
                 && transaction.getStatus() == PaymentStatus.PENDING) {
             return toSePayCreateResponse(transaction, "Phiên VietQR walk-in đang chờ thanh toán");
         }
-        return toResponse(transaction);
+        return responseMapper.toResponse(transaction);
     }
     // ==================== HOÀN TIỀN ====================
 
@@ -430,78 +436,17 @@ public class PaymentService {
         }
     }
 
-    /**
-     * Số tiền thực còn được khách sạn giữ. Giao dịch REFUND_PENDING vẫn chứa
-     * phần tiền đã thanh toán hợp lệ sau khi trừ đúng khoản đang hoàn.
-     */
-    private long getNetPaidAmount(Long reservationId) {
-        return paymentRefundService.getNetPaidAmount(reservationId);
-    }
-
     public List<PaymentRefundResponse> getPendingRefunds() {
         return paymentRefundService.getOperationalQueue();
-    }
-
-    public PaymentRefundResponse reconcileRefund(String refundId) {
-        return paymentRefundService.reconcile(refundId);
     }
 
     public PaymentRefundResponse retryRefund(String refundId) {
         return paymentRefundService.retry(refundId);
     }
 
-    private PaymentResponse toResponse(PaymentTransaction transaction) {
-        return PaymentResponse.builder()
-                .transactionId(transaction.getId())
-                .bookingId(transaction.getReservation().getId())
-                .reservationCode(transaction.getReservation().getReservationCode())
-                .provider(transaction.getProvider())
-                .refundProvider(transaction.getRefundProvider())
-                .purpose(transaction.getPurpose())
-                .status(transaction.getStatus())
-                .amount(transaction.getAmount())
-                .expectedAmount(transaction.getExpectedAmount())
-                .receivedAmount(transaction.getReceivedAmount())
-                .acceptedAmount(transaction.getAcceptedAmount())
-                .refundRequiredAmount(transaction.getRefundRequiredAmount())
-                .refundAmount(transaction.getRefundAmount())
-                .message(transaction.getMessage())
-                .createdAt(transaction.getCreatedAt())
-                .updatedAt(transaction.getUpdatedAt())
-                .expiresAt(transaction.getExpiresAt())
-                .expiresAtUtc(transaction.getExpiresAtUtc())
-                .paidAtUtc(transaction.getPaidAtUtc())
-                .build();
-    }
-
     private PaymentResponse toSePayCreateResponse(PaymentTransaction transaction, String message) {
         var instructions = sePayService.instructionsFor(transaction);
-        return PaymentResponse.builder()
-                .transactionId(transaction.getId())
-                .bookingId(transaction.getReservation().getId())
-                .reservationCode(transaction.getReservation().getReservationCode())
-                .transactionReference(transaction.getTxnRef())
-                .provider(transaction.getProvider())
-                .status(transaction.getStatus())
-                .purpose(transaction.getPurpose())
-                .amount(transaction.getAmount())
-                .expectedAmount(transaction.getExpectedAmount())
-                .receivedAmount(transaction.getReceivedAmount())
-                .acceptedAmount(transaction.getAcceptedAmount())
-                .refundRequiredAmount(transaction.getRefundRequiredAmount())
-                .qrCodeUrl(instructions.qrCodeUrl())
-                .transferContent(instructions.transferContent())
-                .bankAccountNumber(instructions.bankAccountNumber())
-                .bankCode(instructions.bankCode())
-                .bankName(instructions.bankName())
-                .accountHolder(instructions.accountHolder())
-                .expiresAt(instructions.expiresAt())
-                .expiresAtUtc(transaction.getExpiresAtUtc())
-                .paidAtUtc(transaction.getPaidAtUtc())
-                .message(message)
-                .createdAt(transaction.getCreatedAt())
-                .updatedAt(transaction.getUpdatedAt())
-                .build();
+        return responseMapper.toSePayCreateResponse(transaction, instructions, message);
     }
 
     private PaymentTransaction findReusablePendingPayment(
@@ -524,54 +469,6 @@ public class PaymentService {
                 .max(java.util.Comparator.comparing(PaymentTransaction::getCreatedAt,
                         java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .orElse(null);
-    }
-
-    private PaymentBalance resolvePaymentBalance(Reservation reservation) {
-        long requiredTotal = reservation.getStatus() == ReservationStatus.CHECKED_IN
-                ? reservationService.getProjectedCheckoutTotal(reservation.getId())
-                : reservation.getTotalAmount().longValue();
-        long paidAmount = getNetPaidAmount(reservation.getId());
-        long remainingAmount = Math.max(0L, requiredTotal - paidAmount);
-        long defaultAmount = reservation.getStatus() == ReservationStatus.PAYMENT_PENDING
-                ? getRequiredDepositAmount(reservation) : remainingAmount;
-        return new PaymentBalance(defaultAmount, remainingAmount);
-    }
-
-    private long getRequiredDepositAmount(Reservation reservation) {
-        if (reservation.getRequiredInitialPayment() != null
-                && reservation.getRequiredInitialPayment().signum() > 0) {
-            return reservation.getRequiredInitialPayment()
-                    .setScale(0, RoundingMode.CEILING).longValue();
-        }
-        return reservation.getTotalAmount()
-                .multiply(BigDecimal.valueOf(0.5))
-                .setScale(0, RoundingMode.CEILING)
-                .longValue();
-    }
-
-    private record PaymentBalance(long defaultAmount, long remainingAmount) {}
-
-    private void ensureCanAccessReservation(User currentUser, Reservation reservation) {
-        ensureCanAccessReservation(currentUser, reservation, null);
-    }
-
-    private void ensureCanAccessReservation(User currentUser, Reservation reservation, String guestToken) {
-        if (currentUser == null) {
-            if (hasText(guestToken) && guestToken.equals(reservation.getGuestToken())) {
-                return;
-            }
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Bạn cần đăng nhập hoặc cung cấp mã khách hợp lệ để thực hiện thao tác này");
-        }
-        if (List.of(UserType.ADMIN, UserType.STAFF).contains(currentUser.getType())) {
-            return;
-        }
-        if (reservation.getCustomerProfile() == null
-                || reservation.getCustomerProfile().getLinkedUser() == null
-                || !reservation.getCustomerProfile().getLinkedUser().getId().equals(currentUser.getId())) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Bạn không có quyền thao tác với đặt phòng này");
-        }
     }
 
     private boolean hasText(String value) {

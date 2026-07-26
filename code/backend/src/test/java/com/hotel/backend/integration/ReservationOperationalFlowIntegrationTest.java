@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ul>
  *   <li>Check-in: sớm quá 2 giờ, sớm trong giới hạn, trễ cùng ngày, quá ngày, phòng bẩn.</li>
  *   <li>Checkout: sớm, trong cùng kỳ tính giá, muộn và thao tác lặp.</li>
- *   <li>Payment: cọc, thanh toán cuối, thiếu/đủ tiền, sai purpose và giao dịch VNPay đang chờ.</li>
+ *   <li>Payment: cọc, thanh toán cuối, thiếu/đủ tiền, sai purpose và giao dịch SePay đang chờ.</li>
  *   <li>Phụ phí: cho phép sửa nhiều lần nhưng không cộng dồn giá trị cũ.</li>
  * </ul>
  */
@@ -185,7 +185,7 @@ class ReservationOperationalFlowIntegrationTest {
         // Given: khách đặt 4 giờ (130.000), check-in ngay và đã thanh toán đủ giá dự kiến.
         Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 4);
         checkIn(fixture);
-        payRemainingDirectly(fixture.reservationId(), PaymentProvider.VNPAY);
+        payRemainingDirectly(fixture.reservationId(), PaymentProvider.SEPAY);
 
         // When: staff mở đối soát ngay trong giờ đầu.
         FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
@@ -401,28 +401,28 @@ class ReservationOperationalFlowIntegrationTest {
     }
 
     /**
-     * TC-PAY-02 - Không tạo thêm giao dịch khi VNPay final payment đang chờ.
+     * TC-PAY-02 - Không tạo thêm giao dịch khi SePay final payment đang chờ.
      *
      * <p>Quy tắc này ngăn khách hoặc staff thanh toán hai lần trong khoảng thời
      * gian backend chưa nhận được callback cho giao dịch PENDING hiện tại.</p>
      */
     @Test
-    void pendingVnPayFinalPaymentBlocksCreatingAnotherPayment() {
-        // Given: reservation CHECKED_IN đang có một giao dịch VNPay PENDING.
+    void pendingSePayFinalPaymentBlocksCreatingAnotherPayment() {
+        // Given: reservation CHECKED_IN đang có một giao dịch SePay PENDING.
         Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 3);
         checkIn(fixture);
         Reservation reservation = reservationRepository.findById(fixture.reservationId()).orElseThrow();
         paymentTransactionRepository.save(PaymentTransaction.builder()
                 .reservation(reservation)
                 .txnRef("PENDING-FINAL-" + suffix())
-                .provider(PaymentProvider.VNPAY)
+                .provider(PaymentProvider.SEPAY)
                 .purpose(PaymentPurpose.FINAL_PAYMENT)
                 .status(PaymentStatus.PENDING)
                 .amount(35_000L)
                 .currency("VND")
                 .build());
 
-        // When/Then: request mới dùng provider active SEPAY vẫn bị chặn khi payment lịch sử đang chờ.
+        // When/Then: request SePay mới vẫn bị chặn khi payment hiện tại đang chờ.
         PaymentRequest request = new PaymentRequest();
         request.setBookingId(fixture.reservationId());
         request.setProvider(PaymentProvider.SEPAY);
@@ -553,7 +553,7 @@ class ReservationOperationalFlowIntegrationTest {
                         .build());
         Reservation reservation = reservationRepository.findById(created.getId()).orElseThrow();
         reservationService.activatePaymentHolds(reservation.getId(), LocalDateTime.now().plusMinutes(5));
-        saveSuccessfulPayment(reservation, requiredDeposit(reservation), PaymentProvider.VNPAY, PaymentPurpose.DEPOSIT);
+        saveSuccessfulPayment(reservation, requiredDeposit(reservation), PaymentProvider.SEPAY, PaymentPurpose.DEPOSIT);
         reload();
         reservationService.convertHoldsAfterPayment(reservation.getId());
         reload();

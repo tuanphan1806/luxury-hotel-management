@@ -16,6 +16,7 @@ public class ReservationRoomTypeResponse {
     private String roomTypeName;
     private String roomTypeNameEn;
     private Integer quantity;
+    private Integer maxGuestsPerRoom;
     private BigDecimal roomPrice;
     private BigDecimal subtotal;
     private RoomHoldResponse roomHold;
@@ -27,6 +28,9 @@ public class ReservationRoomTypeResponse {
                 .roomTypeName(rrt.getRoomType().getTypeName())
                 .roomTypeNameEn(rrt.getRoomType().getTypeNameEn())
                 .quantity(rrt.getQuantity())
+                .maxGuestsPerRoom(rrt.getRoomType().getMaxGuests() != null
+                        ? Math.max(1, rrt.getRoomType().getMaxGuests())
+                        : 2)
                 .roomPrice(rrt.getRoomPrice())
                 .subtotal(rrt.getSubtotal())
                 .build();

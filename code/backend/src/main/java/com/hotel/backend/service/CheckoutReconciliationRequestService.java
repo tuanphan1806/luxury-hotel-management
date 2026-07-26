@@ -7,7 +7,6 @@ import com.hotel.backend.constant.CheckoutCorrectionType;
 import com.hotel.backend.constant.CheckoutReconciliationRequestStatus;
 import com.hotel.backend.constant.CheckoutReconciliationStatus;
 import com.hotel.backend.constant.ReservationAuditAction;
-import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.request.CheckoutReconciliationEscalationRequest;
 import com.hotel.backend.dto.request.CheckoutReconciliationResolutionRequest;
 import com.hotel.backend.dto.request.ManualPaymentReconciliationRequest;
@@ -42,10 +41,12 @@ public class CheckoutReconciliationRequestService {
     private final CheckoutReconciliationRequestRepository requestRepository;
     private final ReservationRepository reservationRepository;
     private final MediaAssetRepository mediaAssetRepository;
-    private final ReservationService reservationService;
+    private final CheckoutProjectionPort reservationService;
     private final SePayService sePayService;
     private final ReservationAuditService auditService;
     private final ObjectMapper objectMapper;
+    private final CheckoutReconciliationRequestMapper responseMapper;
+    private final CheckoutReconciliationAccessPolicy accessPolicy;
 
     @Transactional
     public CheckoutReconciliationRequestResponse create(
@@ -54,11 +55,11 @@ public class CheckoutReconciliationRequestService {
             String idempotencyKey,
             String actorScope,
             User currentUser) {
-        requireOperationsUser(currentUser);
+        accessPolicy.requireOperationsUser(currentUser);
         CheckoutReconciliationRequest existing = requestRepository
                 .findByIdempotencyKeyAndActorScope(idempotencyKey, actorScope)
                 .orElse(null);
-        if (existing != null) return toResponse(existing);
+        if (existing != null) return responseMapper.toResponse(existing);
 
         Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
@@ -83,7 +84,7 @@ public class CheckoutReconciliationRequestService {
                         .reasonCode(request.getReasonCode().trim())
                         .reasonNote(request.getNote().trim())
                         .requestedBy(currentUser)
-                        .requestedByName(actorName(currentUser))
+                        .requestedByName(accessPolicy.actorName(currentUser))
                         .requestedByRole(currentUser.getType().name())
                         .idempotencyKey(idempotencyKey)
                         .actorScope(actorScope)
@@ -107,12 +108,12 @@ public class CheckoutReconciliationRequestService {
                         "blockingReasons", reconciliation.getBlockingReasons()),
                 correlationId,
                 "CHECKOUT_RECONCILIATION_REQUESTED:" + entity.getId());
-        return toResponse(entity);
+        return responseMapper.toResponse(entity);
     }
 
     @Transactional(readOnly = true)
     public CheckoutReconciliationRequestResponse get(Long id) {
-        return toResponse(requireRequest(id));
+        return responseMapper.toResponse(requireRequest(id));
     }
 
     @Transactional
@@ -120,7 +121,7 @@ public class CheckoutReconciliationRequestService {
             CheckoutReconciliationRequestStatus status,
             Pageable pageable,
             User admin) {
-        requireAdmin(admin);
+        accessPolicy.requireAdmin(admin);
         if (status == CheckoutReconciliationRequestStatus.PENDING) {
             // Safety-net reconciliation for events created before the
             // auto-resolution listener existed, or for a transient listener
@@ -136,10 +137,10 @@ public class CheckoutReconciliationRequestService {
                             reservationId, "ADMIN_EXCEPTION_QUEUE_REFRESH", admin));
         }
         if (status == null) {
-            return requestRepository.findAll(pageable).map(this::toResponse);
+            return requestRepository.findAll(pageable).map(responseMapper::toResponse);
         }
         return requestRepository.findByStatusOrderByCreatedAtUtcAsc(status, pageable)
-                .map(this::toResponse);
+                .map(responseMapper::toResponse);
     }
 
     @Transactional
@@ -147,12 +148,12 @@ public class CheckoutReconciliationRequestService {
             Long id,
             CheckoutReconciliationResolutionRequest resolution,
             User admin) {
-        requireAdmin(admin);
+        accessPolicy.requireAdmin(admin);
         CheckoutReconciliationRequest entity = requestRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new AppException(
                         ErrorCode.RESOURCE_NOT_FOUND, "Không tìm thấy yêu cầu đối soát"));
         if (entity.getStatus() != CheckoutReconciliationRequestStatus.PENDING) {
-            return toResponse(entity);
+            return responseMapper.toResponse(entity);
         }
 
         Reservation reservation = reservationRepository
@@ -164,7 +165,7 @@ public class CheckoutReconciliationRequestService {
             markAutomaticallyResolved(
                     List.of(entity), reservation, current,
                     "ADMIN_EXCEPTION_RECHECK");
-            return toResponse(entity);
+            return responseMapper.toResponse(entity);
         }
         MediaAsset evidence = resolution.getEvidenceAssetId() == null
                 ? null
@@ -173,7 +174,7 @@ public class CheckoutReconciliationRequestService {
                         ErrorCode.RESOURCE_NOT_FOUND, "Không tìm thấy minh chứng đã chọn"));
 
         entity.setResolvedBy(admin);
-        entity.setResolvedByName(actorName(admin));
+        entity.setResolvedByName(accessPolicy.actorName(admin));
         entity.setResolvedByRole(admin.getType().name());
         entity.setResolutionReasonCode(resolution.getReasonCode().trim());
         entity.setResolutionNote(resolution.getNote().trim());
@@ -196,7 +197,7 @@ public class CheckoutReconciliationRequestService {
                             "note", resolution.getNote().trim()),
                     entity.getCorrelationId(),
                     "CHECKOUT_RECONCILIATION_REJECTED:" + entity.getId());
-            return toResponse(entity);
+            return responseMapper.toResponse(entity);
         }
 
         CheckoutCorrectionType correctionType = resolution.getCorrectionType();
@@ -245,7 +246,7 @@ public class CheckoutReconciliationRequestService {
                         "checkoutTriggered", false),
                 entity.getCorrelationId(),
                 "CHECKOUT_RECONCILIATION_OVERRIDDEN:" + entity.getId());
-        return toResponse(entity);
+        return responseMapper.toResponse(entity);
     }
 
     /**
@@ -353,52 +354,6 @@ public class CheckoutReconciliationRequestService {
         return requestRepository.findById(id)
                 .orElseThrow(() -> new AppException(
                         ErrorCode.RESOURCE_NOT_FOUND, "Không tìm thấy yêu cầu đối soát"));
-    }
-
-    private CheckoutReconciliationRequestResponse toResponse(
-            CheckoutReconciliationRequest entity) {
-        CheckoutReconciliationResponse snapshot = objectMapper.convertValue(
-                entity.getMismatchSnapshotJson(), CheckoutReconciliationResponse.class);
-        return CheckoutReconciliationRequestResponse.builder()
-                .id(entity.getId())
-                .reservationId(entity.getReservation().getId())
-                .reservationCode(entity.getReservation().getReservationCode())
-                .status(entity.getStatus())
-                .mismatchSnapshot(snapshot)
-                .reasonCode(entity.getReasonCode())
-                .reasonNote(entity.getReasonNote())
-                .requestedByName(entity.getRequestedByName())
-                .requestedByRole(entity.getRequestedByRole())
-                .createdAtUtc(entity.getCreatedAtUtc())
-                .correctionType(entity.getCorrectionType())
-                .correctionDetail(entity.getCorrectionDetailJson())
-                .resolutionReasonCode(entity.getResolutionReasonCode())
-                .resolutionNote(entity.getResolutionNote())
-                .resolvedByName(entity.getResolvedByName())
-                .resolvedByRole(entity.getResolvedByRole())
-                .resolvedAtUtc(entity.getResolvedAtUtc())
-                .correlationId(entity.getCorrelationId())
-                .build();
-    }
-
-    private void requireOperationsUser(User user) {
-        if (user == null || (user.getType() != UserType.STAFF && user.getType() != UserType.ADMIN)) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Chỉ STAFF/ADMIN được gửi yêu cầu đối soát");
-        }
-    }
-
-    private void requireAdmin(User user) {
-        if (user == null || user.getType() != UserType.ADMIN) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Chỉ ADMIN được xử lý yêu cầu đối soát");
-        }
-    }
-
-    private String actorName(User user) {
-        if (hasText(user.getFullName())) return user.getFullName().trim();
-        if (hasText(user.getUsername())) return user.getUsername().trim();
-        return "user:" + user.getId();
     }
 
     private boolean hasText(String value) {

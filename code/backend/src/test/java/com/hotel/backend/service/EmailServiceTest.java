@@ -56,8 +56,8 @@ class EmailServiceTest {
         ReflectionTestUtils.setField(templateRenderer, "hotelEmail", "support@example.com");
         ReflectionTestUtils.setField(templateRenderer, "frontendBaseUrl", "http://localhost:3000");
         emailService = new EmailService(
-                verificationSendGrid,
-                transactionalSendGrid,
+                new SendGridEmailDeliveryGateway(verificationSendGrid),
+                new SendGridEmailDeliveryGateway(transactionalSendGrid),
                 userRepository,
                 reservationRepository,
                 templateRenderer);

@@ -11,13 +11,11 @@ import com.hotel.backend.dto.response.PaymentRefundResponse;
 import com.hotel.backend.dto.response.RefundPayoutConfigResponse;
 import com.hotel.backend.dto.response.SePayReviewEventResponse;
 import com.hotel.backend.dto.request.RefundRequest;
-import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.service.PaymentService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundPayoutConfigService;
 import com.hotel.backend.service.PaymentResultService;
-import com.hotel.backend.service.VNPayService;
 import com.hotel.backend.service.SePayService;
 import com.hotel.backend.service.RefundRecipientService;
 import com.hotel.backend.service.IdempotencyService;
@@ -35,7 +33,6 @@ import com.hotel.backend.dto.request.CancelRefundRequest;
 import com.hotel.backend.dto.response.RefundRecipientResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +44,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.prepost.PreAuthorize;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +56,6 @@ public class PaymentController {
 
     private final PaymentService paymentService;
     private final PaymentResultService paymentResultService;
-    private final VNPayService vnPayService;
     private final SePayService sePayService;
     private final PaymentRefundService paymentRefundService;
     private final RefundPayoutConfigService refundPayoutConfigService;
@@ -279,51 +274,6 @@ public class PaymentController {
         return ResponseEntity.ok(response);
     }
 
-    // ==================== VNPAY CALLBACKS ====================
-
-    /**
-     * GET /api/payments/vnpay/return
-     * VNPay redirect khách hàng về đây sau khi thanh toán (qua browser)
-     */
-    @Operation(summary = "VNPay return callback", description = "API handle VNPay browser return callback after payment")
-    @GetMapping("/vnpay/return")
-    public void vnpayReturn(
-            @RequestParam Map<String, String> params,
-            HttpServletResponse response) throws IOException {
-
-        log.info("VNPay Return URL được gọi");
-
-        try {
-            PaymentTransaction transaction = vnPayService.handleReturn(params);
-            // Chỉ chuyển mã UUID tra cứu. Trạng thái, số tiền và booking được
-            // frontend đối chiếu lại từ backend, không tin dữ liệu query string.
-            String redirectUrl = String.format(
-                    "%s/booking/payment-result?transactionId=%s",
-                    frontendBaseUrl, transaction.getId()
-            );
-            response.sendRedirect(redirectUrl);
-
-        } catch (Exception e) {
-            log.error("Lỗi xử lý VNPay Return: {}", e.getMessage());
-            response.sendRedirect(frontendBaseUrl + "/booking/payment-result?status=error");
-        }
-    }
-
-    /**
-     * GET /api/payments/vnpay/ipn
-     * VNPay server gọi endpoint này để xác nhận giao dịch (server-to-server)
-     * Đây là endpoint QUAN TRỌNG NHẤT để cập nhật DB
-     */
-    @Operation(summary = "VNPay IPN callback", description = "API handle VNPay server-to-server payment notification")
-    @GetMapping("/vnpay/ipn")
-    public ResponseEntity<Map<String, String>> vnpayIPN(
-            @RequestParam Map<String, String> params) {
-
-        log.info("VNPay IPN được gọi");
-        Map<String, String> result = vnPayService.handleIPN(params);
-        return ResponseEntity.ok(result);
-    }
-
     // ==================== TRUY VẤN GIAO DỊCH ====================
 
     /**
@@ -503,23 +453,6 @@ public class PaymentController {
                 Map.of("refundId", refundId, "request", request),
                 "PAYMENT_REFUND",
                 () -> paymentRefundService.completeCashAtCounter(refundId, request, currentUser),
-                PaymentRefundResponse::getRefundId,
-                paymentRefundService::getById));
-    }
-
-    @PatchMapping("/refund/{refundId}/reconcile")
-    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
-    public ResponseEntity<PaymentRefundResponse> reconcileRefund(
-            @PathVariable String refundId,
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @AuthenticationPrincipal User currentUser) {
-        return ResponseEntity.ok(idempotencyService.execute(
-                idempotencyKey,
-                "REFUND_RECONCILE",
-                idempotencyService.actorScope(currentUser, null),
-                Map.of("refundId", refundId),
-                "PAYMENT_REFUND",
-                () -> paymentService.reconcileRefund(refundId),
                 PaymentRefundResponse::getRefundId,
                 paymentRefundService::getById));
     }

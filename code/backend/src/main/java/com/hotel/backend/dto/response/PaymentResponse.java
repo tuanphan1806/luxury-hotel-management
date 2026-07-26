@@ -28,7 +28,6 @@ public class PaymentResponse {
     private Long refundRequiredAmount;
     private Long refundAmount;
     private PaymentProvider refundProvider;
-    private String requestedBankCode;
     private String bankCode;
     private String cardType;
     private String responseCode;
@@ -63,7 +62,6 @@ public class PaymentResponse {
                 .refundRequiredAmount(transaction.getRefundRequiredAmount())
                 .refundAmount(transaction.getRefundAmount())
                 .refundProvider(transaction.getRefundProvider())
-                .requestedBankCode(transaction.getRequestedBankCode())
                 .bankCode(transaction.getBankCode())
                 .cardType(transaction.getCardType())
                 .responseCode(transaction.getResponseCode())

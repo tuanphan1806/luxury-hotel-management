@@ -12,6 +12,7 @@ import ReservationRoomQuickViewModal, { type ReservationRoomQuickViewItem } from
 import { GALLERY_HERO_IMAGES } from "@/constants/content";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
+import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 
 type ReservationRoomOption = ReservationRoomQuickViewItem;
 
@@ -164,6 +165,14 @@ export default function ReservationPage() {
     () => selectedRoomBreakdown.reduce((sum, item) => sum + item.quantity, 0),
     [selectedRoomBreakdown],
   );
+  const selectedGuestCapacity = useMemo(
+    () => calculateSelectedGuestCapacity(selectedRoomBreakdown.map(({ room, quantity }) => ({
+      quantity,
+      maxGuestsPerRoom: room.maxGuestsPerRoom,
+    }))),
+    [selectedRoomBreakdown],
+  );
+  const hasEnoughGuestCapacity = selectedGuestCapacity >= totalGuests;
   const canAutoCheckAvailability = useMemo(() => {
     if (!checkIn || !checkOut || totalGuests < 1) return false;
     const checkInDate = new Date(checkIn);
@@ -323,6 +332,17 @@ export default function ReservationPage() {
       .join(",");
     if (!roomTypes) {
       setToast({ message: "Vui lòng chọn ít nhất một loại phòng.", type: "error" });
+      return;
+    }
+    if (!hasEnoughGuestCapacity) {
+      const missingGuests = totalGuests - selectedGuestCapacity;
+      setToast({
+        message: localize(
+          `Các phòng đã chọn còn thiếu sức chứa cho ${missingGuests} khách. Vui lòng tăng số phòng hoặc chọn thêm hạng phòng.`,
+          `The selected rooms are short of capacity for ${missingGuests} guest${missingGuests === 1 ? "" : "s"}. Add rooms or another room type.`,
+        ),
+        type: "error",
+      });
       return;
     }
     const params = new URLSearchParams({
@@ -491,6 +511,12 @@ export default function ReservationPage() {
                   <p className="mt-3 line-clamp-3 text-sm font-light leading-7 text-[#66727C]">
                     {localize(room.description, room.descriptionEn) || localize("Không gian nghỉ dưỡng yên tĩnh với đầy đủ tiện nghi cần thiết cho chuyến đi.", "A calm room with the essential facilities for your stay.")}
                   </p>
+                  <p className="mt-3 text-xs font-bold text-[#0F2A43]">
+                    {localize(
+                      `Tối đa ${normalizeGuestCapacity(room.maxGuestsPerRoom)} khách / phòng`,
+                      `Up to ${normalizeGuestCapacity(room.maxGuestsPerRoom)} guests / room`,
+                    )}
+                  </p>
                   <span className="mt-5 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#80632F]">
                     {localize("Xem nhanh chi tiết", "Quick view")} <span aria-hidden="true" className="text-base transition group-hover:translate-x-1">→</span>
                   </span>
@@ -526,8 +552,18 @@ export default function ReservationPage() {
                   return <li key={room.id} className="rounded-full border border-white/18 bg-white/10 px-3 py-1 text-xs font-bold text-[#FFFDF8]">{localize(viLabel, enLabel)}</li>;
                 })}
               </ul>
+              <p className={`mt-2 text-xs font-semibold ${hasEnoughGuestCapacity ? "text-emerald-200" : "text-amber-200"}`}>
+                {localize(
+                  `Sức chứa ${selectedGuestCapacity} khách · Đơn khai báo ${totalGuests} khách${hasEnoughGuestCapacity ? "" : ` · Còn thiếu ${totalGuests - selectedGuestCapacity}`}`,
+                  `Capacity ${selectedGuestCapacity} · ${totalGuests} declared guests${hasEnoughGuestCapacity ? "" : ` · ${totalGuests - selectedGuestCapacity} short`}`,
+                )}
+              </p>
             </div>
-            <button onClick={continueBooking} className="rounded-[1.25rem] bg-[#B8944F] px-7 py-4 text-xs font-bold uppercase tracking-[0.18em] text-[#0F2A43]">
+            <button
+              onClick={continueBooking}
+              disabled={!hasEnoughGuestCapacity}
+              className="rounded-[1.25rem] bg-[#B8944F] px-7 py-4 text-xs font-bold uppercase tracking-[0.18em] text-[#0F2A43] transition hover:bg-[#C9A863] disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/55"
+            >
               {localize("Tiếp tục đặt phòng", "Continue booking")}
             </button>
           </div>

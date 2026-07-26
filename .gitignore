@@ -6,6 +6,8 @@ target/
 .next-dev/
 dist/
 coverage/
+playwright-report/
+test-results/
 *.tsbuildinfo
 
 # Runtime output

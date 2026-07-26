@@ -6,7 +6,7 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { clearIdempotencyKey, getOrCreateIdempotencyKey } from "@/lib/idempotency";
 import BankAccountFields from "@/components/forms/BankAccountFields";
 
-export type RefundRoute = "NONE" | "VNPAY_ORIGINAL" | "MANUAL_BANK_TRANSFER" | "CASH_AT_COUNTER" | "MIXED";
+export type RefundRoute = "NONE" | "MANUAL_BANK_TRANSFER" | "CASH_AT_COUNTER" | "MIXED";
 export type RefundDestinationStatus = "NOT_REQUIRED" | "REQUIRED" | "SUBMITTED" | "VERIFIED";
 type RefundRecipientApiStatus = RefundDestinationStatus | "REJECTED" | "SUPERSEDED";
 

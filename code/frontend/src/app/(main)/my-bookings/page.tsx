@@ -665,12 +665,10 @@ export default function MyBookingsPage() {
                           </div>
                         )}
                         <RefundProgressCard refunds={booking.refunds} />
-                        {(booking.refundRoute === "VNPAY_ORIGINAL" || booking.refundRoute === "MIXED") && (
+                        {booking.refundRoute === "MIXED" && (
                           <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                            <p className="font-bold">{localize("Hoàn về phương thức thanh toán ban đầu", "Refund to the original payment method")}</p>
-                            <p className="mt-1 leading-6">{booking.refundRoute === "MIXED"
-                              ? localize("Phần giao dịch lịch sử hoàn theo nguồn gốc; phần hoàn QR cần tài khoản ngân hàng bên dưới.", "The legacy transaction portion returns to its original source; the QR portion requires the bank account below.")
-                              : localize("Khoản hoàn thuộc giao dịch lịch sử được xử lý theo nguồn gốc; bạn không cần cung cấp tài khoản ngân hàng.", "The legacy refund is processed against its original transaction; no bank details are required.")}</p>
+                            <p className="font-bold">{localize("Đơn có nhiều kênh hoàn tiền", "Multiple refund channels")}</p>
+                            <p className="mt-1 leading-6">{localize("Các khoản hoàn QR và tiền mặt được theo dõi độc lập trong sổ đối soát.", "QR and cash refunds are tracked independently in the refund ledger.")}</p>
                           </div>
                         )}
                         {(booking.refundRoute === "MANUAL_BANK_TRANSFER" || booking.refundRoute === "MIXED") && (

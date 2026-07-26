@@ -5,7 +5,8 @@ import createNextIntlPlugin from 'next-intl/plugin';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendOrigin = (process.env.BACKEND_INTERNAL_URL || 'http://localhost:8080').replace(/\/+$/, '');
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
-const standaloneOutputEnabled = process.env.NEXT_DISABLE_STANDALONE !== 'true';
+const standaloneOutputEnabled = process.env.NEXT_DISABLE_STANDALONE !== 'true'
+  && (process.platform !== 'win32' || process.env.NEXT_ENABLE_STANDALONE === 'true');
 
 const imageOrigins = [
   'https://images.unsplash.com',
@@ -35,9 +36,10 @@ const remotePatterns = Array.from(new Map(imageOrigins.flatMap((origin) => {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Produces a minimal self-contained server for Docker while remaining
-  // compatible with Vercel deployments. Windows contributors can disable
-  // symlink-heavy trace copying with NEXT_DISABLE_STANDALONE=true.
+  // Linux/Docker produces a minimal self-contained server. Native Windows
+  // defaults to the regular build because trace copying relies on symlinks
+  // that are unavailable on many developer machines. It can still be opted
+  // into explicitly with NEXT_ENABLE_STANDALONE=true.
   ...(standaloneOutputEnabled ? { output: 'standalone' } : {}),
   poweredByHeader: false,
   compress: true,

@@ -100,7 +100,6 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
   const paymentProviderLabel = (value?: string) => {
     const labels: Record<string, { vi: string; en: string }> = {
       SEPAY: { vi: "SePay VietQR", en: "SePay VietQR" },
-      VNPAY: { vi: "Cổng thanh toán cũ", en: "Legacy payment gateway" },
       CASH: { vi: "Tiền mặt", en: "Cash" },
     };
     const normalizedValue = value?.toUpperCase() || "";
@@ -119,11 +118,9 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
         : "text-rose-700";
   const refundChannelLabel = (channel?: string, provider?: string) => {
     const labels: Record<string, { vi: string; en: string }> = {
-      VNPAY_ORIGINAL: { vi: "Hoàn theo giao dịch gốc", en: "Original transaction refund" },
       MANUAL_BANK_TRANSFER: { vi: "Chuyển khoản ngân hàng", en: "Bank transfer" },
       CASH_AT_COUNTER: { vi: "Tiền mặt tại quầy", en: "Cash at front desk" },
       SEPAY: { vi: "SePay VietQR", en: "SePay VietQR" },
-      VNPAY: { vi: "Cổng thanh toán cũ", en: "Legacy payment gateway" },
       CASH: { vi: "Tiền mặt", en: "Cash" },
     };
     const value = channel || provider;
