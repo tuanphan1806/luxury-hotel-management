@@ -31,4 +31,8 @@ public class CreateWalkInReservationRequest {
     @NotEmpty(message = "Phải chọn ít nhất 1 loại phòng")
     @Valid
     private List<RoomTypeItemRequest> roomTypes;
+
+    @Valid
+    @Builder.Default
+    private List<ServiceOrderRequest> services = List.of();
 }

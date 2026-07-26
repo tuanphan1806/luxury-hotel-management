@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Công cụ migration chạy một lần để chuyển bộ ảnh seed trong
@@ -33,8 +34,9 @@ import java.util.Set;
 public class CloudinaryStaticMediaMigration implements CommandLineRunner {
 
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp");
-    private static final List<String> STATIC_DIRECTORIES = List.of(
+    private static final List<String> DEFAULT_STATIC_DIRECTORIES = List.of(
             "avatar",
+            "add_on_services",
             "facilities",
             "galeries",
             "room_types");
@@ -42,6 +44,7 @@ public class CloudinaryStaticMediaMigration implements CommandLineRunner {
     private final Cloudinary cloudinary;
     private final String rootFolder;
     private final String storageProvider;
+    private final List<String> staticDirectories;
     private final PathMatchingResourcePatternResolver resourceResolver =
             new PathMatchingResourcePatternResolver();
 
@@ -50,9 +53,11 @@ public class CloudinaryStaticMediaMigration implements CommandLineRunner {
             @Value("${app.upload.cloudinary.api-key:}") String apiKey,
             @Value("${app.upload.cloudinary.api-secret:}") String apiSecret,
             @Value("${app.upload.cloudinary.folder:hotel-media}") String rootFolder,
+            @Value("${app.upload.static-migration-directories:}") String staticMigrationDirectories,
             @Value("${app.upload.storage:local}") String storageProvider) {
         this.storageProvider = requireValue(storageProvider, "app.upload.storage");
         this.rootFolder = normalizeFolder(rootFolder);
+        this.staticDirectories = parseDirectories(staticMigrationDirectories);
         this.cloudinary = new Cloudinary(ObjectUtils.asMap(
                 "cloud_name", requireValue(cloudName, "app.upload.cloudinary.cloud-name"),
                 "api_key", requireValue(apiKey, "app.upload.cloudinary.api-key"),
@@ -68,7 +73,7 @@ public class CloudinaryStaticMediaMigration implements CommandLineRunner {
         }
 
         int uploaded = 0;
-        for (String directory : STATIC_DIRECTORIES) {
+        for (String directory : staticDirectories) {
             Resource[] resources = resourceResolver.getResources(
                     "classpath*:static/" + directory + "/*.*");
             for (Resource resource : resources) {
@@ -141,6 +146,22 @@ public class CloudinaryStaticMediaMigration implements CommandLineRunner {
             throw new IllegalArgumentException("app.upload.cloudinary.folder is invalid");
         }
         return normalized;
+    }
+
+    private static List<String> parseDirectories(String value) {
+        if (value == null || value.isBlank()) {
+            return DEFAULT_STATIC_DIRECTORIES;
+        }
+        List<String> requested = Stream.of(value.split(","))
+                .map(String::trim)
+                .filter(directory -> !directory.isBlank())
+                .distinct()
+                .toList();
+        if (requested.isEmpty() || !DEFAULT_STATIC_DIRECTORIES.containsAll(requested)) {
+            throw new IllegalArgumentException(
+                    "app.upload.static-migration-directories contains an unsupported directory");
+        }
+        return requested;
     }
 
     private static String requireValue(String value, String propertyName) {

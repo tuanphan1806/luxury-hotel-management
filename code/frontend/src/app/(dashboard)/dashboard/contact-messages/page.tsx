@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient, cachedGet } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
 import ViewportModal from "@/components/UI/ViewportModal";
@@ -11,6 +11,14 @@ import {
   DashboardSelectField,
   FilterQuickButton,
 } from "@/components/dashboard/DashboardFilterPanel";
+import DashboardTimeGroupingControl from "@/components/dashboard/DashboardTimeGroupingControl";
+import {
+  DashboardTimeGrouping,
+  DashboardTimeScope,
+  formatDashboardTimeGroupLabel,
+  groupByCalendarTime,
+  matchesPointTimeScope,
+} from "@/lib/dashboard-time";
 
 type ContactStatus = "NEW" | "READ" | "RESOLVED";
 
@@ -43,6 +51,8 @@ export default function ContactMessagesPage() {
   const [loadError, setLoadError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | ContactStatus>("ALL");
+  const [timeScope, setTimeScope] = useState<DashboardTimeScope>("ALL");
+  const [timeGrouping, setTimeGrouping] = useState<DashboardTimeGrouping>("DAY");
   const [selectedMessage, setSelectedMessage] = useState<ContactMessage | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ContactMessage | null>(null);
   const [actionId, setActionId] = useState<number | null>(null);
@@ -124,11 +134,25 @@ export default function ContactMessagesPage() {
         const matchesStatus = statusFilter === "ALL" || message.status === statusFilter;
         const matchesSearch = !keyword || [message.name, message.email, message.phone, message.subject, message.message]
           .some((value) => value?.toLowerCase().includes(keyword));
-        return matchesStatus && matchesSearch;
+        const matchesTime = matchesPointTimeScope(message.createdAt, timeScope);
+        return matchesStatus && matchesSearch && matchesTime;
       })
       .sort((left, right) => priority[left.status] - priority[right.status]
         || new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-  }, [messages, searchQuery, statusFilter]);
+  }, [messages, searchQuery, statusFilter, timeScope]);
+
+  const groupedMessages = useMemo(
+    () => groupByCalendarTime(filteredMessages, (message) => message.createdAt, timeGrouping),
+    [filteredMessages, timeGrouping],
+  );
+
+  const timeGroupLabel = (group: (typeof groupedMessages)[number]) => formatDashboardTimeGroupLabel(
+    group,
+    timeGrouping,
+    localeTag,
+    localize("Tuần", "Week"),
+    localize("Chưa xác định thời gian", "Unknown date"),
+  );
 
   const openMessage = (message: ContactMessage) => {
     setSelectedMessage(message);
@@ -230,13 +254,14 @@ export default function ContactMessagesPage() {
         description={localize("Tìm theo người gửi, thông tin liên hệ, chủ đề hoặc nội dung", "Search by sender, contact details, subject or message")}
         resultCount={filteredMessages.length}
         resultLabel={localize("yêu cầu phù hợp", "matching requests")}
-        resultNote={localize("tin mới được ưu tiên trước", "new messages appear first")}
-        hasActiveFilters={Boolean(searchQuery || statusFilter !== "ALL")}
-        activeFilterCount={Number(Boolean(searchQuery)) + Number(statusFilter !== "ALL")}
+        resultNote={localize("nhóm theo thời điểm tiếp nhận", "grouped by received time")}
+        hasActiveFilters={Boolean(searchQuery || statusFilter !== "ALL" || timeScope !== "ALL")}
+        activeFilterCount={Number(Boolean(searchQuery)) + Number(statusFilter !== "ALL") + Number(timeScope !== "ALL")}
         activeFilterLabel={localize("bộ lọc đang dùng", "active filters")}
         onReset={() => {
           setSearchQuery("");
           setStatusFilter("ALL");
+          setTimeScope("ALL");
         }}
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={(
@@ -246,7 +271,7 @@ export default function ContactMessagesPage() {
           </>
         )}
       >
-        <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)]">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(13rem,1fr)_minmax(13rem,1fr)]">
           <DashboardSearchField
             id="contact-search"
             label={localize("Tìm kiếm", "Search")}
@@ -261,6 +286,12 @@ export default function ContactMessagesPage() {
             <option value="READ">{statusLabel("READ")}</option>
             <option value="RESOLVED">{statusLabel("RESOLVED")}</option>
           </DashboardSelectField>
+          <DashboardSelectField id="contact-time-scope" label={localize("Thời gian tiếp nhận", "Received time")} value={timeScope} onChange={(event) => setTimeScope(event.target.value as DashboardTimeScope)}>
+            <option value="ALL">{localize("Tất cả thời gian", "All time")}</option>
+            <option value="TODAY">{localize("Hôm nay", "Today")}</option>
+            <option value="WEEK">{localize("Tuần này", "This week")}</option>
+            <option value="MONTH">{localize("Tháng này", "This month")}</option>
+          </DashboardSelectField>
         </div>
       </DashboardFilterPanel>
 
@@ -268,7 +299,13 @@ export default function ContactMessagesPage() {
 
         <div className="flex flex-col gap-2 border-b border-[#0F2A43]/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div><h2 id="contact-list-title" className="font-bold text-[#0F2A43]">{localize("Hộp thư liên hệ", "Contact inbox")}</h2><p className="mt-0.5 text-xs text-[#66727C]">{filteredMessages.length} {localize("yêu cầu · Tin mới được ưu tiên trước", "requests · New messages appear first")}</p></div>
-          <span className="text-xs font-semibold text-[#66727C] sm:text-right">{localize("Mở yêu cầu để đọc và phản hồi", "Open a request to review and reply")}</span>
+          <DashboardTimeGroupingControl
+            value={timeGrouping}
+            onChange={setTimeGrouping}
+            title={localize("Nhóm theo", "Group by")}
+            ariaLabel={localize("Nhóm liên hệ theo thời gian tiếp nhận", "Group contacts by received time")}
+            labels={{ day: localize("Ngày", "Day"), week: localize("Tuần", "Week"), month: localize("Tháng", "Month") }}
+          />
         </div>
 
         {loadError && <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700" role="alert">{loadError}</div>}
@@ -281,10 +318,32 @@ export default function ContactMessagesPage() {
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[940px] text-left text-sm">
                 <thead className="bg-[#F1F0EA] text-xs font-bold text-[#66727C]"><tr><th className="w-2 p-0"><span className="sr-only">{localize("Mức ưu tiên", "Priority")}</span></th><th className="px-5 py-3">{localize("Người gửi", "Sender")}</th><th className="px-5 py-3">{localize("Nội dung yêu cầu", "Request")}</th><th className="px-5 py-3">{localize("Tiếp nhận", "Received")}</th><th className="px-5 py-3">{localize("Trạng thái", "Status")}</th><th className="px-5 py-3 text-right">{localize("Xử lý", "Process")}</th></tr></thead>
-                <tbody className="divide-y divide-[#0F2A43]/8">{filteredMessages.map((message) => <tr key={message.id} className={`align-top hover:bg-[#FBFAF6] ${message.status === "NEW" ? "bg-amber-50/30" : ""}`}><td className={`w-1 p-0 ${message.status === "NEW" ? "bg-amber-500" : message.status === "READ" ? "bg-blue-400" : "bg-emerald-500"}`} /><td className="px-5 py-4"><div className="flex items-center gap-2"><p className="font-bold text-[#0F2A43]">{message.name}</p>{message.status === "NEW" && <span className="h-2 w-2 rounded-full bg-amber-500" aria-label={localize("Chưa đọc", "Unread")} />}</div><p className="mt-1 text-xs text-[#66727C]">{message.email}</p>{message.phone && <p className="mt-0.5 text-xs text-[#66727C]">{message.phone}</p>}</td><td className="max-w-md px-5 py-4"><p className="font-semibold text-[#27445F]">{message.subject}</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-[#66727C]">{message.message}</p>{message.repliedAt && <p className="mt-2 text-xs font-semibold text-emerald-700">{localize("Đã gửi phản hồi", "Reply sent")} · {formatDateTime(message.repliedAt)}</p>}</td><td className="whitespace-nowrap px-5 py-4 text-xs tabular-nums text-[#66727C]">{formatDateTime(message.createdAt)}</td><td className="px-5 py-4"><span className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${statusClass(message.status)}`}>{statusLabel(message.status)}</span></td><td className="px-5 py-4 text-right"><button type="button" onClick={() => openMessage(message)} className="min-h-10 rounded-lg bg-[#0F2A43] px-4 text-xs font-bold text-white hover:bg-[#091E30]">{message.status === "RESOLVED" ? localize("Xem chi tiết", "View details") : localize("Mở & xử lý", "Open & process")}</button></td></tr>)}</tbody>
+                <tbody className="divide-y divide-[#0F2A43]/8">
+                  {groupedMessages.map((group) => (
+                    <Fragment key={group.key}>
+                      <tr className="bg-[#EAE2D2]/70">
+                        <th colSpan={6} scope="rowgroup" className="px-5 py-2 text-left">
+                          <span className="text-[11px] font-black uppercase tracking-[0.12em] text-[#80632F]">{timeGroupLabel(group)}</span>
+                          <span className="ml-2 text-[11px] font-semibold text-[#66727C]">· {group.items.length} {localize("yêu cầu", "requests")}</span>
+                        </th>
+                      </tr>
+                      {group.items.map((message) => <tr key={message.id} className={`align-top hover:bg-[#FBFAF6] ${message.status === "NEW" ? "bg-amber-50/30" : ""}`}><td className={`w-1 p-0 ${message.status === "NEW" ? "bg-amber-500" : message.status === "READ" ? "bg-blue-400" : "bg-emerald-500"}`} /><td className="px-5 py-4"><div className="flex items-center gap-2"><p className="font-bold text-[#0F2A43]">{message.name}</p>{message.status === "NEW" && <span className="h-2 w-2 rounded-full bg-amber-500" aria-label={localize("Chưa đọc", "Unread")} />}</div><p className="mt-1 text-xs text-[#66727C]">{message.email}</p>{message.phone && <p className="mt-0.5 text-xs text-[#66727C]">{message.phone}</p>}</td><td className="max-w-md px-5 py-4"><p className="font-semibold text-[#27445F]">{message.subject}</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-[#66727C]">{message.message}</p>{message.repliedAt && <p className="mt-2 text-xs font-semibold text-emerald-700">{localize("Đã gửi phản hồi", "Reply sent")} · {formatDateTime(message.repliedAt)}</p>}</td><td className="whitespace-nowrap px-5 py-4 text-xs tabular-nums text-[#66727C]">{formatDateTime(message.createdAt)}</td><td className="px-5 py-4"><span className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${statusClass(message.status)}`}>{statusLabel(message.status)}</span></td><td className="px-5 py-4 text-right"><button type="button" onClick={() => openMessage(message)} className="min-h-10 rounded-lg bg-[#0F2A43] px-4 text-xs font-bold text-white hover:bg-[#091E30]">{message.status === "RESOLVED" ? localize("Xem chi tiết", "View details") : localize("Mở & xử lý", "Open & process")}</button></td></tr>)}
+                    </Fragment>
+                  ))}
+                </tbody>
               </table>
             </div>
-            <div className="divide-y divide-[#0F2A43]/10 md:hidden">{filteredMessages.map((message) => <button key={message.id} type="button" onClick={() => openMessage(message)} className={`relative w-full overflow-hidden p-4 text-left ${message.status === "NEW" ? "bg-amber-50/30" : ""}`}><span className={`absolute inset-y-0 left-0 w-1 ${message.status === "NEW" ? "bg-amber-500" : message.status === "READ" ? "bg-blue-400" : "bg-emerald-500"}`} /><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><p className="font-bold text-[#0F2A43]">{message.name}</p>{message.status === "NEW" && <span className="h-2 w-2 rounded-full bg-amber-500" />}</div><p className="mt-1 text-xs text-[#66727C]">{formatDateTime(message.createdAt)}</p></div><span className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${statusClass(message.status)}`}>{statusLabel(message.status)}</span></div><p className="mt-3 truncate text-sm font-semibold text-[#27445F]">{message.subject}</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-[#66727C]">{message.message}</p>{message.repliedAt && <p className="mt-2 text-xs font-semibold text-emerald-700">{localize("Đã gửi phản hồi", "Reply sent")}</p>}</button>)}</div>
+            <div className="md:hidden">
+              {groupedMessages.map((group) => (
+                <section key={group.key} aria-label={timeGroupLabel(group)}>
+                  <div className="flex items-center justify-between border-y border-[#0F2A43]/8 bg-[#EAE2D2]/70 px-4 py-2">
+                    <h3 className="text-[11px] font-black uppercase tracking-[0.12em] text-[#80632F]">{timeGroupLabel(group)}</h3>
+                    <span className="text-[11px] font-semibold text-[#66727C]">{group.items.length}</span>
+                  </div>
+                  <div className="divide-y divide-[#0F2A43]/10">{group.items.map((message) => <button key={message.id} type="button" onClick={() => openMessage(message)} className={`relative w-full overflow-hidden p-4 text-left ${message.status === "NEW" ? "bg-amber-50/30" : ""}`}><span className={`absolute inset-y-0 left-0 w-1 ${message.status === "NEW" ? "bg-amber-500" : message.status === "READ" ? "bg-blue-400" : "bg-emerald-500"}`} /><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><p className="font-bold text-[#0F2A43]">{message.name}</p>{message.status === "NEW" && <span className="h-2 w-2 rounded-full bg-amber-500" />}</div><p className="mt-1 text-xs text-[#66727C]">{formatDateTime(message.createdAt)}</p></div><span className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${statusClass(message.status)}`}>{statusLabel(message.status)}</span></div><p className="mt-3 truncate text-sm font-semibold text-[#27445F]">{message.subject}</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-[#66727C]">{message.message}</p>{message.repliedAt && <p className="mt-2 text-xs font-semibold text-emerald-700">{localize("Đã gửi phản hồi", "Reply sent")}</p>}</button>)}</div>
+                </section>
+              ))}
+            </div>
           </>
         )}
       </section>

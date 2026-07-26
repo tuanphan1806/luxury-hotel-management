@@ -17,6 +17,8 @@ import GuestPageHero from "@/components/guest/GuestPageHero";
 import BankAccountFields from "@/components/forms/BankAccountFields";
 import { GALLERY_HERO_IMAGES } from "@/constants/content";
 import ViewportModal from "@/components/UI/ViewportModal";
+import ReservationServicesPanel from "@/components/add-on-services/ReservationServicesPanel";
+import type { ReservationServiceItem } from "@/lib/add-on-services";
 
 const ReservationInvoiceModal = dynamic(
   () => import("@/components/reservations/ReservationInvoiceModal"),
@@ -41,6 +43,8 @@ interface Booking {
   refundBankSummary?: string;
   refunds: CustomerRefund[];
   roomTypes: Array<{ roomTypeId: number; roomTypeName: string; roomTypeNameEn?: string }>;
+  addOnServiceAmount: number;
+  services: ReservationServiceItem[];
 }
 
 interface MyReview { id: number; reservationId: number; roomTypeId: number; rating: number; comment?: string; }
@@ -72,6 +76,8 @@ interface ApiReservation {
   refundBankSummary?: string;
   refunds?: CustomerRefund[];
   roomTypes?: ApiReservationRoomType[];
+  addOnServiceAmount?: number;
+  services?: ReservationServiceItem[];
 }
 
 const getApiErrorMessage = (error: unknown, fallback: string) =>
@@ -175,6 +181,8 @@ export default function MyBookingsPage() {
             refunds: Array.isArray(r.refunds) ? r.refunds : [],
             id: r.id,
             roomTypes: normalizedRoomTypes,
+            addOnServiceAmount: Number(r.addOnServiceAmount || 0),
+            services: Array.isArray(r.services) ? r.services : [],
           };
         });
         setBookings(apiBookings);
@@ -665,6 +673,16 @@ export default function MyBookingsPage() {
                           </div>
                         )}
                         <RefundProgressCard refunds={booking.refunds} />
+                        {(booking.status === "CHECKED_IN" || booking.services.length > 0) && (
+                          <ReservationServicesPanel
+                            reservationId={booking.id}
+                            reservationCode={booking.bookingId}
+                            reservationStatus={booking.status}
+                            guestCount={Number(booking.guestCount) || 1}
+                            initialServices={booking.services}
+                            onChanged={() => void loadBookings()}
+                          />
+                        )}
                         {booking.refundRoute === "MIXED" && (
                           <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
                             <p className="font-bold">{localize("Đơn có nhiều kênh hoàn tiền", "Multiple refund channels")}</p>

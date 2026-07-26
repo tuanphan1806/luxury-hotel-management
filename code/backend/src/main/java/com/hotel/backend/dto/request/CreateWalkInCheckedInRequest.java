@@ -45,6 +45,10 @@ public class CreateWalkInCheckedInRequest {
     @Valid
     private List<WalkInPriceOverrideRequest> priceOverrides;
 
+    @Valid
+    @Builder.Default
+    private List<ServiceOrderRequest> services = List.of();
+
     @NotNull(message = "Phương án thanh toán walk-in không được để trống")
     private WalkInPaymentOption paymentOption;
 

@@ -24,6 +24,23 @@ import {
   FilterQuickButton,
 } from "@/components/dashboard/DashboardFilterPanel";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
+import BookingAddOnSelector from "@/components/add-on-services/BookingAddOnSelector";
+import ReservationServicesPanel from "@/components/add-on-services/ReservationServicesPanel";
+import {
+  type AddOnSelection,
+  type AddOnServiceItem,
+  type ReservationServiceItem,
+  chargeableNights,
+  getAddOnCatalog,
+} from "@/lib/add-on-services";
+import {
+  DashboardTimeGrouping,
+  DashboardTimeScope,
+  formatDashboardTimeGroupLabel,
+  groupByCalendarTime,
+  matchesIntervalTimeScope,
+} from "@/lib/dashboard-time";
+import DashboardTimeGroupingControl from "@/components/dashboard/DashboardTimeGroupingControl";
 
 const ReservationInvoiceModal = dynamic(
   () => import("@/components/reservations/ReservationInvoiceModal"),
@@ -91,6 +108,8 @@ interface ReservationItem {
   refundBankSummary?: string;
   roomTypes?: ReservationRoomType[];
   rooms?: ReservationRoomAssignment[];
+  addOnServiceAmount?: number;
+  services?: ReservationServiceItem[];
 }
 
 interface WalkInOperationResponse {
@@ -131,6 +150,7 @@ interface FinalPayment {
   refundableAmount?: number;
   earlyCheckoutAdjustment?: number;
   checkoutAdditionalFee?: number;
+  addOnServiceAmount?: number;
   fullyPaid: boolean;
   reconciliationStatus: "MATCHED" | "MISMATCH";
   blockingReasons: string[];
@@ -151,6 +171,7 @@ interface CheckoutReconciliationApi {
   lateCheckoutFee?: number;
   earlyCheckoutAdjustment?: number;
   checkoutAdditionalFee?: number;
+  addOnServiceAmount?: number;
   paymentPending: boolean;
   refundPending: boolean;
   status: "MATCHED" | "MISMATCH";
@@ -483,7 +504,7 @@ function AssignedRoomDisplay({
 }
 
 export default function ReservationsManagement() {
-  const { locale, localize } = useLanguage();
+  const { locale, localeTag, localize } = useLanguage();
   const { isAdmin } = useDashboardRole();
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
   const [availableRooms, setAvailableRooms] = useState<RoomItem[]>([]);
@@ -491,9 +512,12 @@ export default function ReservationsManagement() {
   const [finalPayment, setFinalPayment] = useState<FinalPayment | null>(null);
   const [checkInDrafts, setCheckInDrafts] = useState<CheckInRoomDraft[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [linkedReservationCode, setLinkedReservationCode] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<"ALL" | ReservationStatus>("ALL");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("ALL");
   const [stayDate, setStayDate] = useState("");
+  const [timeScope, setTimeScope] = useState<DashboardTimeScope>("ALL");
+  const [timeGrouping, setTimeGrouping] = useState<DashboardTimeGrouping>("DAY");
   const [isLoading, setIsLoading] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -505,6 +529,10 @@ export default function ReservationsManagement() {
   const [walkInPriceOverrides, setWalkInPriceOverrides] = useState<Record<number, WalkInPriceOverrideDraft>>({});
   const [walkInNow, setWalkInNow] = useState(new Date());
   const [walkInPaymentMethod, setWalkInPaymentMethod] = useState<"NONE" | "CASH" | "SEPAY">("NONE");
+  const [walkInAddOnCatalog, setWalkInAddOnCatalog] = useState<AddOnServiceItem[]>([]);
+  const [walkInAddOnSelections, setWalkInAddOnSelections] = useState<Record<number, AddOnSelection>>({});
+  const [isWalkInAddOnLoading, setIsWalkInAddOnLoading] = useState(false);
+  const [walkInAddOnError, setWalkInAddOnError] = useState("");
   const [isRefundFeeOpen, setIsRefundFeeOpen] = useState(false);
   const [refundAdditionalFee, setRefundAdditionalFee] = useState("0");
   const [refundFeeReasonCode, setRefundFeeReasonCode] = useState("LATE_SERVICE_CHARGE");
@@ -557,6 +585,7 @@ export default function ReservationsManagement() {
   const [isManualProofUploading, setIsManualProofUploading] = useState(false);
   const [manualQrFailed, setManualQrFailed] = useState(false);
   const [invoice, setInvoice] = useState<ReservationInvoice | null>(null);
+  const [serviceReservationTarget, setServiceReservationTarget] = useState<ReservationItem | null>(null);
   const [reservationAuditTarget, setReservationAuditTarget] = useState<ReservationItem | null>(null);
   const [reservationAuditLogs, setReservationAuditLogs] = useState<ReservationAuditItem[]>([]);
   const [reservationAuditError, setReservationAuditError] = useState("");
@@ -591,6 +620,18 @@ export default function ReservationsManagement() {
       .filter((room) => selectedWalkInRoomIds.includes(room.id))
       .map((room) => ({ quantity: 1, maxGuestsPerRoom: room.maxGuestsPerRoom })),
   );
+  const walkInGuestCount = Math.max(1, Number(walkInForm.guestCount) || 1);
+  const walkInServiceNights = chargeableNights(
+    formatDateTimeLocal(walkInNow),
+    walkInForm.checkOut,
+  );
+  const walkInSelectedAddOns = walkInAddOnCatalog
+    .filter((service) => Boolean(walkInAddOnSelections[service.id]))
+    .map((service) => ({
+      serviceId: service.id,
+      quantity: walkInAddOnSelections[service.id].quantity,
+      notes: walkInAddOnSelections[service.id].notes.trim() || undefined,
+    }));
   const checkInEnteredGuestCount = checkInDrafts
     .reduce((total, draft) => total + draft.guests.length, 0);
 
@@ -636,6 +677,9 @@ export default function ReservationsManagement() {
     setSelectedWalkInRoomIds([]);
     setWalkInGuestsByRoom({});
     setWalkInPriceOverrides({});
+    setWalkInAddOnSelections({});
+    setWalkInAddOnError("");
+    setIsWalkInAddOnLoading(true);
     try {
       const res = await apiClient.get("/api/rooms/search?status=AVAILABLE&cleaningStatus=CLEAN");
       const data = toData<RoomItem[]>(res);
@@ -659,7 +703,21 @@ export default function ReservationsManagement() {
       setWalkInRooms([]);
       showToast(getApiErrorMessage(error, "Không thể tải danh sách phòng trống sạch"), "error");
     }
-  }, [showToast]);
+    try {
+      setWalkInAddOnCatalog(await getAddOnCatalog("BOOKING_TIME"));
+    } catch (error: unknown) {
+      setWalkInAddOnCatalog([]);
+      setWalkInAddOnError(getApiErrorMessage(
+        error,
+        localize(
+          "Không thể tải dịch vụ thêm. Vẫn có thể tạo walk-in chỉ với phòng.",
+          "Could not load add-on services. You can still create the walk-in with rooms only.",
+        ),
+      ));
+    } finally {
+      setIsWalkInAddOnLoading(false);
+    }
+  }, [localize, showToast]);
 
   useEffect(() => {
     if (!isWalkInOpen) return;
@@ -953,9 +1011,13 @@ export default function ReservationsManagement() {
     if (Number.isFinite(finalPaymentId) && finalPaymentId > 0) {
       setPendingFinalPaymentId(finalPaymentId);
     }
-    const reservationId = params.get("reservationId");
-    if (reservationId) {
-      setSearchQuery(reservationId);
+    const reservationCode = params.get("reservationCode")?.trim();
+    const legacyReservationId = params.get("reservationId")?.trim();
+    if (reservationCode) {
+      setLinkedReservationCode(reservationCode);
+      setSearchQuery(reservationCode);
+    } else if (legacyReservationId) {
+      setSearchQuery(legacyReservationId);
     }
     const walkInRoomId = Number(params.get("walkInRoomId"));
     if (Number.isFinite(walkInRoomId) && walkInRoomId > 0) {
@@ -1002,13 +1064,16 @@ export default function ReservationsManagement() {
       const checkOutTime = new Date(reservation.checkOut).getTime();
       const matchesStayDate = selectedDayStart === null || selectedDayEnd === null
         || (checkInTime < selectedDayEnd && checkOutTime > selectedDayStart);
+      const matchesTimeScope = matchesIntervalTimeScope(reservation.checkIn, reservation.checkOut, timeScope);
       const matchesSearch =
         !keyword ||
         reservation.reservationCode?.toLowerCase().includes(keyword) ||
         reservation.customerName?.toLowerCase().includes(keyword) ||
         reservation.rooms?.some((room) => room.roomName?.toLowerCase().includes(keyword)) ||
         String(reservation.id).includes(keyword);
-      return matchesStatus && matchesPayment && matchesStayDate && matchesSearch;
+      const matchesLinkedReservation = !linkedReservationCode
+        || reservation.reservationCode?.toLowerCase() === linkedReservationCode.toLowerCase();
+      return matchesStatus && matchesPayment && matchesStayDate && matchesTimeScope && matchesSearch && matchesLinkedReservation;
     });
     return [...matched].sort((left, right) => {
       const refundPriority = Number(pendingRefundsByReservation.has(right.id)) - Number(pendingRefundsByReservation.has(left.id));
@@ -1040,7 +1105,20 @@ export default function ReservationsManagement() {
       }
       return leftTime - rightTime;
     });
-  }, [paymentFilter, pendingRefundsByReservation, reservations, searchQuery, selectedStatus, stayDate]);
+  }, [linkedReservationCode, paymentFilter, pendingRefundsByReservation, reservations, searchQuery, selectedStatus, stayDate, timeScope]);
+
+  const timeGroupedReservations = useMemo(
+    () => groupByCalendarTime(filteredReservations, (reservation) => reservation.checkIn, timeGrouping),
+    [filteredReservations, timeGrouping],
+  );
+
+  const timeGroupLabel = (group: (typeof timeGroupedReservations)[number]) => formatDashboardTimeGroupLabel(
+    group,
+    timeGrouping,
+    localeTag,
+    localize("Tuần", "Week"),
+    localize("Chưa xác định ngày nhận phòng", "Unknown arrival date"),
+  );
 
   const stats = useMemo(() => {
     return {
@@ -1429,7 +1507,11 @@ export default function ReservationsManagement() {
       const earlyAdjustment = reconciliation.earlyCheckoutAdjustment || 0;
       const lateFee = reconciliation.lateCheckoutFee || 0;
       const additionalFee = reconciliation.checkoutAdditionalFee || 0;
-      const roomCharge = Math.max(0, reconciliation.requiredAmount - lateFee - additionalFee);
+      const addOnServiceAmount = reconciliation.addOnServiceAmount || 0;
+      const roomCharge = Math.max(
+        0,
+        reconciliation.requiredAmount - lateFee - additionalFee - addOnServiceAmount,
+      );
       setSelectedReservation(toData<ReservationItem>(detailRes));
       setFinalPayment({
         reservationId: reconciliation.reservationId,
@@ -1441,6 +1523,7 @@ export default function ReservationsManagement() {
         lateCheckoutFee: lateFee,
         earlyCheckoutAdjustment: earlyAdjustment,
         checkoutAdditionalFee: additionalFee,
+        addOnServiceAmount,
         refundableAmount: reconciliation.uncoveredRefundAmount,
         fullyPaid: reconciliation.status === "MATCHED",
         reconciliationStatus: reconciliation.status,
@@ -2022,6 +2105,7 @@ export default function ReservationsManagement() {
           reasonCode: draft.reasonCode.trim(),
           note: draft.note.trim(),
         })),
+        services: walkInSelectedAddOns,
         paymentOption: walkInPaymentMethod === "NONE" ? "UNPAID" : walkInPaymentMethod,
       }, {
         headers: { "Idempotency-Key": getOrCreateIdempotencyKey(walkInOperationScope) },
@@ -2294,6 +2378,18 @@ export default function ReservationsManagement() {
           {localize("Không đến", "No-show")}
         </button>
       )}
+      {(reservation.status === "CONFIRMED" || reservation.status === "CHECKED_IN") && !cancellationRefundPending && (
+        <button
+          type="button"
+          onClick={() => setServiceReservationTarget(reservation)}
+          className="min-h-10 rounded-lg border border-[#B8944F]/60 bg-[#F0EADF] px-3 text-xs font-bold text-[#0F2A43] hover:border-[#B8944F] hover:bg-[#EAE2D2]"
+        >
+          {localize("Dịch vụ", "Services")}
+          {(reservation.services?.filter((service) => service.status !== "CANCELLED").length || 0) > 0
+            ? ` (${reservation.services?.filter((service) => service.status !== "CANCELLED").length})`
+            : ""}
+        </button>
+      )}
       {reservation.status === "CHECKED_IN" && (
         <button type="button" onClick={() => openFinalPayment(reservation)} className="min-h-10 rounded-lg bg-[#0F2A43] px-3 text-xs font-bold text-white hover:bg-[#091E30]">
           {localize("Đối soát & trả phòng", "Settle & check out")}
@@ -2428,23 +2524,31 @@ export default function ReservationsManagement() {
         description={localize("Tìm theo khách hàng, trạng thái thanh toán và ngày sử dụng phòng", "Search by guest, payment status and stay date")}
         resultCount={filteredReservations.length}
         resultLabel={localize("đơn phù hợp", "matching reservations")}
-        resultNote={localize("sắp xếp theo mức độ cần xử lý", "prioritized by required action")}
-        hasActiveFilters={Boolean(searchQuery || selectedStatus !== "ALL" || paymentFilter !== "ALL" || stayDate)}
-        activeFilterCount={Number(Boolean(searchQuery)) + Number(selectedStatus !== "ALL") + Number(paymentFilter !== "ALL") + Number(Boolean(stayDate))}
+        resultNote={localize("nhóm theo kỳ lưu trú, ưu tiên việc cần xử lý trong từng nhóm", "grouped by stay period and prioritized within each group")}
+        hasActiveFilters={Boolean(searchQuery || selectedStatus !== "ALL" || paymentFilter !== "ALL" || stayDate || timeScope !== "ALL")}
+        activeFilterCount={Number(Boolean(searchQuery)) + Number(selectedStatus !== "ALL") + Number(paymentFilter !== "ALL") + Number(Boolean(stayDate)) + Number(timeScope !== "ALL")}
         activeFilterLabel={localize("bộ lọc đang dùng", "active filters")}
         onReset={() => {
           setSearchQuery("");
+          setLinkedReservationCode("");
           setSelectedStatus("ALL");
           setPaymentFilter("ALL");
           setStayDate("");
+          setTimeScope("ALL");
         }}
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={(
           <>
-            <FilterQuickButton active={stayDate === todayDate().slice(0, 10)} onClick={() => setStayDate((current) => current === todayDate().slice(0, 10) ? "" : todayDate().slice(0, 10))}>
+            <FilterQuickButton active={stayDate === todayDate().slice(0, 10)} onClick={() => {
+              setTimeScope("ALL");
+              setStayDate((current) => current === todayDate().slice(0, 10) ? "" : todayDate().slice(0, 10));
+            }}>
               {localize("Hôm nay", "Today")}
             </FilterQuickButton>
-            <FilterQuickButton active={stayDate === tomorrowDate().slice(0, 10)} onClick={() => setStayDate((current) => current === tomorrowDate().slice(0, 10) ? "" : tomorrowDate().slice(0, 10))}>
+            <FilterQuickButton active={stayDate === tomorrowDate().slice(0, 10)} onClick={() => {
+              setTimeScope("ALL");
+              setStayDate((current) => current === tomorrowDate().slice(0, 10) ? "" : tomorrowDate().slice(0, 10));
+            }}>
               {localize("Ngày mai", "Tomorrow")}
             </FilterQuickButton>
           </>
@@ -2454,11 +2558,16 @@ export default function ReservationsManagement() {
           id="reservation-search"
           label={localize("Tìm kiếm", "Search")}
           value={searchQuery}
-          onChange={setSearchQuery}
+          onChange={(value) => {
+            setSearchQuery(value);
+            if (value.trim().toLowerCase() !== linkedReservationCode.toLowerCase()) {
+              setLinkedReservationCode("");
+            }
+          }}
           placeholder={localize("Mã đơn, tên khách hoặc ID...", "Reservation code, guest name or ID...")}
           clearLabel={localize("Xóa từ khóa", "Clear search")}
         />
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <DashboardSelectField
             id="reservation-status"
             label={localize("Trạng thái đơn", "Reservation status")}
@@ -2480,13 +2589,31 @@ export default function ReservationsManagement() {
             <option value="PARTIAL">{localize("Đã thanh toán một phần", "Partially paid")}</option>
             <option value="PAID">{localize("Đã thanh toán đủ", "Paid in full")}</option>
           </DashboardSelectField>
+          <DashboardSelectField
+            id="reservation-time-scope"
+            label={localize("Phạm vi lưu trú", "Stay period")}
+            value={timeScope}
+            onChange={(event) => {
+              const nextScope = event.target.value as DashboardTimeScope;
+              setTimeScope(nextScope);
+              if (nextScope !== "ALL") setStayDate("");
+            }}
+          >
+            <option value="ALL">{localize("Tất cả thời gian", "All time")}</option>
+            <option value="TODAY">{localize("Hôm nay", "Today")}</option>
+            <option value="WEEK">{localize("Tuần này", "This week")}</option>
+            <option value="MONTH">{localize("Tháng này", "This month")}</option>
+          </DashboardSelectField>
           <div>
             <label htmlFor="reservation-stay-date" className="mb-2 block text-xs font-bold text-[#66727C]">{localize("Ngày sử dụng", "Stay date")}</label>
             <input
               id="reservation-stay-date"
               type="date"
               value={stayDate}
-              onChange={(event) => setStayDate(event.target.value)}
+              onChange={(event) => {
+                setStayDate(event.target.value);
+                if (event.target.value) setTimeScope("ALL");
+              }}
               className="min-h-11 w-full rounded-lg border border-[#0F2A43]/18 bg-white px-3 py-2.5 text-sm font-semibold text-[#27445F] outline-none transition hover:border-[#0F2A43]/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20"
             />
           </div>
@@ -2497,7 +2624,13 @@ export default function ReservationsManagement() {
 
         <div className="flex flex-col gap-2 border-b border-[#0F2A43]/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div><h2 id="reservation-list-title" className="font-bold text-[#0F2A43]">{localize("Danh sách đặt phòng", "Reservation list")}</h2><p className="mt-0.5 text-xs text-[#66727C]">{filteredReservations.length} {localize("kết quả", "results")}</p></div>
-          <span className="text-xs font-semibold text-[#66727C] sm:text-right">{localize("Chọn một dòng để xem chi tiết và thao tác", "Select a row to review details and actions")}</span>
+          <DashboardTimeGroupingControl
+            value={timeGrouping}
+            onChange={setTimeGrouping}
+            title={localize("Nhóm theo ngày nhận phòng", "Group by arrival")}
+            ariaLabel={localize("Nhóm danh sách đặt phòng theo ngày nhận phòng", "Group reservations by arrival date")}
+            labels={{ day: localize("Ngày", "Day"), week: localize("Tuần", "Week"), month: localize("Tháng", "Month") }}
+          />
         </div>
 
         {isLoading ? (
@@ -2519,8 +2652,16 @@ export default function ReservationsManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#0F2A43]/5">
-                {filteredReservations.map((reservation) => (
-                  <tr key={reservation.id} className="align-top hover:bg-[#F1F0EA]/70">
+                {timeGroupedReservations.map((timeGroup) => (
+                  <React.Fragment key={timeGroup.key}>
+                    <tr className="bg-[#EAE2D2]/70">
+                      <th colSpan={6} scope="rowgroup" className="px-5 py-2 text-left">
+                        <span className="text-[11px] font-black uppercase tracking-[0.12em] text-[#80632F]">{timeGroupLabel(timeGroup)}</span>
+                        <span className="ml-2 text-[11px] font-semibold text-[#66727C]">· {timeGroup.items.length} {localize("đơn", "reservations")}</span>
+                      </th>
+                    </tr>
+                {timeGroup.items.map((reservation) => (
+                  <tr key={reservation.id} className={`align-top transition ${reservation.reservationCode === linkedReservationCode ? "bg-amber-50/80 shadow-[inset_4px_0_0_#B8944F]" : "hover:bg-[#F1F0EA]/70"}`}>
                     <td className="px-5 py-4">
                       <p className="font-bold text-[#0F2A43]">{reservation.customerName || localize("Chưa có tên khách", "Unnamed customer")}</p>
                       <p className="mt-1 font-mono text-xs font-bold text-[#0F2A43]">{reservation.reservationCode || `#${reservation.id}`}</p>
@@ -2545,12 +2686,21 @@ export default function ReservationsManagement() {
                     <td className="px-5 py-4">{renderReservationActions(reservation)}</td>
                   </tr>
                 ))}
+                  </React.Fragment>
+                ))}
               </tbody>
             </table>
           </div>
-          <div className="divide-y divide-[#0F2A43]/10 lg:hidden">
-            {filteredReservations.map((reservation) => (
-              <article key={reservation.id} className="p-4">
+          <div className="lg:hidden">
+            {timeGroupedReservations.map((timeGroup) => (
+              <section key={timeGroup.key} aria-labelledby={`reservation-time-group-${timeGroup.key}`}>
+                <div className="flex items-center justify-between border-y border-[#0F2A43]/8 bg-[#EAE2D2]/70 px-4 py-2">
+                  <h3 id={`reservation-time-group-${timeGroup.key}`} className="text-[11px] font-black uppercase tracking-[0.12em] text-[#80632F]">{timeGroupLabel(timeGroup)}</h3>
+                  <span className="text-[11px] font-semibold text-[#66727C]">{timeGroup.items.length}</span>
+                </div>
+                <div className="divide-y divide-[#0F2A43]/10">
+            {timeGroup.items.map((reservation) => (
+              <article key={reservation.id} className={`p-4 ${reservation.reservationCode === linkedReservationCode ? "bg-amber-50/80 shadow-[inset_4px_0_0_#B8944F]" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div><p className="font-bold text-[#0F2A43]">{reservation.customerName || localize("Chưa có tên khách", "Unnamed customer")}</p><p className="mt-1 font-mono text-xs font-bold text-[#0F2A43]">{reservation.reservationCode || `#${reservation.id}`}</p></div>
                   <span className={`inline-flex shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-bold ${reservation.cancellationRefundPending ? "border-amber-200 bg-amber-50 text-amber-800" : getStatusClass(reservation.status)}`}>{reservation.cancellationRefundPending ? reservation.refundRoute === "CASH_AT_COUNTER" ? localize("Chờ giao tiền mặt", "Cash handover pending") : localize("Chờ hoàn QR", "QR refund pending") : getStatusLabel(reservation.status)}</span>
@@ -2564,6 +2714,9 @@ export default function ReservationsManagement() {
                 </dl>
                 <div className="mt-4 border-t border-[#0F2A43]/10 pt-3">{renderReservationActions(reservation)}</div>
               </article>
+            ))}
+                </div>
+              </section>
             ))}
           </div>
           </>
@@ -2811,6 +2964,32 @@ export default function ReservationsManagement() {
                 })}</div>
               </fieldset>}
 
+              <fieldset className="space-y-3 rounded-xl border border-[#B8944F]/35 bg-[#FBFAF6] p-4">
+                <legend className="px-2 text-[11px] font-bold uppercase tracking-wider text-[#80632F]">
+                  {localize("Dịch vụ thêm khi tạo walk-in", "Add-on services for this walk-in")}
+                </legend>
+                <p className="text-xs leading-5 text-[#66727C]">
+                  {localize(
+                    "Dịch vụ được cộng vào tổng đơn trước khi ghi nhận tiền mặt, tạo QR hoặc để lại công nợ.",
+                    "Services are added before cash collection, QR creation, or leaving the balance unpaid.",
+                  )}
+                </p>
+                {walkInAddOnError && (
+                  <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+                    {walkInAddOnError}
+                  </p>
+                )}
+                <BookingAddOnSelector
+                  services={walkInAddOnCatalog}
+                  selections={walkInAddOnSelections}
+                  guestCount={walkInGuestCount}
+                  nights={walkInServiceNights}
+                  loading={isWalkInAddOnLoading}
+                  disabled={isActionLoading}
+                  onChange={setWalkInAddOnSelections}
+                />
+              </fieldset>
+
               <fieldset className="space-y-3">
                 <legend id="walk-in-rooms" tabIndex={-1} className="w-full border-b border-[#0F2A43]/55 pb-2 text-[11px] font-bold uppercase tracking-wider text-[#66727C]">Chọn phòng trống sạch *</legend>
                 {walkInErrors.rooms && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{walkInErrors.rooms}</p>}
@@ -2954,6 +3133,7 @@ export default function ReservationsManagement() {
                   <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Tiền phòng dự kiến", "Planned room charge")}</span><span className="font-semibold">{formatVND(finalPayment.plannedRoomCharge)}</span></div>
                   {(finalPayment.earlyCheckoutAdjustment || 0) > 0 && <div className="flex justify-between gap-4 text-blue-700"><span>{localize("Giảm do trả phòng sớm", "Early checkout adjustment")}</span><span className="font-semibold">− {formatVND(finalPayment.earlyCheckoutAdjustment)}</span></div>}
                   <div className="flex justify-between gap-4 border-t border-[#0F2A43]/10 pt-3"><span className="font-semibold text-[#0F2A43]">{localize("Tiền phòng thực tế", "Actual room charge")}</span><span className="font-bold text-[#0F2A43]">{formatVND(finalPayment.roomCharge)}</span></div>
+                  {(finalPayment.addOnServiceAmount || 0) > 0 && <div className="flex justify-between gap-4 text-[#80632F]"><span className="font-semibold">{localize("Dịch vụ thêm", "Add-on services")}</span><span className="font-bold">+ {formatVND(finalPayment.addOnServiceAmount)}</span></div>}
                   <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Phụ phí trả muộn", "Late checkout fee")}</span><span className="font-semibold">+ {formatVND(finalPayment.lateCheckoutFee || 0)}</span></div>
                   <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Phụ phí khác", "Additional fee")}</span><span className="font-semibold">+ {formatVND(finalPayment.checkoutAdditionalFee || 0)}</span></div>
                   <div className="flex justify-between gap-4 border-t-2 border-[#0F2A43]/15 pt-4"><span className="font-bold text-[#0F2A43]">{localize("Tổng phải trả", "Total due")}</span><span className="text-xl font-extrabold text-[#0F2A43]">{formatVND(finalPayment.totalAmount)}</span></div>
@@ -3311,6 +3491,46 @@ export default function ReservationsManagement() {
           </form>
         </ViewportModal>
       )}
+
+      <ViewportModal
+        open={Boolean(serviceReservationTarget)}
+        onClose={() => setServiceReservationTarget(null)}
+        labelledBy="reservation-services-title"
+        panelClassName="max-w-4xl"
+        testId="reservation-services-modal"
+      >
+        {serviceReservationTarget && (
+          <section className="lux-scrollbar min-h-0 flex-1 overflow-y-auto bg-[#FBFAF6] p-5 sm:p-6">
+            <div className="mb-5 flex items-start justify-between gap-4 border-b border-[#0F2A43]/10 pb-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F]">
+                  {localize("Vận hành lưu trú", "Stay operations")}
+                </p>
+                <h2 id="reservation-services-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">
+                  {localize("Dịch vụ thêm", "Add-on services")} · {serviceReservationTarget.reservationCode}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setServiceReservationTarget(null)}
+                aria-label={localize("Đóng", "Close")}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#0F2A43]/15 bg-white text-xl text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F0EADF]"
+              >
+                ×
+              </button>
+            </div>
+            <ReservationServicesPanel
+              reservationId={serviceReservationTarget.id}
+              reservationCode={serviceReservationTarget.reservationCode}
+              reservationStatus={serviceReservationTarget.status}
+              guestCount={serviceReservationTarget.guestCount}
+              initialServices={serviceReservationTarget.services || []}
+              operator
+              onChanged={() => loadReservations()}
+            />
+          </section>
+        )}
+      </ViewportModal>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {invoice && <ReservationInvoiceModal invoice={invoice} onClose={() => setInvoice(null)} />}

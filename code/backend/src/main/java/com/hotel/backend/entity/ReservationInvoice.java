@@ -67,6 +67,10 @@ public class ReservationInvoice {
     @Column(name = "additional_fee", precision = 19, scale = 2)
     private BigDecimal additionalFee;
 
+    @Builder.Default
+    @Column(name = "add_on_service_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal addOnServiceAmount = BigDecimal.ZERO;
+
     @Column(name = "discount_amount", precision = 19, scale = 2)
     private BigDecimal discountAmount;
 

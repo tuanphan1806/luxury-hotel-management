@@ -2,6 +2,7 @@
 
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import ViewportModal from "@/components/UI/ViewportModal";
+import type { ReservationServiceItem } from "@/lib/add-on-services";
 
 export interface ReservationInvoice {
   invoiceNumber: string;
@@ -44,12 +45,14 @@ export interface ReservationInvoice {
     paidAtUtc?: string;
     createdAt?: string;
   }>;
+  services?: ReservationServiceItem[];
   plannedRoomCharge: number;
   roomCharge: number;
   actualRoomCharge?: number;
   earlyCheckoutAdjustment: number;
   lateCheckoutFee: number;
   checkoutAdditionalFee: number;
+  addOnServiceAmount?: number;
   discountAmount: number;
   taxAmount: number;
   totalAmount: number;
@@ -134,6 +137,9 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
     };
     return labels[value]?.[locale] || value;
   };
+  const billableServices = (invoice.services || []).filter(
+    (service) => service.status === "CONFIRMED" || service.status === "FULFILLED",
+  );
   const settled = invoice.settlementStatus === "PAID" && invoice.balanceAmount === 0;
 
   return (
@@ -208,6 +214,41 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
             </div>
           </section>
 
+          {billableServices.length > 0 && (
+            <section className="border-t border-[#0F2A43]/12 py-6">
+              <h2 className="mb-3 text-xs font-extrabold uppercase tracking-[0.12em] text-[#0F2A43]">
+                {localize("Dịch vụ thêm", "Add-on services")}
+              </h2>
+              <div className="overflow-hidden rounded-lg border border-[#0F2A43]/15">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="bg-[#F0EADF] text-left text-xs text-[#66727C]">
+                    <tr>
+                      <th className="px-4 py-3">{localize("Dịch vụ", "Service")}</th>
+                      <th className="px-4 py-3 text-center">{localize("Số lượng tính tiền", "Billable quantity")}</th>
+                      <th className="px-4 py-3 text-right">{localize("Đơn giá", "Unit price")}</th>
+                      <th className="px-4 py-3 text-right">{localize("Thành tiền", "Subtotal")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#0F2A43]/10">
+                    {billableServices.map((service) => (
+                      <tr key={service.id}>
+                        <td className="px-4 py-3">
+                          <p className="font-semibold">
+                            {localize(service.serviceName, service.serviceNameEn)}
+                          </p>
+                          {service.notes && <p className="mt-1 text-xs text-[#66727C]">{service.notes}</p>}
+                        </td>
+                        <td className="px-4 py-3 text-center tabular-nums">{service.billableQuantity}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">{money(service.unitPrice)}</td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(service.totalPrice)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
           <section className="grid gap-6 border-t border-[#0F2A43]/12 py-6 sm:grid-cols-[1fr_320px]">
             <div>
               <h2 className="mb-3 text-xs font-extrabold uppercase tracking-[0.12em] text-[#0F2A43]">{localize("Thanh toán", "Payments")}</h2>
@@ -228,6 +269,7 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
               <div className="flex justify-between font-semibold"><span>{localize("Tiền phòng thực tế", "Actual room charge")}</span><span>{money(invoice.actualRoomCharge ?? invoice.roomCharge)}</span></div>
               {(invoice.lateCheckoutFee || 0) > 0 && <div className="flex justify-between"><span>{localize("Phụ phí trả muộn", "Late checkout fee")}</span><span>+ {money(invoice.lateCheckoutFee)}</span></div>}
               {(invoice.checkoutAdditionalFee || 0) > 0 && <div className="flex justify-between"><span>{localize("Phụ phí khác", "Additional fee")}</span><span>+ {money(invoice.checkoutAdditionalFee)}</span></div>}
+              {(invoice.addOnServiceAmount || 0) > 0 && <div className="flex justify-between font-semibold text-[#80632F]"><span>{localize("Dịch vụ thêm", "Add-on services")}</span><span>+ {money(invoice.addOnServiceAmount)}</span></div>}
               {(invoice.discountAmount || 0) > 0 && <div className="flex justify-between"><span>{localize("Giảm giá", "Discount")}</span><span>− {money(invoice.discountAmount)}</span></div>}
               {(invoice.taxAmount || 0) > 0 && <div className="flex justify-between"><span>{localize("Thuế", "Tax")}</span><span>+ {money(invoice.taxAmount)}</span></div>}
               <div className="mt-3 flex justify-between border-t-2 border-[#0F2A43] pt-3 text-lg font-extrabold text-[#0F2A43]"><span>{localize("Tổng cộng", "Total")}</span><span>{money(invoice.totalAmount)}</span></div>
