@@ -40,6 +40,7 @@ import com.hotel.backend.service.ReservationAuditService;
 import com.hotel.backend.service.ReservationResponseAssembler;
 import com.hotel.backend.service.ReservationInvoiceSnapshotService;
 import com.hotel.backend.service.ReservationCustomerProfileService;
+import com.hotel.backend.service.ReservationAddOnService;
 import com.hotel.backend.service.CustomerProfileClaimService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundRecipientService;
@@ -89,6 +90,7 @@ public class ReservationServiceImpl implements ReservationService {
     private final ReservationResponseAssembler   responseAssembler;
     private final ReservationInvoiceSnapshotService invoiceSnapshotService;
     private final ReservationCustomerProfileService customerProfileService;
+    private final ReservationAddOnService reservationAddOnService;
 
     @Value("${app.reservation.no-show-grace-minutes:360}")
     private long noShowGraceMinutes;
@@ -152,6 +154,14 @@ public class ReservationServiceImpl implements ReservationService {
 
         validateCapacity(request.getGuestCount(), totalCapacity);
 
+        ReservationAddOnService.BookingQuote bookingServices =
+                reservationAddOnService.quoteBookingTime(
+                        request.getServices(),
+                        request.getGuestCount(),
+                        request.getCheckIn(),
+                        request.getCheckOut());
+        totalAmount = totalAmount.add(bookingServices.totalAmount());
+
         PaymentPlan paymentPlan = request.getPaymentPlan() != null
                 ? request.getPaymentPlan() : PaymentPlan.DEPOSIT_50;
         if (!List.of(PaymentPlan.DEPOSIT_50, PaymentPlan.PREPAY_100).contains(paymentPlan)) {
@@ -178,6 +188,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .status(ReservationStatus.PAYMENT_PENDING)
                 .build();
         reservationRepository.save(reservation);
+        reservationAddOnService.attachBookingTime(
+                reservation, bookingServices, currentUser);
 
         // 5. Chỉ tạo chi tiết phòng. RoomHold chỉ được tạo khi khách mở QR
         // thanh toán, tránh khóa tồn kho khi khách mới điền xong biểu mẫu.
@@ -209,7 +221,8 @@ public class ReservationServiceImpl implements ReservationService {
         log.info("Reservation created: code={} total={}", reservation.getReservationCode(), totalAmount);
         ReservationResponse response = ReservationResponse.fromWithDetails(reservation, roomTypeResponses);
         response.setGuestToken(guestToken);
-        return paymentRefundService.applyReservationRefundSummary(response);
+        return paymentRefundService.applyReservationRefundSummary(
+                reservationAddOnService.enrich(response));
     }
 
     private String resolveGuestToken(String deterministicGuestToken) {
@@ -470,6 +483,14 @@ public class ReservationServiceImpl implements ReservationService {
 
         validateCapacity(request.getGuestCount(), totalCapacity);
 
+        ReservationAddOnService.BookingQuote bookingServices =
+                reservationAddOnService.quoteBookingTime(
+                        request.getServices(),
+                        request.getGuestCount(),
+                        actualCheckIn,
+                        request.getCheckOut());
+        totalAmount = totalAmount.add(bookingServices.totalAmount());
+
         // Tạo Reservation — đi thẳng CONFIRMED, không qua DRAFT/Hold/Payment
         Reservation reservation = Reservation.builder()
                 .reservationCode(generateCode())
@@ -484,6 +505,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .status(ReservationStatus.CONFIRMED)
                 .build();
         reservationRepository.save(reservation);
+        reservationAddOnService.attachBookingTime(
+                reservation, bookingServices, null);
 
         // Tạo ReservationRoomType + ReservationRoom (placeholder) — KHÔNG tạo RoomHold
         List<ReservationRoomTypeResponse> roomTypeResponses = new ArrayList<>();
@@ -512,7 +535,8 @@ public class ReservationServiceImpl implements ReservationService {
         log.info("Walk-in reservation created & confirmed: code={} total={}",
                 reservation.getReservationCode(), totalAmount);
         return paymentRefundService.applyReservationRefundSummary(
-                ReservationResponse.fromWithDetails(reservation, roomTypeResponses));
+                reservationAddOnService.enrich(
+                        ReservationResponse.fromWithDetails(reservation, roomTypeResponses)));
     }
 
     /**
@@ -665,6 +689,14 @@ public class ReservationServiceImpl implements ReservationService {
             totalAmount = totalAmount.add(price.multiply(BigDecimal.valueOf(quantity)));
         }
 
+        ReservationAddOnService.BookingQuote bookingServices =
+                reservationAddOnService.quoteBookingTime(
+                        request.getServices(),
+                        request.getGuestCount(),
+                        actualCheckIn,
+                        request.getCheckOut());
+        totalAmount = totalAmount.add(bookingServices.totalAmount());
+
         long remainingAmount = totalAmount.setScale(0, RoundingMode.CEILING).longValueExact();
         Long paymentAmount = null;
         if (request.getPaymentOption() != WalkInPaymentOption.UNPAID) {
@@ -693,6 +725,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .lastActivityAt(actualCheckIn)
                 .build();
         reservation = reservationRepository.save(reservation);
+        reservationAddOnService.attachBookingTime(
+                reservation, bookingServices, currentUser);
 
         List<ReservationRoomTypeResponse> roomTypeResponses = new ArrayList<>();
         for (Map.Entry<Long, List<AssignRoomRequest>> entry : assignmentsByRoomType.entrySet()) {
@@ -795,7 +829,8 @@ public class ReservationServiceImpl implements ReservationService {
                 "Tạo walk-in và check-in nguyên tử " + assignments.size()
                         + " phòng, " + submittedGuestCount + " khách");
         ReservationResponse reservationResponse = paymentRefundService.applyReservationRefundSummary(
-                ReservationResponse.fromWithDetails(reservation, roomTypeResponses));
+                reservationAddOnService.enrich(
+                        ReservationResponse.fromWithDetails(reservation, roomTypeResponses)));
         return WalkInReservationResponse.builder()
                 .reservationCreated(true)
                 .reservation(reservationResponse)
@@ -1366,6 +1401,13 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
             throw new AppException(ErrorCode.RESERVATION_CANNOT_CHECKOUT);
         }
+        List<ReservationServiceResponse> serviceBlockers =
+                reservationAddOnService.checkoutBlockers(reservationId);
+        if (!serviceBlockers.isEmpty()) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Còn dịch vụ chưa hoàn tất hoặc chưa hủy trước khi checkout");
+        }
         ensureNoPendingSettlementPayment(reservationId);
         LocalDateTime now = LocalDateTime.now();
         applyEarlyCheckoutAdjustment(reservation, now);
@@ -1713,8 +1755,10 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 + paymentRefundService.getUncoveredRequiredRefundAmount(reservationId);
         long lateCheckoutFee = projected.lateCheckoutFee();
         long checkoutAdditionalFee = projected.checkoutAdditionalFee();
+        long addOnServiceAmount = projected.addOnServiceAmount();
         long earlyCheckoutAdjustment = projected.earlyCheckoutAdjustment();
-        long roomCharge = Math.max(0L, totalAmount - lateCheckoutFee - checkoutAdditionalFee);
+        long roomCharge = Math.max(
+                0L, totalAmount - lateCheckoutFee - checkoutAdditionalFee - addOnServiceAmount);
 
         return FinalPaymentResponse.builder()
                 .reservationId(reservationId)
@@ -1723,6 +1767,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .plannedRoomCharge(roomCharge + earlyCheckoutAdjustment)
                 .paidAmount(paidAmount)
                 .remainingAmount(remaining)
+                .addOnServiceAmount(addOnServiceAmount)
                 .lateCheckoutFee(lateCheckoutFee)
                 .refundableAmount(refundable)
                 .earlyCheckoutAdjustment(earlyCheckoutAdjustment)
@@ -2002,6 +2047,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         BigDecimal projectedEarly = amountOrZero(reservation.getEarlyCheckoutAdjustment());
         BigDecimal projectedLate = amountOrZero(reservation.getLateCheckoutFee());
         BigDecimal additionalFee = amountOrZero(reservation.getCheckoutAdditionalFee());
+        BigDecimal addOnServiceAmount =
+                reservationAddOnService.committedTotal(reservation.getId());
 
         if (reservation.getStatus() == ReservationStatus.CHECKED_IN) {
             if (!now.isBefore(reservation.getCheckOut()) || reservation.getActualCheckIn() == null) {
@@ -2028,13 +2075,15 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 BigDecimal originalBookedTotal = projectedTotal
                         .add(projectedEarly)
-                        .subtract(additionalFee);
+                        .subtract(additionalFee)
+                        .subtract(addOnServiceAmount);
                 projectedEarly = originalBookedTotal
                         .subtract(actualUsageTotal)
                         .max(BigDecimal.ZERO);
                 projectedTotal = originalBookedTotal
                         .subtract(projectedEarly)
-                        .add(additionalFee);
+                        .add(additionalFee)
+                        .add(addOnServiceAmount);
             }
 
             BigDecimal requiredLate = BigDecimal.ZERO;
@@ -2056,7 +2105,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 projectedTotal.longValue(),
                 projectedEarly.longValue(),
                 projectedLate.longValue(),
-                additionalFee.longValue());
+                additionalFee.longValue(),
+                addOnServiceAmount.longValue());
     }
 
     private CheckoutReconciliationResponse buildCheckoutReconciliation(
@@ -2078,6 +2128,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         List<String> blockers = new ArrayList<>();
         if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
             blockers.add("Reservation không ở trạng thái CHECKED_IN");
+        }
+        if (reservationAddOnService.hasCheckoutBlockers(reservation.getId())) {
+            blockers.add("Còn dịch vụ đang REQUESTED hoặc CONFIRMED");
         }
         if (paymentPending) blockers.add("Còn payment cuối đang PENDING");
         if (outstandingAmount > 0L) blockers.add("Còn thiếu " + outstandingAmount + " VND");
@@ -2101,6 +2154,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .lateCheckoutFee(projected.lateCheckoutFee())
                 .earlyCheckoutAdjustment(projected.earlyCheckoutAdjustment())
                 .checkoutAdditionalFee(projected.checkoutAdditionalFee())
+                .addOnServiceAmount(projected.addOnServiceAmount())
                 .paymentPending(paymentPending)
                 .refundPending(reservedRefundAmount > 0L || uncoveredRefundAmount > 0L)
                 .status(matched
@@ -2118,7 +2172,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             long totalAmount,
             long earlyCheckoutAdjustment,
             long lateCheckoutFee,
-            long checkoutAdditionalFee) {}
+            long checkoutAdditionalFee,
+            long addOnServiceAmount) {}
 
     private String currentOperator() {
         var authentication = org.springframework.security.core.context.SecurityContextHolder

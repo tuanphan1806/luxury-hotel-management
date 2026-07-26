@@ -34,6 +34,10 @@ public class ReservationResponse {
     private BigDecimal totalAmount;
     private BigDecimal plannedTotalAmount;
     private BigDecimal paidAmount;
+    @Builder.Default
+    private BigDecimal addOnServiceAmount = BigDecimal.ZERO;
+    @Builder.Default
+    private List<ReservationServiceResponse> services = List.of();
     private PaymentPlan paymentPlan;
     private BigDecimal requiredInitialPayment;
     private BigDecimal lateCheckoutFee;

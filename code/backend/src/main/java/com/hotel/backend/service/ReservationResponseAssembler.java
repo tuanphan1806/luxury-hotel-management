@@ -20,9 +20,12 @@ import java.util.List;
 public class ReservationResponseAssembler {
 
     private final PaymentRefundService paymentRefundService;
+    private final ReservationAddOnService reservationAddOnService;
 
     public ReservationResponse withRoomTypeDetails(Reservation reservation) {
-        return ReservationResponse.fromWithDetails(reservation, roomTypeDetails(reservation));
+        return reservationAddOnService.enrich(
+                ReservationResponse.fromWithDetails(
+                        reservation, roomTypeDetails(reservation)));
     }
 
     public ReservationResponse withRoomTypeDetailsAndRefundSummary(Reservation reservation) {

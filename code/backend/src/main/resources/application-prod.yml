@@ -37,6 +37,7 @@ app:
   frontend-base-url: ${FRONTEND_BASE_URL}
   seed:
     master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:false}
+    add-on-services-enabled: ${APP_SEED_ADD_ON_SERVICES_ENABLED:false}
     demo-users-enabled: ${APP_SEED_DEMO_USERS_ENABLED:false}
   bootstrap-admin:
     enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}

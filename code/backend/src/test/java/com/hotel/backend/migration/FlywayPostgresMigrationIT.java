@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "11";
+    private static final String LATEST_VERSION = "13";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -58,6 +58,8 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "oauth_profile_completion_tickets");
             assertTableExists(connection, "facility_images");
             assertTableExists(connection, "room_type_images");
+            assertTableExists(connection, "service_catalog");
+            assertTableExists(connection, "reservation_services");
             assertColumn(connection, "payment_provider_events", "bank_reference_code");
             assertColumn(connection, "payment_refunds", "completion_provider_event_id");
             assertColumn(connection, "payment_refunds", "refund_detail_json");
@@ -76,6 +78,7 @@ class FlywayPostgresMigrationIT {
             assertColumn(connection, "oauth_profile_completion_tickets", "provider_subject");
             assertColumn(connection, "oauth_profile_completion_tickets", "expires_at_utc");
             assertColumn(connection, "oauth_profile_completion_tickets", "consumed_at_utc");
+            assertColumn(connection, "reservation_invoices", "add_on_service_amount");
             assertColumnType(connection, "idempotency_requests", "request_hash", "character", 64);
             assertColumnType(connection, "reservation_invoices", "currency", "character", 3);
             assertColumnType(connection, "payment_provider_events", "provider_occurred_at_utc",
@@ -94,6 +97,8 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_oauth_profile_completion_identity");
             assertIndex(connection, "idx_facility_images_facility_order");
             assertIndex(connection, "idx_room_type_images_room_type_order");
+            assertIndex(connection, "idx_service_catalog_active_sort");
+            assertIndex(connection, "idx_reservation_services_reservation_status");
             assertIndex(connection, "idx_media_assets_owner");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");

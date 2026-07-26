@@ -1,16 +1,20 @@
 package com.hotel.backend.config;
 
+import com.hotel.backend.constant.AddOnPricingUnit;
+import com.hotel.backend.constant.AddOnServiceCategory;
 import com.hotel.backend.constant.CleaningStatus;
 import com.hotel.backend.constant.CustomerProfileSource;
 import com.hotel.backend.constant.RoomStatus;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
+import com.hotel.backend.entity.AddOnService;
 import com.hotel.backend.entity.CustomerProfile;
 import com.hotel.backend.entity.Facility;
 import com.hotel.backend.entity.Gallery;
 import com.hotel.backend.entity.Room;
 import com.hotel.backend.entity.RoomType;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.repository.AddOnServiceRepository;
 import com.hotel.backend.repository.CustomerProfileRepository;
 import com.hotel.backend.repository.FacilityRepository;
 import com.hotel.backend.repository.GalleryRepository;
@@ -20,7 +24,6 @@ import com.hotel.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -34,13 +37,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Seed dữ liệu master: Facility -> RoomType (gán facility) -> Room -> Gallery -> User.
+ * Seed dữ liệu master: Facility -> AddOnService -> RoomType -> Room -> Gallery -> User.
  * Không seed dữ liệu giao dịch (reservations, payments, guests, reviews, room_holds,
  * chat_messages...) vì đó là dữ liệu runtime/demo, nên tạo qua API hoặc test data riêng.
  * Không dùng Role/Permission/Group — phân quyền dựa trực tiếp vào UserType (xem User#getAuthorities).
  */
 @Component
-@ConditionalOnProperty(name = "app.seed.master-data-enabled", havingValue = "true")
 @RequiredArgsConstructor
 @Order(1)
 public class DataSeeder implements CommandLineRunner {
@@ -57,7 +59,14 @@ public class DataSeeder implements CommandLineRunner {
     @Value("${app.seed.demo-users-enabled:false}")
     private boolean demoUsersEnabled;
 
+    @Value("${app.seed.master-data-enabled:false}")
+    private boolean masterDataEnabled;
+
+    @Value("${app.seed.add-on-services-enabled:false}")
+    private boolean addOnServicesEnabled;
+
     private final FacilityRepository facilityRepository;
+    private final AddOnServiceRepository addOnServiceRepository;
     private final RoomTypeRepository roomTypeRepository;
     private final RoomRepository roomRepository;
     private final GalleryRepository galleryRepository;
@@ -67,6 +76,12 @@ public class DataSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
+        if (addOnServicesEnabled || masterDataEnabled) {
+            seedAddOnServices();
+        }
+        if (!masterDataEnabled) {
+            return;
+        }
         Map<String, Facility> facilities = seedFacilities();
         Map<String, RoomType> roomTypes = seedRoomTypes(facilities);
         seedRooms(roomTypes);
@@ -155,6 +170,111 @@ public class DataSeeder implements CommandLineRunner {
         facility.setImageUrls(new ArrayList<>(imageUrls));
         facility.setImageUrl(imageUrls.isEmpty() ? null : imageUrls.get(0));
         return facilityRepository.save(facility);
+    }
+
+    // ==================== PAID ADD-ON SERVICES ====================
+
+    private void seedAddOnServices() {
+        seedAddOnService(
+                "IN_ROOM_BREAKFAST",
+                "Bữa sáng tại phòng",
+                "In-room breakfast",
+                "Bữa sáng phục vụ tại phòng theo số lượng khách đăng ký.",
+                "Breakfast served in the room for the selected number of guests.",
+                "/add_on_services/in-room-breakfast.webp",
+                AddOnServiceCategory.FOOD_BEVERAGE,
+                new BigDecimal("50000"),
+                AddOnPricingUnit.PER_GUEST,
+                true,
+                true,
+                10);
+        seedAddOnService(
+                "EXTRA_ROLLAWAY_BED",
+                "Giường phụ",
+                "Rollaway bed",
+                "Giường xếp khách sạn kèm chăn, ga và gối cho mỗi đêm lưu trú.",
+                "Hotel rollaway bed with linens and pillow for each night of the stay.",
+                "/add_on_services/extra-rollaway-bed.webp",
+                AddOnServiceCategory.AMENITY,
+                new BigDecimal("200000"),
+                AddOnPricingUnit.PER_NIGHT,
+                true,
+                true,
+                20);
+        seedAddOnService(
+                "MINI_PROJECTOR",
+                "Máy chiếu mini",
+                "Mini projector",
+                "Máy chiếu nhỏ gọn dùng trong phòng, tính phí theo thiết bị và đêm sử dụng.",
+                "Compact in-room projector, charged per device and night of use.",
+                "/add_on_services/mini-projector.webp",
+                AddOnServiceCategory.EQUIPMENT,
+                new BigDecimal("100000"),
+                AddOnPricingUnit.PER_NIGHT,
+                true,
+                true,
+                30);
+        seedAddOnService(
+                "PRIVATE_BBQ_SET",
+                "Set BBQ ngoài trời",
+                "Private outdoor BBQ set",
+                "Bếp nướng, vỉ nướng, dụng cụ và phần thực phẩm cơ bản cho một lượt sử dụng.",
+                "Grill, rack, utensils and a basic food set for one use.",
+                "/add_on_services/private-bbq-set.webp",
+                AddOnServiceCategory.FOOD_BEVERAGE,
+                new BigDecimal("400000"),
+                AddOnPricingUnit.PER_USE,
+                true,
+                true,
+                40);
+        seedAddOnService(
+                "ROOM_DECORATION",
+                "Trang trí",
+                "Room decoration",
+                "Trang trí phòng theo chủ đề và ghi chú của khách.",
+                "Room decoration based on the guest's selected theme and notes.",
+                "/add_on_services/decoration.webp",
+                AddOnServiceCategory.DECORATION,
+                new BigDecimal("500000"),
+                AddOnPricingUnit.PER_USE,
+                true,
+                true,
+                50);
+    }
+
+    private void seedAddOnService(
+            String code,
+            String name,
+            String nameEn,
+            String description,
+            String descriptionEn,
+            String imagePath,
+            AddOnServiceCategory category,
+            BigDecimal price,
+            AddOnPricingUnit pricingUnit,
+            boolean bookingEnabled,
+            boolean inStayEnabled,
+            int sortOrder) {
+        if (addOnServiceRepository.findByCodeIgnoreCase(code).isPresent()) {
+            // Seed only initializes missing master data. Catalog edits, including
+            // an ADMIN deactivating a service, must survive application restarts.
+            return;
+        }
+        addOnServiceRepository.save(AddOnService.builder()
+                .code(code)
+                .name(name)
+                .nameEn(nameEn)
+                .description(description)
+                .descriptionEn(descriptionEn)
+                .imageUrl(staticUrl(imagePath))
+                .category(category)
+                .price(price)
+                .pricingUnit(pricingUnit)
+                .bookingEnabled(bookingEnabled)
+                .inStayEnabled(inStayEnabled)
+                .active(true)
+                .sortOrder(sortOrder)
+                .build());
     }
 
     // ==================== ROOM TYPES ====================

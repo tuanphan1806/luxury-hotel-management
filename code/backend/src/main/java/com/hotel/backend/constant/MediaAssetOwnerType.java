@@ -8,6 +8,7 @@ public enum MediaAssetOwnerType {
     FACILITY(UploadFolder.FACILITIES),
     GALLERY(UploadFolder.GALLERY),
     ROOM_TYPE(UploadFolder.ROOM_TYPES),
+    ADD_ON_SERVICE(UploadFolder.ADD_ON_SERVICES),
     ROOM(UploadFolder.ROOMS);
 
     private final UploadFolder requiredPurpose;

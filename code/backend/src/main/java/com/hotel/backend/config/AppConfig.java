@@ -66,7 +66,8 @@ public SecurityFilterChain securityFilterChain(
             .requestMatchers("/actuator/health", "/actuator/info", "/v3/**", "/swagger-ui*/*swagger-initializer*", "/swagger-ui*/**", "/favicon.ico").permitAll()
             .requestMatchers("/actuator/**").hasRole("ADMIN")
             .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
-            .requestMatchers(HttpMethod.GET, "/facilities/**", "/room_types/**", "/galeries/**", "/avatar/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/facilities/**", "/room_types/**", "/galeries/**",
+                    "/avatar/**", "/add_on_services/**").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/chat").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/contact-messages").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/payments/sepay/webhook").permitAll()
@@ -79,6 +80,9 @@ public SecurityFilterChain securityFilterChain(
             .requestMatchers(HttpMethod.GET, "/api/room-types/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/facilities/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/galleries/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/add-on-services/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/reservations/*/services").permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/reservations/*/services").permitAll()
             // Chỉ review theo loại phòng là public. /api/reviews/my phải đi
             // qua authentication để frontend có thể refresh access token khi reload.
             .requestMatchers(HttpMethod.GET, "/api/reviews/room-type/**").permitAll()

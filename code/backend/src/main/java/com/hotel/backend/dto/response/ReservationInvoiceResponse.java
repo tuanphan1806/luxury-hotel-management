@@ -38,6 +38,7 @@ public class ReservationInvoiceResponse {
 
     private List<RoomTypeLine> roomTypes;
     private List<PaymentLine> payments;
+    private List<ReservationServiceResponse> services;
 
     private BigDecimal plannedRoomCharge;
     private BigDecimal roomCharge;
@@ -45,6 +46,7 @@ public class ReservationInvoiceResponse {
     private BigDecimal earlyCheckoutAdjustment;
     private BigDecimal lateCheckoutFee;
     private BigDecimal checkoutAdditionalFee;
+    private BigDecimal addOnServiceAmount;
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
