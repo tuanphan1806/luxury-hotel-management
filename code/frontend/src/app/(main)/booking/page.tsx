@@ -12,6 +12,14 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { clearIdempotencyKey, getOrCreateIdempotencyKey } from "@/lib/idempotency";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
+import BookingAddOnSelector from "@/components/add-on-services/BookingAddOnSelector";
+import {
+  type AddOnSelection,
+  type AddOnServiceItem,
+  calculateAddOnLineTotal,
+  chargeableNights,
+  getAddOnCatalog,
+} from "@/lib/add-on-services";
 
 interface BookingData {
   roomName: string;
@@ -88,6 +96,10 @@ function BookingFormContent() {
   const [specialRequest, setSpecialRequest] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [addOnCatalog, setAddOnCatalog] = useState<AddOnServiceItem[]>([]);
+  const [addOnSelections, setAddOnSelections] = useState<Record<number, AddOnSelection>>({});
+  const [isAddOnLoading, setIsAddOnLoading] = useState(true);
+  const [addOnLoadError, setAddOnLoadError] = useState("");
 
   // Payment states
   const [agree, setAgree] = useState(false);
@@ -181,6 +193,24 @@ function BookingFormContent() {
       });
   }, [roomId, roomTypesParam, checkIn, checkOut, adults, childrenVal, router, localize]);
 
+  useEffect(() => {
+    let active = true;
+    setIsAddOnLoading(true);
+    getAddOnCatalog("BOOKING_TIME")
+      .then((items) => {
+        if (active) setAddOnCatalog(items);
+      })
+      .catch(() => {
+        if (active) setAddOnLoadError(localize("Không thể tải dịch vụ đặt trước. Bạn vẫn có thể tiếp tục chỉ với phòng.", "Could not load pre-bookable services. You can still continue with rooms only."));
+      })
+      .finally(() => {
+        if (active) setIsAddOnLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [localize]);
+
   // Hold Countdown effect
   useEffect(() => {
     if (step !== 3 || timeLeft <= 0) return;
@@ -193,13 +223,28 @@ function BookingFormContent() {
   if (!bookingData) return null;
 
   // Math calculations
-  const total = bookingData.selectedRooms.reduce(
+  const roomTotal = bookingData.selectedRooms.reduce(
     (sum, room) => sum + (room.pricePerHour + Math.max(0, bookingData.totalHours - 1) * 10_000) * room.quantity,
     0
   );
+  const stayNights = chargeableNights(bookingData.checkInDate, bookingData.checkOutDate);
+  const declaredGuestCount = Number(bookingData.adultsCount || 0) + Number(bookingData.childrenCount || 0);
+  const selectedAddOns = addOnCatalog
+    .filter((service) => Boolean(addOnSelections[service.id]))
+    .map((service) => ({
+      service,
+      selection: addOnSelections[service.id],
+      total: calculateAddOnLineTotal(
+        service,
+        addOnSelections[service.id],
+        declaredGuestCount,
+        stayNights,
+      ),
+    }));
+  const addOnTotal = selectedAddOns.reduce((sum, item) => sum + item.total, 0);
+  const total = roomTotal + addOnTotal;
   const deposit50 = Math.ceil(total * 0.5);
   const amountDueNow = paymentPlan === "PREPAY_100" ? total : deposit50;
-  const declaredGuestCount = Number(bookingData.adultsCount || 0) + Number(bookingData.childrenCount || 0);
   const selectedRoomCount = bookingData.selectedRooms.reduce((sum, room) => sum + room.quantity, 0);
   const selectedGuestCapacity = calculateSelectedGuestCapacity(bookingData.selectedRooms);
 
@@ -305,7 +350,12 @@ function BookingFormContent() {
           roomTypes: bookingData.selectedRooms.map((room) => ({
             roomTypeId: room.roomTypeId,
             quantity: room.quantity,
-          }))
+          })),
+          services: selectedAddOns.map(({ service, selection }) => ({
+            serviceId: service.id,
+            quantity: selection.quantity,
+            notes: selection.notes.trim() || undefined,
+          })),
         }, {
           headers: {
             "Idempotency-Key": getOrCreateIdempotencyKey(reservationCreateScope),
@@ -695,6 +745,34 @@ function BookingFormContent() {
               </div>
             </div>
 
+            {/* Optional services selected before the deposit amount is calculated. */}
+            <section className="space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-100 pb-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#80632F]">{localize("Nâng cấp kỳ nghỉ", "Enhance your stay")}</p>
+                  <h3 className="mt-1 font-serif text-xl font-bold text-primary-navy">{localize("Dịch vụ thêm", "Add-on services")}</h3>
+                  <p className="mt-1 text-xs leading-5 text-[#66727C]">{localize("Dịch vụ chọn tại đây được cộng vào tổng đơn trước khi tính cọc 50% hoặc trả trước 100%.", "Services selected here are added before the 50% deposit or 100% prepayment is calculated.")}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Đã chọn", "Selected")}</p>
+                  <p className="mt-1 font-black tabular-nums text-[#80632F]">{formatVND(addOnTotal)}</p>
+                </div>
+              </div>
+              {addOnLoadError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">{addOnLoadError}</p>}
+              <BookingAddOnSelector
+                services={addOnCatalog}
+                selections={addOnSelections}
+                guestCount={declaredGuestCount}
+                nights={stayNights}
+                loading={isAddOnLoading}
+                disabled={Boolean(pendingReservation)}
+                onChange={(next) => {
+                  setAddOnSelections(next);
+                  setPaymentError("");
+                }}
+              />
+            </section>
+
             <div className="grid items-start gap-5 xl:grid-cols-2">
             {/* Payment Method Selector */}
             <div className="space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
@@ -818,8 +896,9 @@ function BookingFormContent() {
               <div className="space-y-2 text-sm">
               <div className="flex justify-between text-text-light font-medium">
                 <span>Giá phòng ({bookingData.totalHours} giờ)</span>
-                <span>{formatVND(total)}</span>
+                <span>{formatVND(roomTotal)}</span>
               </div>
+              {addOnTotal > 0 && <div className="flex justify-between text-text-light font-medium"><span>{localize("Dịch vụ thêm", "Add-on services")}</span><span>{formatVND(addOnTotal)}</span></div>}
               <div className="flex justify-between text-text-light font-medium">
                 <span>{paymentPlan === "PREPAY_100" ? "Thanh toán trước 100%" : "Đặt cọc 50%"}</span>
                 <span>{formatVND(amountDueNow)}</span>
@@ -862,6 +941,19 @@ function BookingFormContent() {
                   <div><dt className="text-xs font-semibold text-[#66727C]">{localize("Trả phòng", "Check-out")}</dt><dd className="mt-1 font-bold">{formatDateTimeVietnamese(bookingData.checkOutDate)}</dd></div>
                 </dl>
               </div>
+              {selectedAddOns.length > 0 && (
+                <div className="rounded-xl border border-[#B8944F]/35 bg-[#F0EADF]/55 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#80632F]">{localize("Dịch vụ đã chọn", "Selected services")}</p>
+                  <ul className="mt-3 space-y-2 text-sm">
+                    {selectedAddOns.map(({ service, selection, total: serviceTotal }) => (
+                      <li key={service.id} className="flex items-start justify-between gap-3">
+                        <span className="font-semibold text-[#0F2A43]">{localize(service.name, service.nameEn)} × {selection.quantity}</span>
+                        <span className="shrink-0 font-bold tabular-nums text-[#80632F]">{formatVND(serviceTotal)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="flex items-end justify-between gap-4 border-b border-[#0F2A43]/10 pb-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#66727C]">{paymentPlan === "PREPAY_100" ? localize("Trả trước 100%", "Pay 100% now") : localize("Đặt cọc 50%", "50% deposit")}</p>

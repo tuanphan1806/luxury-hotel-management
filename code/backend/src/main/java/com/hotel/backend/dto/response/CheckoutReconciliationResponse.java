@@ -24,6 +24,7 @@ public class CheckoutReconciliationResponse {
     private Long lateCheckoutFee;
     private Long earlyCheckoutAdjustment;
     private Long checkoutAdditionalFee;
+    private Long addOnServiceAmount;
     private boolean paymentPending;
     private boolean refundPending;
     private CheckoutReconciliationStatus status;

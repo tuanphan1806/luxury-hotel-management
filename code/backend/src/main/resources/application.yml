@@ -78,6 +78,9 @@ app:
     seed:
         # Master/demo seed is opt-in. Production must never recreate weak demo users.
         master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:false}
+        # One-shot production-safe seed for paid services only. It never updates
+        # rooms, facilities, galleries or users and must be disabled after use.
+        add-on-services-enabled: ${APP_SEED_ADD_ON_SERVICES_ENABLED:false}
         demo-users-enabled: ${APP_SEED_DEMO_USERS_ENABLED:false}
     bootstrap-admin:
         # One-time production bootstrap. Disable and remove the password after first login.
@@ -131,6 +134,9 @@ app:
     upload:
         storage: ${APP_UPLOAD_STORAGE:local}
         static-migration-enabled: ${APP_STATIC_MEDIA_MIGRATION_ENABLED:false}
+        # Optional comma-separated subset for a one-shot migration, for example
+        # add_on_services. Blank means every bundled static media directory.
+        static-migration-directories: ${APP_STATIC_MEDIA_MIGRATION_DIRECTORIES:}
         dir: ${APP_UPLOAD_DIR:./storage}
         base-url: ${APP_UPLOAD_BASE_URL:http://localhost:${server.port:8080}/uploads}
         max-bytes: ${APP_UPLOAD_MAX_BYTES:5242880}

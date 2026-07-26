@@ -9,6 +9,7 @@ public enum UploadFolder {
     GALLERY("gallery"),
     ROOM_TYPES("room_types"),
     ROOMS("rooms"),
+    ADD_ON_SERVICES("add_on_services"),
     REFUND_PROOFS("refund_proofs");
 
     private final String path;

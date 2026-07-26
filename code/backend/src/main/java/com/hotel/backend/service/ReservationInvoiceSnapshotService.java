@@ -3,7 +3,9 @@ package com.hotel.backend.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotel.backend.constant.PaymentStatus;
+import com.hotel.backend.constant.ReservationServiceStatus;
 import com.hotel.backend.dto.response.ReservationInvoiceResponse;
+import com.hotel.backend.dto.response.ReservationServiceResponse;
 import com.hotel.backend.entity.CustomerProfile;
 import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.Reservation;
@@ -35,6 +37,7 @@ public class ReservationInvoiceSnapshotService {
     private final ReservationInvoiceRepository reservationInvoiceRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final PaymentRefundService paymentRefundService;
+    private final ReservationAddOnService reservationAddOnService;
     private final ObjectMapper objectMapper;
 
     @Value("${app.hotel-name:Luxury Hotel}")
@@ -65,7 +68,18 @@ public class ReservationInvoiceSnapshotService {
         BigDecimal discount = amountOrZero(reservation.getDiscountAmount());
         BigDecimal tax = amountOrZero(reservation.getTaxAmount());
         BigDecimal total = amountOrZero(reservation.getTotalAmount());
-        BigDecimal roomCharge = total.subtract(lateFee).subtract(additionalFee).max(BigDecimal.ZERO);
+        List<ReservationServiceResponse> services =
+                reservationAddOnService.listInternal(reservation.getId());
+        BigDecimal addOnServiceAmount = services.stream()
+                .filter(item -> item.getStatus() == ReservationServiceStatus.CONFIRMED
+                        || item.getStatus() == ReservationServiceStatus.FULFILLED)
+                .map(ReservationServiceResponse::getTotalPrice)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal roomCharge = total
+                .subtract(lateFee)
+                .subtract(additionalFee)
+                .subtract(addOnServiceAmount)
+                .max(BigDecimal.ZERO);
         BigDecimal plannedRoomCharge = roomCharge.add(earlyAdjustment);
 
         List<PaymentTransaction> transactions = paymentTransactionRepository
@@ -127,6 +141,7 @@ public class ReservationInvoiceSnapshotService {
                                 .plannedSubtotal(item.getSubtotal())
                                 .build())
                         .toList())
+                .services(services)
                 .payments(transactions.stream()
                         .map(transaction -> ReservationInvoiceResponse.PaymentLine.builder()
                                 .transactionId(transaction.getId())
@@ -150,6 +165,7 @@ public class ReservationInvoiceSnapshotService {
                 .earlyCheckoutAdjustment(earlyAdjustment)
                 .lateCheckoutFee(lateFee)
                 .checkoutAdditionalFee(additionalFee)
+                .addOnServiceAmount(addOnServiceAmount)
                 .discountAmount(discount)
                 .taxAmount(tax)
                 .totalAmount(total)
@@ -178,6 +194,7 @@ public class ReservationInvoiceSnapshotService {
                     .earlyCheckoutAdjustment(earlyAdjustment)
                     .lateCheckoutFee(lateFee)
                     .additionalFee(additionalFee)
+                    .addOnServiceAmount(addOnServiceAmount)
                     .discountAmount(discount)
                     .taxAmount(tax)
                     .grossReceivedAmount(grossPaid)

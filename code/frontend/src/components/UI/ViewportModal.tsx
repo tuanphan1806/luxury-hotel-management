@@ -112,7 +112,12 @@ export default function ViewportModal({
     <div
       className={`ux-modal-backdrop fixed inset-0 grid place-items-center overflow-hidden p-2 sm:p-4 ${zIndexClassName} ${backdropClassName}`}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
+        if (event.target === event.currentTarget) event.preventDefault();
+      }}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget || busy) return;
+        event.stopPropagation();
+        onClose();
       }}
       data-testid={testId}
     >

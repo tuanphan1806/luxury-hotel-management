@@ -11,6 +11,7 @@ public class FinalPaymentResponse {
     private Long totalAmount;
     private Long roomCharge;
     private Long plannedRoomCharge;
+    private Long addOnServiceAmount;
     private Long paidAmount;
     private Long remainingAmount;
     private Long lateCheckoutFee;
