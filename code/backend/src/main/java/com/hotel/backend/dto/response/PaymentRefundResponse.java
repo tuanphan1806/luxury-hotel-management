@@ -65,7 +65,6 @@ public class PaymentRefundResponse {
     private java.time.Instant completedAtUtc;
     private LocalDateTime updatedAt;
     private boolean canRetry;
-    private boolean canReconcile;
     private boolean canCompleteManually;
     private boolean canCompleteCash;
     private boolean awaitingBankConfirmation;
@@ -134,13 +133,7 @@ public class PaymentRefundResponse {
                 .completedAt(refund.getCompletedAt())
                 .completedAtUtc(refund.getCompletedAtUtc())
                 .updatedAt(refund.getUpdatedAt())
-                .canRetry((refund.getChannel() == RefundChannel.VNPAY_ORIGINAL
-                        && (refund.getStatus() == RefundStatus.FAILED
-                        || refund.getStatus() == RefundStatus.REQUESTED))
-                        || (refund.getStatus() == RefundStatus.CANCELLED
-                        && refund.getChannel() != RefundChannel.VNPAY_ORIGINAL))
-                .canReconcile(refund.getChannel() == RefundChannel.VNPAY_ORIGINAL
-                        && refund.getStatus() == RefundStatus.PROCESSING)
+                .canRetry(refund.getStatus() == RefundStatus.CANCELLED)
                 .canCompleteManually(refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER
                         && java.util.List.of(RefundStatus.REQUESTED,
                         RefundStatus.PROCESSING,

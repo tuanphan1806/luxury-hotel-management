@@ -13,8 +13,8 @@ import com.hotel.backend.dto.request.VerifyEmailRequest;
 import com.hotel.backend.dto.response.TokenResponse;
 import com.hotel.backend.dto.response.ApiResponse;
 import com.hotel.backend.service.AuthenticationService;
+import com.hotel.backend.service.AuthenticationUserUseCases;
 import com.hotel.backend.service.PasswordResetService;
-import com.hotel.backend.service.UserService;
 import com.hotel.backend.service.AuthRateLimitService;
 import com.hotel.backend.service.AuthCookieService;
 import com.hotel.backend.service.OAuthPostVerificationLoginService;
@@ -122,7 +122,7 @@ public class AuthenticationController {
         return "Bearer " + refreshToken.trim();
     }
 
-    private final UserService userService;
+    private final AuthenticationUserUseCases userService;
 
     @Operation(summary = "Create User", description = "API register new user to database")
     @PostMapping("/register")

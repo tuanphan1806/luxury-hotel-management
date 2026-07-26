@@ -28,6 +28,7 @@ public class RoomResponse {
     private Long roomTypeId;
     private String roomTypeName;
     private String roomTypeNameEn;
+    private Integer maxGuestsPerRoom;
     private BigDecimal price;
     private String maintenanceReason;
     private LocalDate maintenanceExpectedCompletedDate;
@@ -66,6 +67,9 @@ public class RoomResponse {
             builder.roomTypeId(room.getRoomType().getId())
                    .roomTypeName(room.getRoomType().getTypeName())
                    .roomTypeNameEn(room.getRoomType().getTypeNameEn())
+                   .maxGuestsPerRoom(room.getRoomType().getMaxGuests() != null
+                           ? Math.max(1, room.getRoomType().getMaxGuests())
+                           : 2)
                    .price(room.getRoomType().getPrice());
         }
 

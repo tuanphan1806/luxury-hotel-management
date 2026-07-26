@@ -101,14 +101,6 @@ public class PaymentTransaction {
     @Column(name = "bank_code")
     private String bankCode;
 
-    /** Kênh khách chọn khi tạo URL: VNPAYQR, VNBANK hoặc INTCARD. */
-    @Column(name = "requested_bank_code", length = 20)
-    private String requestedBankCode;
-
-    /** vnp_CreateDate đã ký trong URL PAY; bắt buộc dùng lại khi refund/querydr. */
-    @Column(name = "provider_create_date", length = 14)
-    private String providerCreateDate;
-
     @Column(name = "provider_pay_date", length = 32)
     private String providerPayDate;
 
@@ -122,10 +114,6 @@ public class PaymentTransaction {
     // Thông báo lỗi (nếu có)
     @Column(name = "message")
     private String message;
-
-    // Token lưu thẻ (dùng cho thanh toán lần sau)
-    @Column(name = "card_token")
-    private String cardToken;
 
     // Mã giao dịch hoàn tiền
     @Column(name = "refund_txn_id")

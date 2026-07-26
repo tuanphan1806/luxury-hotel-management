@@ -112,8 +112,8 @@
 //         ReservationRoomType rrt = createReservationRoomType(reservation, roomType, 1, total);
 //         createRoomHold(rrt, HoldStatus.CONVERTED, LocalDateTime.now().plusMinutes(15));
 //         createReservationRoom(rrt, null, null, AssignStatus.PENDING_ASSIGN);
-//         createSuccessPayment(reservation, "DEMO-PAY-CONFIRMED-001", PaymentProvider.VNPAY,
-//                 total.longValue(), "Demo VNPay payment for confirmed reservation");
+//         createSuccessPayment(reservation, "DEMO-PAY-CONFIRMED-001", PaymentProvider.SEPAY,
+//                 total.longValue(), "Demo SePay payment for confirmed reservation");
 //     }
 
 //     private void seedCheckedInReservation(User customer, RoomType roomType, Room room, User staff) {
@@ -132,7 +132,7 @@
 //         ReservationRoom rr = createReservationRoom(rrt, room, staff, AssignStatus.CHECKED_IN);
 //         createGuest(rr, "Vũ Thị Mai", "0901000006", "customer3@gmail.com", "012345678901",
 //                 IdCardType.CCCD, LocalDate.of(1994, 4, 12), true);
-//         createSuccessPayment(reservation, "DEMO-PAY-CHECKED-IN-001", PaymentProvider.VNPAY,
+//         createSuccessPayment(reservation, "DEMO-PAY-CHECKED-IN-001", PaymentProvider.SEPAY,
 //                 total.divide(BigDecimal.valueOf(2)).longValue(), "Demo partial payment for checked-in reservation");
 
 //         room.setStatus(RoomStatus.CHECKED_IN);

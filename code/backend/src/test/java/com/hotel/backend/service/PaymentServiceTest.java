@@ -49,6 +49,9 @@ class PaymentServiceTest {
     @Mock PaymentRefundService paymentRefundService;
     @Mock PaymentSessionExpiryService paymentSessionExpiryService;
     @Mock ApplicationEventPublisher eventPublisher;
+    @Mock PaymentResponseMapper responseMapper;
+    @Mock PaymentReservationAccessPolicy accessPolicy;
+    @Mock PaymentBalanceCalculator balanceCalculator;
     @InjectMocks PaymentService paymentService;
 
     @Test
@@ -77,6 +80,8 @@ class PaymentServiceTest {
         request.setProvider(PaymentProvider.SEPAY);
         request.setPurpose(PaymentPurpose.DEPOSIT);
         when(reservationRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(reservation));
+        when(balanceCalculator.resolve(reservation))
+                .thenReturn(new PaymentBalanceCalculator.PaymentBalance(50_000L, 100_000L));
         when(sePayService.newExpiryTime()).thenReturn(LocalDateTime.now().plusMinutes(5));
         when(reservationRoomTypeRepository.countByReservationId(7L)).thenReturn(1L);
         when(roomHoldRepository.findByReservationId(7L)).thenReturn(List.of(hold));
@@ -103,8 +108,8 @@ class PaymentServiceTest {
         request.setProvider(PaymentProvider.CASH);
         request.setPurpose(PaymentPurpose.FINAL_PAYMENT);
         when(reservationRepository.findByIdForUpdate(8L)).thenReturn(Optional.of(reservation));
-        when(reservationService.getProjectedCheckoutTotal(8L)).thenReturn(100_000L);
-        when(paymentRefundService.getNetPaidAmount(8L)).thenReturn(50_000L);
+        when(balanceCalculator.resolve(reservation))
+                .thenReturn(new PaymentBalanceCalculator.PaymentBalance(50_000L, 50_000L));
         when(transactionRepository.save(any(PaymentTransaction.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -120,21 +125,10 @@ class PaymentServiceTest {
         verify(reservationRepository).findByIdForUpdate(8L);
         verify(reservationRepository, never()).findById(8L);
         verify(reservationService).convertHoldsAfterPayment(8L);
-    }
-
-    @Test
-    void reconcileRefundDelegatesToProviderBackedWorkflow() {
-        PaymentRefundResponse expected = PaymentRefundResponse.builder()
-                .refundId("refund-1")
-                .status(RefundStatus.SUCCEEDED)
-                .amount(50_000L)
-                .build();
-        when(paymentRefundService.reconcile("refund-1")).thenReturn(expected);
-
-        PaymentRefundResponse response = paymentService.reconcileRefund("refund-1");
-
-        assertSame(expected, response);
-        verify(paymentRefundService).reconcile("refund-1");
+        verify(reservationAuditService).record(
+                eq(reservation),
+                eq(com.hotel.backend.constant.ReservationAuditAction.PAYMENT_RECEIVED),
+                contains("50000"));
     }
 
     @Test

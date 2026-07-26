@@ -3,16 +3,13 @@ package com.hotel.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.hotel.backend.config.VNPayConfig;
 import com.hotel.backend.config.SePayConfig;
 import com.hotel.backend.constant.PaymentProvider;
 import com.hotel.backend.constant.PaymentStatus;
 import com.hotel.backend.constant.HoldStatus;
 import com.hotel.backend.constant.RefundChannel;
 import com.hotel.backend.constant.RefundCompletionMethod;
-import com.hotel.backend.constant.RefundDestinationStatus;
 import com.hotel.backend.constant.RefundRecipientStatus;
-import com.hotel.backend.constant.RefundRoute;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.ReservationCancellationReasonCode;
 import com.hotel.backend.constant.RefundStatus;
@@ -27,7 +24,6 @@ import com.hotel.backend.dto.request.RefundRequest;
 import com.hotel.backend.dto.response.ManualRefundDetailsResponse;
 import com.hotel.backend.dto.response.PaymentRefundResponse;
 import com.hotel.backend.dto.response.ReservationResponse;
-import com.hotel.backend.dto.response.ReservationRefundResponse;
 import com.hotel.backend.entity.PaymentRefund;
 import com.hotel.backend.entity.PaymentProviderEvent;
 import com.hotel.backend.entity.PaymentTransaction;
@@ -35,7 +31,6 @@ import com.hotel.backend.entity.RefundRecipient;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
-import com.hotel.backend.event.VNPayRefundRequestedEvent;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.PaymentRefundRepository;
@@ -48,10 +43,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.LocalDateTime;
@@ -63,7 +55,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.function.Supplier;
 
 @Slf4j
 @Service
@@ -116,14 +107,13 @@ public class PaymentRefundService {
     private final PaymentTransactionRepository transactionRepository;
     private final ReservationRepository reservationRepository;
     private final RoomHoldRepository roomHoldRepository;
-    private final VNPayRefundGateway vnPayGateway;
-    private final VNPayConfig vnPayConfig;
     private final SePayConfig sePayConfig;
     private final ApplicationEventPublisher eventPublisher;
-    private final PlatformTransactionManager transactionManager;
     private final RefundDataCipher refundDataCipher;
     private final ReservationAuditService reservationAuditService;
     private final MediaAssetService mediaAssetService;
+    private final ReservationRefundSummaryEnricher refundSummaryEnricher;
+    private final RefundLedgerCalculator ledgerCalculator;
 
     @Value("${app.refund.cancellation-policy-code:CURRENT_CANCELLATION_POLICY}")
     private String cancellationPolicyCode;
@@ -164,7 +154,7 @@ public class PaymentRefundService {
             PaymentTransaction payment,
             String requestedBy) {
         if (payment == null || payment.getId() == null
-                || !List.of(PaymentProvider.VNPAY, PaymentProvider.SEPAY).contains(payment.getProvider())
+                || payment.getProvider() != PaymentProvider.SEPAY
                 || payment.getAmount() == null || payment.getAmount() <= 0L) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
                     "Giao dịch online đến trễ không đủ dữ liệu để tạo yêu cầu hoàn");
@@ -254,9 +244,8 @@ public class PaymentRefundService {
                 .status(status)
                 .amount(providerEvent.getAmount())
                 .requestedAmount(providerEvent.getAmount())
-                .requestId(vnPayGateway.newRequestId())
+                .requestId(newRequestId())
                 .refundCode(newRefundCode())
-                .transactionType("02")
                 .reason(reason)
                 .message(channel == RefundChannel.CASH_AT_COUNTER
                         ? "Chờ Staff/Admin hoàn tiền mặt cho unmatched transfer"
@@ -370,21 +359,6 @@ public class PaymentRefundService {
                 .toList();
     }
 
-    /**
-     * Contract cũ gửi một provider cho cả reservation. Giá trị này không còn
-     * được tin cậy; backend luôn định tuyến theo từng giao dịch thu tiền gốc.
-     */
-    @Deprecated
-    @Transactional
-    public List<PaymentRefundResponse> requestReservationRefund(
-            Long reservationId,
-            long amount,
-            PaymentProvider ignoredProvider,
-            String reason,
-            String requestedBy) {
-        return requestReservationRefund(reservationId, amount, reason, requestedBy);
-    }
-
     private List<PaymentRefund> allocate(
             List<PaymentTransaction> payments,
             long amount,
@@ -444,7 +418,6 @@ public class PaymentRefundService {
             long refundAmount = Math.min(remaining, available);
             if (refundAmount <= 0L) continue;
 
-            String originalDate = originalTransactionDate(payment);
             RefundChannel channel = selectedChannel;
             RefundStatus initialStatus = channel == RefundChannel.CASH_AT_COUNTER
                     ? RefundStatus.REQUESTED
@@ -466,9 +439,7 @@ public class PaymentRefundService {
                     .amount(refundAmount)
                     .requestedAmount(refundAmount)
                     .refundCode(newRefundCode())
-                    .requestId(vnPayGateway.newRequestId())
-                    .transactionType(refundAmount < payment.getAmount() ? "03" : "02")
-                    .originalTransactionDate(originalDate)
+                    .requestId(newRequestId())
                     .reason(reason)
                     .message(channel == RefundChannel.CASH_AT_COUNTER
                             ? "Chờ Staff/Admin giao tiền mặt và xác nhận đã giao tiền"
@@ -591,228 +562,46 @@ public class PaymentRefundService {
                 : sourceKey;
     }
 
-    /**
-     * Được listener gọi sau khi transaction nghiệp vụ đã commit. Chỉ giữ khóa DB
-     * trong hai transaction ngắn trước/sau HTTP; tuyệt đối không giữ pessimistic
-     * lock trong lúc chờ VNPay.
-     */
-    public PaymentRefundResponse submitToVNPay(String refundId) {
-        SubmissionClaim claim = requiresNew(() -> claimSubmission(refundId));
-        if (claim.immediateResponse() != null) return claim.immediateResponse();
-
-        try {
-            VNPayProviderResult result = vnPayGateway.refund(claim.refund());
-            return requiresNew(() -> finishSubmission(refundId, result, null));
-        } catch (Exception exception) {
-            return requiresNew(() -> finishSubmission(refundId, null, exception));
-        }
-    }
-
-    private SubmissionClaim claimSubmission(String refundId) {
-        lockRefundAggregate(refundId);
-        PaymentRefund refund = refundRepository.findByIdForUpdate(refundId)
-                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Không tìm thấy yêu cầu hoàn tiền: " + refundId));
-        if (refund.getChannel() != RefundChannel.VNPAY_ORIGINAL) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Yêu cầu này không hoàn qua VNPay");
-        }
-        if (refund.getStatus() == RefundStatus.SUCCEEDED) {
-            finalizeReservationAfterCancellationRefund(refund);
-            return new SubmissionClaim(null, PaymentRefundResponse.from(refund));
-        }
-        if (!vnPayConfig.isRefundEnabled()) {
-            refund.setMessage("VNPay refund đang tắt bởi cấu hình VNPAY_REFUND_ENABLED");
-            return new SubmissionClaim(null,
-                    PaymentRefundResponse.from(refundRepository.save(refund)));
-        }
-        if (!List.of(RefundStatus.REQUESTED, RefundStatus.FAILED).contains(refund.getStatus())) {
-            return new SubmissionClaim(null, PaymentRefundResponse.from(refund));
-        }
-
-        try {
-            vnPayGateway.validateRefundRequest(refund);
-        } catch (Exception exception) {
-            refund.setStatus(RefundStatus.FAILED);
-            refund.setResponseCode("LOCAL_VALIDATION");
-            refund.setMessage("Chưa gửi refund vì cấu hình/dữ liệu merchant không hợp lệ: "
-                    + safeMessage(exception));
-            refund = refundRepository.save(refund);
-            syncLegacyPaymentState(refund.getPaymentTransaction());
-            return new SubmissionClaim(null, PaymentRefundResponse.from(refund));
-        }
-
-        refund.setStatus(RefundStatus.PROCESSING);
-        refund.setResponseCode("SUBMITTING");
-        refund.setTransactionStatus(null);
-        refund.setMessage("Đã nhận việc gửi refund; đang chờ phản hồi VNPay");
-        refund = refundRepository.save(refund);
-        syncLegacyPaymentState(refund.getPaymentTransaction());
-        return new SubmissionClaim(refund, null);
-    }
-
-    private PaymentRefundResponse finishSubmission(
-            String refundId,
-            VNPayProviderResult result,
-            Exception exception) {
-        lockRefundAggregate(refundId);
-        PaymentRefund refund = refundRepository.findByIdForUpdate(refundId)
-                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Không tìm thấy yêu cầu hoàn tiền: " + refundId));
-        if (refund.getStatus() == RefundStatus.SUCCEEDED) {
-            finalizeReservationAfterCancellationRefund(refund);
-            return PaymentRefundResponse.from(refund);
-        }
-        if (exception != null) {
-            // Không gửi request thứ hai khi chưa biết request đầu đã tới VNPay hay chưa.
-            // QueryDR là bước tiếp theo an toàn hơn một refund mới.
-            refund.setStatus(RefundStatus.PROCESSING);
-            refund.setResponseCode("NO_RESPONSE");
-            refund.setMessage("Không nhận được phản hồi refund hợp lệ; cần QueryDR: "
-                    + safeMessage(exception));
-            log.error("VNPay refund outcome unknown: refundId={}, txnRef={}", refund.getId(),
-                    refund.getPaymentTransaction().getTxnRef(), exception);
-        } else {
-            applyProviderResult(refund, result, false);
-        }
-        refund = refundRepository.save(refund);
-        syncLegacyPaymentState(refund.getPaymentTransaction());
-        finalizeReservationAfterCancellationRefund(refund);
-        return PaymentRefundResponse.from(refund);
-    }
-
-    public PaymentRefundResponse reconcile(String refundId) {
-        PaymentRefund snapshot = requiresNew(() -> loadRefundForQuery(refundId));
-        if (snapshot.getStatus() == RefundStatus.SUCCEEDED) {
-            return PaymentRefundResponse.from(snapshot);
-        }
-        try {
-            VNPayProviderResult result = vnPayGateway.query(snapshot);
-            return requiresNew(() -> finishReconcile(refundId, result, null));
-        } catch (Exception exception) {
-            return requiresNew(() -> finishReconcile(refundId, null, exception));
-        }
-    }
-
-    private PaymentRefund loadRefundForQuery(String refundId) {
-        lockRefundAggregate(refundId);
-        PaymentRefund refund = refundRepository.findByIdForUpdate(refundId)
-                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Không tìm thấy yêu cầu hoàn tiền: " + refundId));
-        if (!vnPayConfig.isRefundEnabled()) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "VNPay refund đang tắt bởi cấu hình VNPAY_REFUND_ENABLED");
-        }
-        if (refund.getChannel() != RefundChannel.VNPAY_ORIGINAL) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Chỉ refund VNPay mới cần QueryDR");
-        }
-        if (refund.getStatus() != RefundStatus.PROCESSING
-                && refund.getStatus() != RefundStatus.SUCCEEDED) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Chỉ yêu cầu VNPay đang chờ kết quả mới được QueryDR");
-        }
-        return refund;
-    }
-
-    private PaymentRefundResponse finishReconcile(
-            String refundId,
-            VNPayProviderResult result,
-            Exception exception) {
-        lockRefundAggregate(refundId);
-        PaymentRefund refund = refundRepository.findByIdForUpdate(refundId)
-                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Không tìm thấy yêu cầu hoàn tiền: " + refundId));
-        if (refund.getStatus() == RefundStatus.SUCCEEDED) {
-            finalizeReservationAfterCancellationRefund(refund);
-            return PaymentRefundResponse.from(refund);
-        }
-        // Không ghi đè một quyết định mới hơn (ví dụ staff đã chuyển sang
-        // MANUAL_REVIEW) bằng phản hồi của HTTP QueryDR bắt đầu từ state cũ.
-        if (refund.getStatus() != RefundStatus.PROCESSING) {
-            return PaymentRefundResponse.from(refund);
-        }
-        if (exception == null) {
-            if ("00".equals(result.responseCode())
-                    && List.of("02", "03").contains(result.transactionType())) {
-                applyProviderResult(refund, result, true);
-            } else {
-                refund.setResponseCode(result.responseCode());
-                refund.setTransactionStatus(result.transactionStatus());
-                refund.setMessage("VNPay chưa trả về giao dịch hoàn tương ứng: " + result.message());
-                refund.setStatus(RefundStatus.PROCESSING);
-            }
-        } else {
-            refund.setMessage("QueryDR chưa xác định được trạng thái hoàn tiền: " + safeMessage(exception));
-            refund.setStatus(RefundStatus.PROCESSING);
-        }
-        refund = refundRepository.save(refund);
-        syncLegacyPaymentState(refund.getPaymentTransaction());
-        finalizeReservationAfterCancellationRefund(refund);
-        return PaymentRefundResponse.from(refund);
-    }
-
+    @Transactional
     public PaymentRefundResponse retry(String refundId) {
-        RetryOutcome outcome = requiresNew(() -> {
-            PaymentRefund refund = refundRepository.findByIdForUpdate(refundId)
-                    .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
-                            "Không tìm thấy yêu cầu hoàn tiền: " + refundId));
-            if (refund.getStatus() == RefundStatus.CANCELLED) {
-                if (refund.getChannel() == RefundChannel.VNPAY_ORIGINAL) {
-                    throw new AppException(ErrorCode.INVALID_REQUEST,
-                            "Không thể kích hoạt lại refund VNPay đã hủy vì request cũ có thể vẫn đang xử lý");
-                }
-                String cancelledReason = refund.getCancellationReason();
-                RefundStatus reactivated = refund.getChannel() == RefundChannel.CASH_AT_COUNTER
-                        ? RefundStatus.REQUESTED
-                        : refund.getRecipient() == null
-                        ? RefundStatus.AWAITING_CUSTOMER_INFO
-                        : RefundStatus.REQUESTED;
-                refund.setStatus(reactivated);
-                refund.setCancelledAtUtc(null);
-                refund.setCancelledBy(null);
-                refund.setCancellationReason(null);
-                refund.setActualRefundAmount(null);
-                refund.setCompletedAt(null);
-                refund.setCompletedAtUtc(null);
-                refund.setResponseCode(null);
-                refund.setTransactionStatus(null);
-                refund.setCompletionMethod(null);
-                refund.setCompletionProviderEvent(null);
-                refund.setManualFallbackAvailableAtUtc(
-                        refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER
-                                && refund.getRecipient() != null
-                                ? newManualFallbackAvailableAt() : null);
-                refund.setManualFallbackOpenedAtUtc(null);
-                refund.setManualFallbackOpenedBy(null);
-                refund.setManualFallbackReason(null);
-                refund.setMessage("Đã kích hoạt lại nghĩa vụ hoàn tiền sau khi refund trước bị hủy");
-                refund = refundRepository.save(refund);
-                syncLegacyPaymentStateIfPresent(refund.getPaymentTransaction());
-                auditRefund(refund, ReservationAuditAction.REFUND,
-                        "Kích hoạt lại refund sau khi hủy: "
-                                + (cancelledReason == null ? "" : cancelledReason));
-                return new RetryOutcome(PaymentRefundResponse.from(refund), false);
-            }
-            if (refund.getChannel() != RefundChannel.VNPAY_ORIGINAL) {
-                throw new AppException(ErrorCode.INVALID_REQUEST,
-                        "Chỉ refund VNPay mới được gửi lại tới VNPay");
-            }
-            if (!List.of(RefundStatus.REQUESTED, RefundStatus.FAILED).contains(refund.getStatus())) {
-                throw new AppException(ErrorCode.INVALID_REQUEST,
-                        "Chỉ yêu cầu chưa gửi hoặc bị VNPay từ chối mới được gửi lại");
-            }
-            refund.setRequestHistory(appendRequestHistory(
-                    refund.getRequestHistory(), refund.getRequestId()));
-            refund.setRequestId(vnPayGateway.newRequestId());
-            refund.setStatus(RefundStatus.REQUESTED);
-            refund.setResponseCode(null);
-            refund.setTransactionStatus(null);
-            refund.setMessage("Đang gửi lại yêu cầu hoàn VNPay với requestId mới");
-            refundRepository.save(refund);
-            syncLegacyPaymentStateIfPresent(refund.getPaymentTransaction());
-            return new RetryOutcome(null, true);
-        });
-        if (!outcome.submitToProvider()) return outcome.response();
-        return submitToVNPay(refundId);
+        PaymentRefund refund = refundRepository.findByIdForUpdate(refundId)
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Không tìm thấy yêu cầu hoàn tiền: " + refundId));
+        if (refund.getStatus() != RefundStatus.CANCELLED) {
+            throw new AppException(ErrorCode.INVALID_REQUEST,
+                    "Chỉ nghĩa vụ hoàn tiền đã hủy mới được kích hoạt lại");
+        }
+        String cancelledReason = refund.getCancellationReason();
+        RefundStatus reactivated = refund.getChannel() == RefundChannel.CASH_AT_COUNTER
+                ? RefundStatus.REQUESTED
+                : refund.getRecipient() == null
+                ? RefundStatus.AWAITING_CUSTOMER_INFO
+                : RefundStatus.REQUESTED;
+        refund.setStatus(reactivated);
+        refund.setCancelledAtUtc(null);
+        refund.setCancelledBy(null);
+        refund.setCancellationReason(null);
+        refund.setActualRefundAmount(null);
+        refund.setCompletedAt(null);
+        refund.setCompletedAtUtc(null);
+        refund.setResponseCode(null);
+        refund.setTransactionStatus(null);
+        refund.setCompletionMethod(null);
+        refund.setCompletionProviderEvent(null);
+        refund.setManualFallbackAvailableAtUtc(
+                refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER
+                        && refund.getRecipient() != null
+                        ? newManualFallbackAvailableAt() : null);
+        refund.setManualFallbackOpenedAtUtc(null);
+        refund.setManualFallbackOpenedBy(null);
+        refund.setManualFallbackReason(null);
+        refund.setMessage("Đã kích hoạt lại nghĩa vụ hoàn tiền sau khi refund trước bị hủy");
+        refund = refundRepository.save(refund);
+        syncLegacyPaymentStateIfPresent(refund.getPaymentTransaction());
+        auditRefund(refund, ReservationAuditAction.REFUND,
+                "Kích hoạt lại refund sau khi hủy: "
+                        + (cancelledReason == null ? "" : cancelledReason));
+        return PaymentRefundResponse.from(refund);
     }
 
     /**
@@ -1338,89 +1127,7 @@ public class PaymentRefundService {
 
     @Transactional(readOnly = true)
     public ReservationResponse applyReservationRefundSummary(ReservationResponse response) {
-        if (response == null || response.getId() == null) return response;
-        List<PaymentRefund> refunds = refundRepository.findByReservationId(response.getId());
-        if (refunds.isEmpty()) {
-            boolean mayNeedRefundDestination = response.getStatus() == ReservationStatus.CANCELLATION_PENDING
-                    || (response.getStatus() == ReservationStatus.CHECKED_IN
-                    && response.getRefundableAmount() != null
-                    && response.getRefundableAmount().signum() > 0);
-            if (!mayNeedRefundDestination) {
-                return response;
-            }
-            List<PaymentTransaction> paid = transactionRepository.findByReservationId(response.getId()).stream()
-                    .filter(payment -> List.of(PaymentStatus.SUCCESS,
-                                    PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED)
-                            .contains(payment.getStatus()))
-                    .toList();
-            if (paid.isEmpty()) {
-                response.setRefundRoute(RefundRoute.NONE);
-                response.setRefundDestinationStatus(RefundDestinationStatus.NOT_REQUIRED);
-                return response;
-            }
-            // Kênh hoàn mới không phụ thuộc kênh thu tiền gốc. Khách có thể khai báo
-            // tài khoản trước để Staff/Admin chọn chuyển khoản QR khi duyệt hủy/đối soát.
-            response.setRefundRoute(RefundRoute.MANUAL_BANK_TRANSFER);
-            RefundRecipient preSubmitted = recipientRepository
-                    .findFirstByReservationIdAndStatusInOrderByCreatedAtDesc(
-                            response.getId(), EnumSet.of(RefundRecipientStatus.SUBMITTED,
-                                    RefundRecipientStatus.VERIFIED))
-                    .orElse(null);
-            response.setRefundDestinationStatus(preSubmitted == null
-                    ? RefundDestinationStatus.REQUIRED
-                    : preSubmitted.getStatus() == RefundRecipientStatus.VERIFIED
-                    ? RefundDestinationStatus.VERIFIED
-                    : RefundDestinationStatus.SUBMITTED);
-            response.setRefundBankSummary(preSubmitted != null
-                    ? preSubmitted.getBankName() + " ****" + preSubmitted.getAccountNumberLast4()
-                    : null);
-            return response;
-        }
-        response.setRefunds(refunds.stream()
-                .sorted(Comparator.comparing(PaymentRefund::getRequestedAt,
-                        Comparator.nullsLast(Comparator.reverseOrder())))
-                .map(ReservationRefundResponse::from)
-                .toList());
-        boolean hasVnPay = refunds.stream().anyMatch(
-                refund -> refund.getChannel() == RefundChannel.VNPAY_ORIGINAL);
-        boolean hasManualBank = refunds.stream().anyMatch(
-                refund -> refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER);
-        boolean hasCash = refunds.stream().anyMatch(
-                refund -> refund.getChannel() == RefundChannel.CASH_AT_COUNTER);
-        response.setRefundRoute(hasVnPay && hasManualBank
-                ? RefundRoute.MIXED
-                : hasManualBank
-                ? RefundRoute.MANUAL_BANK_TRANSFER
-                : hasCash
-                ? RefundRoute.CASH_AT_COUNTER
-                : hasVnPay
-                ? RefundRoute.VNPAY_ORIGINAL
-                : RefundRoute.NONE);
-
-        PaymentRefund manualSummary = refunds.stream()
-                .filter(refund -> refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER
-                        && List.of(RefundStatus.AWAITING_CUSTOMER_INFO,
-                        RefundStatus.READY_FOR_MANUAL_TRANSFER).contains(refund.getStatus()))
-                .findFirst()
-                .orElseGet(() -> refunds.stream()
-                        .filter(refund -> refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER)
-                        .max(Comparator.comparing(PaymentRefund::getUpdatedAt,
-                                Comparator.nullsLast(Comparator.naturalOrder())))
-                        .orElse(null));
-        if (manualSummary == null) {
-            response.setRefundDestinationStatus(RefundDestinationStatus.NOT_REQUIRED);
-            return response;
-        }
-        RefundRecipient recipient = manualSummary.getRecipient();
-        response.setRefundDestinationStatus(recipient == null
-                ? RefundDestinationStatus.REQUIRED
-                : recipient.getStatus() == RefundRecipientStatus.VERIFIED
-                ? RefundDestinationStatus.VERIFIED
-                : RefundDestinationStatus.SUBMITTED);
-        response.setRefundBankSummary(recipient != null
-                ? recipient.getBankName() + " ****" + recipient.getAccountNumberLast4()
-                : null);
-        return response;
+        return refundSummaryEnricher.apply(response);
     }
 
     @Transactional(readOnly = true)
@@ -1436,25 +1143,13 @@ public class PaymentRefundService {
     public PaymentRefundSummary getPaymentRefundSummary(String paymentTransactionId) {
         List<PaymentRefund> refunds = refundRepository.findByPaymentTransactionId(paymentTransactionId);
         if (refunds.isEmpty()) return PaymentRefundSummary.empty();
-
-        long completedAmount = refunds.stream()
-                .filter(refund -> refund.getStatus() == RefundStatus.SUCCEEDED)
-                .mapToLong(refund -> value(refund.getAmount()))
-                .sum();
-        long outstandingAmount = refunds.stream()
-                .filter(refund -> RESERVED_STATUSES.contains(refund.getStatus()))
-                .filter(refund -> refund.getStatus() != RefundStatus.SUCCEEDED)
-                .mapToLong(refund -> value(refund.getAmount()))
-                .sum();
-        PaymentRefund latest = refunds.stream()
-                .max(Comparator.comparing(PaymentRefund::getUpdatedAt,
-                        Comparator.nullsLast(Comparator.naturalOrder())))
-                .orElse(null);
+        RefundLedgerCalculator.RefundSummary summary =
+                ledgerCalculator.summarize(refunds, RESERVED_STATUSES);
         return new PaymentRefundSummary(
-                completedAmount,
-                outstandingAmount,
-                latest != null ? latest.getChannel() : null,
-                latest != null ? latest.getStatus() : null);
+                summary.completedAmount(),
+                summary.outstandingAmount(),
+                summary.latestChannel(),
+                summary.latestStatus());
     }
 
     @Transactional(readOnly = true)
@@ -1464,35 +1159,7 @@ public class PaymentRefundService {
                         PaymentStatus.REFUNDED).contains(payment.getStatus()))
                 .toList();
         List<PaymentRefund> refunds = refundRepository.findByReservationId(reservationId);
-        long gross = payments.stream()
-                .mapToLong(payment -> payment.getAcceptedAmount() != null
-                        ? payment.getAcceptedAmount() : value(payment.getAmount()))
-                .sum();
-        long effectiveRefunds = refunds.stream()
-                .filter(refund -> NET_DEDUCTED_STATUSES.contains(refund.getStatus()))
-                .filter(refund -> refund.getSourceType() == null
-                        || !List.of(
-                        RefundSourceType.UNACCEPTED_PAYMENT,
-                        RefundSourceType.ADDITIONAL_TRANSFER,
-                        RefundSourceType.CHECKOUT_OVERPAYMENT).contains(refund.getSourceType()))
-                .mapToLong(refund -> refund.getAmount() != null ? refund.getAmount() : 0L)
-                .sum();
-        // Fallback cho dữ liệu REFUNDED rất cũ chưa có payment_refunds. Với dữ
-        // liệu mới, phần chênh này bằng 0 nên không bị trừ hai lần.
-        long legacyCompletedGap = payments.stream()
-                .filter(payment -> payment.getStatus() == PaymentStatus.REFUNDED)
-                .mapToLong(payment -> {
-                    long recorded = refunds.stream()
-                            .filter(refund -> refund.getStatus() == RefundStatus.SUCCEEDED)
-                            .filter(refund -> refund.getPaymentTransaction() != null
-                                    && java.util.Objects.equals(
-                                    refund.getPaymentTransaction().getId(), payment.getId()))
-                            .mapToLong(refund -> value(refund.getAmount()))
-                            .sum();
-                    return Math.max(0L, value(payment.getRefundAmount()) - recorded);
-                })
-                .sum();
-        return Math.max(0L, gross - effectiveRefunds - legacyCompletedGap);
+        return ledgerCalculator.getNetPaidAmount(payments, refunds, NET_DEDUCTED_STATUSES);
     }
 
     /**
@@ -1501,41 +1168,9 @@ public class PaymentRefundService {
      */
     @Transactional(readOnly = true)
     public long getOutstandingReservedRefundAmount(Long reservationId) {
-        return refundRepository.findByReservationId(reservationId).stream()
-                .filter(refund -> RESERVED_STATUSES.contains(refund.getStatus()))
-                .filter(refund -> refund.getStatus() != RefundStatus.SUCCEEDED)
-                .mapToLong(refund -> value(refund.getAmount()))
-                .sum();
-    }
-
-    private void applyProviderResult(PaymentRefund refund, VNPayProviderResult result, boolean queryResult) {
-        refund.setResponseCode(result.responseCode());
-        refund.setTransactionStatus(result.transactionStatus());
-        refund.setProviderRefundTxnId(result.providerTransactionNo());
-        refund.setMessage(result.message());
-
-        if ("00".equals(result.responseCode()) && "00".equals(result.transactionStatus())) {
-            refund.setStatus(RefundStatus.SUCCEEDED);
-            refund.setCompletionMethod(RefundCompletionMethod.PROVIDER_API);
-            LocalDateTime completedAt = LocalDateTime.now(HOTEL_ZONE);
-            refund.setCompletedAt(completedAt);
-            refund.setActualRefundAmount(refund.getAmount());
-            refund.setCompletedAtUtc(completedAt.atZone(HOTEL_ZONE).toInstant());
-            return;
-        }
-        if ("94".equals(result.responseCode())
-                || ("00".equals(result.responseCode())
-                && (result.transactionStatus() == null
-                || List.of("01", "05", "06").contains(result.transactionStatus())))) {
-            refund.setStatus(RefundStatus.PROCESSING);
-            return;
-        }
-        if (queryResult && "00".equals(result.responseCode())
-                && !List.of("02", "03").contains(result.transactionType())) {
-            refund.setStatus(RefundStatus.PROCESSING);
-            return;
-        }
-        refund.setStatus(RefundStatus.FAILED);
+        return ledgerCalculator.getOutstandingReservedRefundAmount(
+                refundRepository.findByReservationId(reservationId),
+                RESERVED_STATUSES);
     }
 
     void syncLegacyPaymentState(PaymentTransaction payment) {
@@ -1588,10 +1223,6 @@ public class PaymentRefundService {
             payment.setRefundCompletedAt(null);
         }
         transactionRepository.save(payment);
-    }
-
-    private String originalTransactionDate(PaymentTransaction payment) {
-        return hasText(payment.getProviderCreateDate()) ? payment.getProviderCreateDate() : null;
     }
 
     private long legacyCompletedGap(PaymentTransaction payment) {
@@ -1648,34 +1279,11 @@ public class PaymentRefundService {
         return recipient;
     }
 
-    private String safeMessage(Exception exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
-        return message.substring(0, Math.min(300, message.length()));
-    }
-
-    private String appendRequestHistory(String history, String requestId) {
-        if (!hasText(requestId)) return history;
-        String updated = hasText(history) ? history + "," + requestId : requestId;
-        return updated.length() <= 1000
-                ? updated
-                : updated.substring(updated.length() - 1000);
-    }
-
-    private <T> T requiresNew(Supplier<T> work) {
-        TransactionTemplate template = new TransactionTemplate(transactionManager);
-        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        return template.execute(status -> work.get());
-    }
-
-    private record SubmissionClaim(
-            PaymentRefund refund,
-            PaymentRefundResponse immediateResponse) {
-    }
-
-    private record RetryOutcome(
-            PaymentRefundResponse response,
-            boolean submitToProvider) {
+    private String newRequestId() {
+        String timestamp = LocalDateTime.now(HOTEL_ZONE)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyMMddHHmmss"));
+        return "RF" + timestamp
+                + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
     private void syncLegacyPaymentStateIfPresent(PaymentTransaction payment) {

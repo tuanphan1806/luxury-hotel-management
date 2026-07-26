@@ -40,6 +40,9 @@ class OAuthAccountServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private CustomerProfileLinkService customerProfileLinkService;
+
     @InjectMocks
     private OAuthAccountService oauthAccountService;
 
@@ -62,6 +65,7 @@ class OAuthAccountServiceTest {
 
         assertThat(resolved).isSameAs(user);
         verifyNoInteractions(userRepository);
+        verify(customerProfileLinkService).ensureForUser(user);
         verify(oauthAccountRepository, never()).saveAndFlush(any(OAuthAccount.class));
     }
 
@@ -102,6 +106,7 @@ class OAuthAccountServiceTest {
         assertThat(createdUser.getPassword()).isNull();
         assertThat(createdUser.getPhone()).isNull();
         assertThat(createdUser.getImageUrl()).isEqualTo("https://images.example/avatar.png");
+        verify(customerProfileLinkService).ensureForUser(createdUser);
 
         ArgumentCaptor<OAuthAccount> mappingCaptor = ArgumentCaptor.forClass(OAuthAccount.class);
         verify(oauthAccountRepository).saveAndFlush(mappingCaptor.capture());
@@ -130,6 +135,7 @@ class OAuthAccountServiceTest {
         assertThat(resolved).isSameAs(existingUser);
         assertThat(existingUser.getStatus()).isEqualTo(UserStatus.ACTIVE);
         assertThat(existingUser.isEmailVerified()).isTrue();
+        verify(customerProfileLinkService).ensureForUser(existingUser);
         verifyLinkedMapping(existingUser, "gmail-subject");
     }
 
@@ -152,6 +158,7 @@ class OAuthAccountServiceTest {
         assertThat(resolved).isSameAs(existingUser);
         assertThat(existingUser.getStatus()).isEqualTo(UserStatus.ACTIVE);
         assertThat(existingUser.isEmailVerified()).isTrue();
+        verify(customerProfileLinkService).ensureForUser(existingUser);
         verifyLinkedMapping(existingUser, "workspace-subject");
     }
 
@@ -254,6 +261,7 @@ class OAuthAccountServiceTest {
         assertThat(resolved.isEmailVerified()).isFalse();
         assertThat(resolved.getPassword()).isNull();
         assertThat(resolved.getType()).isEqualTo(UserType.CUSTOMER);
+        verify(customerProfileLinkService).ensureForUser(resolved);
         ArgumentCaptor<OAuthAccount> mappingCaptor = ArgumentCaptor.forClass(OAuthAccount.class);
         verify(oauthAccountRepository).saveAndFlush(mappingCaptor.capture());
         assertThat(mappingCaptor.getValue().getProviderSubject())
@@ -291,6 +299,7 @@ class OAuthAccountServiceTest {
         User resolved = oauthAccountService.resolveOrCreate(profile);
 
         assertThat(resolved).isSameAs(user);
+        verify(customerProfileLinkService).ensureForUser(user);
         verifyNoInteractions(userRepository);
         verify(oauthAccountRepository, never()).saveAndFlush(any(OAuthAccount.class));
     }

@@ -8,6 +8,5 @@ public enum RefundCompletionMethod {
     SEPAY_WEBHOOK,
     MANUAL_FALLBACK,
     CASH_HANDOVER,
-    PROVIDER_API,
     LEGACY
 }

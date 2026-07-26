@@ -3,26 +3,16 @@ package com.hotel.backend.service;
 import com.hotel.backend.constant.MediaAssetOwnerType;
 import com.hotel.backend.constant.MediaAssetStatus;
 import com.hotel.backend.constant.UploadFolder;
-import com.hotel.backend.constant.UserType;
 import com.hotel.backend.entity.MediaAsset;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.exception.InvalidDataException;
 import com.hotel.backend.repository.MediaAssetRepository;
-import com.hotel.backend.storage.UploadStorage;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -40,13 +30,13 @@ import java.util.Objects;
  * {@link #replaceReference} để claim file. File bị thay thế không xóa ngay
  * mà chuyển ORPHANED, giúp transaction rollback an toàn và scheduler dọn sau.</p>
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MediaAssetService {
 
     private final MediaAssetRepository mediaAssetRepository;
-    private final UploadStorage uploadStorage;
+    private final MediaAssetOwnershipPolicy ownershipPolicy;
+    private final MediaAssetCleanupService cleanupService;
 
     @Value("${app.upload.base-url:}")
     private String managedBaseUrl;
@@ -70,7 +60,7 @@ public class MediaAssetService {
             long fileSize,
             Integer width,
             Integer height) {
-        User currentUser = currentUserOrThrow();
+        User currentUser = ownershipPolicy.currentUserOrThrow();
         String normalizedUrl = requireText(url, "URL file không hợp lệ");
         String normalizedObjectKey = requireText(objectKey, "Object key không hợp lệ");
         String normalizedContentType = requireText(contentType, "Content-Type không hợp lệ");
@@ -97,7 +87,7 @@ public class MediaAssetService {
             throw new InvalidDataException("Object key đã được ghi nhận");
         }
 
-        registerStorageRollbackCleanup(normalizedObjectKey);
+        cleanupService.registerStorageRollbackCleanup(normalizedObjectKey);
         return mediaAssetRepository.saveAndFlush(MediaAsset.builder()
                 .url(normalizedUrl)
                 .objectKey(normalizedObjectKey)
@@ -125,7 +115,7 @@ public class MediaAssetService {
             UploadFolder purpose,
             MediaAssetOwnerType ownerType,
             Long ownerId) {
-        validateOwnerContract(purpose, ownerType, ownerId);
+        ownershipPolicy.validateOwnerContract(purpose, ownerType, ownerId);
         String previous = normalizeNullable(previousUrl);
         String requested = normalizeNullable(requestedUrl);
         if (Objects.equals(previous, requested)) {
@@ -154,7 +144,7 @@ public class MediaAssetService {
             MediaAssetOwnerType ownerType,
             Long ownerId,
             int maxImages) {
-        validateOwnerContract(purpose, ownerType, ownerId);
+        ownershipPolicy.validateOwnerContract(purpose, ownerType, ownerId);
         if (maxImages < 1) {
             throw new InvalidDataException("Giới hạn số ảnh không hợp lệ");
         }
@@ -205,26 +195,11 @@ public class MediaAssetService {
      */
     @Transactional
     public MediaAsset claimFinancialEvidence(Long assetId, UploadFolder purpose, User currentUser) {
-        if (assetId == null || assetId <= 0 || purpose == null) {
-            throw new InvalidDataException("Minh chứng chuyển khoản không hợp lệ");
-        }
-        if (currentUser == null || currentUser.getId() == null) {
-            throw new AccessDeniedException("Bạn cần đăng nhập để sử dụng minh chứng chuyển khoản");
-        }
+        ownershipPolicy.validateFinancialEvidenceRequest(assetId, purpose, currentUser);
 
         MediaAsset asset = mediaAssetRepository.findByIdForUpdate(assetId)
                 .orElseThrow(() -> new InvalidDataException("Không tìm thấy file minh chứng đã tải lên"));
-        if (!purpose.equals(asset.getPurpose())) {
-            throw new InvalidDataException("File upload không đúng mục đích làm minh chứng hoàn tiền");
-        }
-        if (!MediaAssetStatus.TEMPORARY.equals(asset.getStatus())) {
-            throw new InvalidDataException("File minh chứng đã được sử dụng hoặc không còn hiệu lực");
-        }
-
-        boolean admin = UserType.ADMIN.equals(currentUser.getType());
-        if (!admin && !Objects.equals(currentUser.getId(), asset.getUploadedByUserId())) {
-            throw new AccessDeniedException("Bạn chỉ có thể sử dụng file minh chứng do chính mình tải lên");
-        }
+        ownershipPolicy.validateFinancialEvidenceAsset(asset, purpose, currentUser);
 
         asset.setStatus(MediaAssetStatus.ACTIVE);
         asset.setClaimedAt(LocalDateTime.now());
@@ -239,37 +214,7 @@ public class MediaAssetService {
      */
     @Transactional
     public int cleanupExpired(Duration temporaryTtl, Duration orphanedTtl, int requestedBatchSize) {
-        Duration safeTemporaryTtl = requirePositive(temporaryTtl, "TTL file tạm");
-        Duration safeOrphanedTtl = requirePositive(orphanedTtl, "TTL file thừa");
-        int batchSize = Math.max(1, Math.min(requestedBatchSize, 500));
-        LocalDateTime now = LocalDateTime.now();
-        List<MediaAsset> expired = mediaAssetRepository.findExpiredForCleanup(
-                MediaAssetStatus.TEMPORARY,
-                now.minus(safeTemporaryTtl),
-                MediaAssetStatus.ORPHANED,
-                now.minus(safeOrphanedTtl),
-                PageRequest.of(0, batchSize));
-
-        int deleted = 0;
-        for (MediaAsset asset : expired) {
-            try {
-                uploadStorage.delete(asset.getObjectKey());
-                asset.setStatus(MediaAssetStatus.DELETED);
-                asset.setDeletedAt(now);
-                asset.setOwnerType(null);
-                asset.setOwnerId(null);
-                deleted++;
-            } catch (IOException | RuntimeException ex) {
-                // Một object storage lỗi không được chặn việc dọn các file
-                // khác. Asset giữ nguyên trạng thái để lần sau retry.
-                log.warn("Không thể dọn media asset id={}, objectKey={}",
-                        asset.getId(), asset.getObjectKey(), ex);
-            }
-        }
-        if (deleted > 0) {
-            mediaAssetRepository.saveAll(expired);
-        }
-        return deleted;
+        return cleanupService.cleanupExpired(temporaryTtl, orphanedTtl, requestedBatchSize);
     }
 
     private void claimManagedReference(
@@ -305,15 +250,7 @@ public class MediaAssetService {
             throw new InvalidDataException("File upload đã được sử dụng bởi bản ghi khác");
         }
 
-        User currentUser = currentUserOrThrow();
-        boolean admin = UserType.ADMIN.equals(currentUser.getType());
-        if (!admin && !Objects.equals(currentUser.getId(), asset.getUploadedByUserId())) {
-            throw new AccessDeniedException("Bạn không có quyền sử dụng file upload này");
-        }
-        if (!admin && MediaAssetOwnerType.USER_AVATAR.equals(ownerType)
-                && !Objects.equals(currentUser.getId(), ownerId)) {
-            throw new AccessDeniedException("Bạn chỉ có thể thay ảnh đại diện của chính mình");
-        }
+        ownershipPolicy.validateManagedAssetClaim(asset, ownerType, ownerId);
 
         asset.setStatus(MediaAssetStatus.ACTIVE);
         asset.setOwnerType(ownerType);
@@ -337,27 +274,6 @@ public class MediaAssetService {
                 asset.setOrphanedAt(LocalDateTime.now());
             }
         });
-    }
-
-    private void validateOwnerContract(
-            UploadFolder purpose,
-            MediaAssetOwnerType ownerType,
-            Long ownerId) {
-        if (purpose == null || ownerType == null || ownerId == null || ownerId <= 0) {
-            throw new InvalidDataException("Thông tin gắn file không hợp lệ");
-        }
-        if (!purpose.equals(ownerType.getRequiredPurpose())) {
-            throw new InvalidDataException("Mục đích upload không khớp với loại dữ liệu");
-        }
-    }
-
-    private User currentUserOrThrow() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof User user)
-                || user.getId() == null) {
-            throw new AccessDeniedException("Bạn cần đăng nhập để sử dụng file upload");
-        }
-        return user;
     }
 
     private boolean isManagedNamespace(String url) {
@@ -409,35 +325,4 @@ public class MediaAssetService {
         return normalized;
     }
 
-    private Duration requirePositive(Duration duration, String label) {
-        if (duration == null || duration.isZero() || duration.isNegative()) {
-            throw new InvalidDataException(label + " phải lớn hơn 0");
-        }
-        return duration;
-    }
-
-    /**
-     * Bytes đã được object storage lưu trước khi tạo metadata. Nếu
-     * insert/commit metadata thất bại, callback này bù trừ bằng cách xóa
-     * object, tránh tạo orphan không có DB row để scheduler tìm thấy.
-     */
-    private void registerStorageRollbackCleanup(String objectKey) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCompletion(int status) {
-                if (status == TransactionSynchronization.STATUS_COMMITTED) {
-                    return;
-                }
-                try {
-                    uploadStorage.delete(objectKey);
-                } catch (IOException | RuntimeException cleanupError) {
-                    log.error("Không thể rollback object sau khi lưu metadata thất bại: {}",
-                            objectKey, cleanupError);
-                }
-            }
-        });
-    }
 }

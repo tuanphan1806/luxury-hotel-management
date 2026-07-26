@@ -615,13 +615,105 @@ class ReservationScenarioIntegrationTest {
     }
 
     @Test
-    void checkInRejectsWhenSubmittedGuestsDoNotMatchReservationGuestCount() {
+    void checkInAllowsFewerActualGuestsThanReservationGuestCount() {
         RoomType roomType = roomType(2);
         Room room = room(roomType);
         Reservation reservation = confirmedReservation(customer(), roomType, 1, 2);
 
+        ReservationResponse checkedIn = reservationService.checkIn(
+                reservation.getId(), List.of(assignment(room.getId(), "Một khách thực tế")));
+
+        assertEquals(ReservationStatus.CHECKED_IN, checkedIn.getStatus());
+        assertEquals(1, guestRepository.findAllByReservationId(reservation.getId()).size());
+    }
+
+    @Test
+    void checkInRejectsActualGuestsAboveReservationGuestCount() {
+        RoomType roomType = roomType(3);
+        Room room = room(roomType);
+        Reservation reservation = confirmedReservation(customer(), roomType, 1, 1);
+
         assertThrows(RuntimeException.class, () -> reservationService.checkIn(
-                reservation.getId(), List.of(assignment(room.getId(), "Chỉ có một khách"))));
+                reservation.getId(), List.of(assignment(room.getId(), "Khách 1", "Khách 2"))));
+    }
+
+    @Test
+    void checkInRejectsGuestsAbovePhysicalRoomCapacity() {
+        RoomType roomType = roomType(2);
+        Room room = room(roomType);
+        Room secondRoom = room(roomType);
+        Reservation reservation = confirmedReservation(customer(), roomType, 2, 4);
+
+        assertThrows(RuntimeException.class, () -> reservationService.checkIn(
+                reservation.getId(), List.of(
+                        assignment(room.getId(), "Khách 1", "Khách 2", "Khách 3"),
+                        assignment(secondRoom.getId(), "Khách 4"))));
+    }
+
+    @Test
+    void atomicWalkInAllowsFewerActualGuestsThanDeclaredMaximum() {
+        RoomType roomType = roomType(2);
+        Room room = room(roomType);
+        User staff = userRepository.save(staff());
+        CreateWalkInCheckedInRequest request = CreateWalkInCheckedInRequest.builder()
+                .customer(CustomerProfileRequest.builder()
+                        .fullName("Walk-in linh hoạt " + suffix())
+                        .phone(uniquePhone())
+                        .idCardNumber("012345678901")
+                        .build())
+                .checkOut(LocalDateTime.now().plusHours(3))
+                .guestCount(2)
+                .rooms(List.of(assignment(room.getId(), "Một khách thực tế")))
+                .paymentOption(WalkInPaymentOption.UNPAID)
+                .build();
+
+        WalkInReservationResponse response = reservationService.createWalkInCheckedIn(
+                request, staff, "127.0.0.1");
+
+        assertEquals(ReservationStatus.CHECKED_IN, response.getReservation().getStatus());
+        assertEquals(1, guestRepository.findAllByReservationId(response.getReservation().getId()).size());
+    }
+
+    @Test
+    void atomicWalkInRejectsDeclaredGuestsAboveSelectedRoomCapacity() {
+        RoomType roomType = roomType(1);
+        Room room = room(roomType);
+        User staff = userRepository.save(staff());
+        CreateWalkInCheckedInRequest request = CreateWalkInCheckedInRequest.builder()
+                .customer(CustomerProfileRequest.builder()
+                        .fullName("Walk-in quá sức chứa " + suffix())
+                        .phone(uniquePhone())
+                        .idCardNumber("012345678901")
+                        .build())
+                .checkOut(LocalDateTime.now().plusHours(3))
+                .guestCount(2)
+                .rooms(List.of(assignment(room.getId(), "Một khách")))
+                .paymentOption(WalkInPaymentOption.UNPAID)
+                .build();
+
+        assertThrows(RuntimeException.class,
+                () -> reservationService.createWalkInCheckedIn(request, staff, "127.0.0.1"));
+    }
+
+    @Test
+    void atomicWalkInRejectsActualGuestsAboveDeclaredMaximum() {
+        RoomType roomType = roomType(3);
+        Room room = room(roomType);
+        User staff = userRepository.save(staff());
+        CreateWalkInCheckedInRequest request = CreateWalkInCheckedInRequest.builder()
+                .customer(CustomerProfileRequest.builder()
+                        .fullName("Walk-in vượt số khai báo " + suffix())
+                        .phone(uniquePhone())
+                        .idCardNumber("012345678901")
+                        .build())
+                .checkOut(LocalDateTime.now().plusHours(3))
+                .guestCount(1)
+                .rooms(List.of(assignment(room.getId(), "Khách 1", "Khách 2")))
+                .paymentOption(WalkInPaymentOption.UNPAID)
+                .build();
+
+        assertThrows(RuntimeException.class,
+                () -> reservationService.createWalkInCheckedIn(request, staff, "127.0.0.1"));
     }
 
     @Test
@@ -990,8 +1082,6 @@ class ReservationScenarioIntegrationTest {
                 .status(PaymentStatus.SUCCESS)
                 .amount(amount)
                 .currency("VND")
-                .providerCreateDate(LocalDateTime.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))
-                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss")))
                 .paidAt(LocalDateTime.now())
                 .build());
     }
@@ -1060,12 +1150,19 @@ class ReservationScenarioIntegrationTest {
     }
 
     private AssignRoomRequest assignment(Long roomId, String guestName) {
+        return assignment(roomId, new String[]{guestName});
+    }
+
+    private AssignRoomRequest assignment(Long roomId, String... guestNames) {
+        List<GuestRequest> guests = java.util.stream.IntStream.range(0, guestNames.length)
+                .mapToObj(index -> GuestRequest.builder()
+                        .fullName(guestNames[index])
+                        .isPrimary(index == 0)
+                        .build())
+                .toList();
         return AssignRoomRequest.builder()
                 .roomId(roomId)
-                .guests(List.of(GuestRequest.builder()
-                        .fullName(guestName)
-                        .isPrimary(true)
-                        .build()))
+                .guests(guests)
                 .build();
     }
 
