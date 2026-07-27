@@ -1,5 +1,6 @@
 "use client";
 
+import axios from "axios";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api";
@@ -13,7 +14,7 @@ import { GALLERY_HERO_IMAGES } from "@/constants/content";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
-import { StayPriceEstimate } from "@/components/guest/RoomRateDisplay";
+import { RoomRateCompact } from "@/components/guest/RoomRateDisplay";
 
 type ReservationRoomOption = ReservationRoomQuickViewItem;
 
@@ -30,6 +31,8 @@ interface AvailabilityRoomOption {
   pricePerHour?: number;
   firstBlockMinutes?: number;
   firstBlockPrice?: number;
+  overnightPrice?: number;
+  dailyPrice?: number;
   estimatedPricePerRoom?: number;
   estimatedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
   totalHours?: number;
@@ -51,6 +54,8 @@ interface RoomTypeCatalogOption {
   maxGuests?: number;
   imageUrl?: string;
   imageUrls?: string[];
+  overnightPrice?: number;
+  dailyPrice?: number;
   facilities?: RoomTypeFacilityOption[];
 }
 
@@ -67,7 +72,7 @@ const mapAvailabilityOptions = (
       typeNameEn: room.roomTypeNameEn,
       description: room.description,
       descriptionEn: room.descriptionEn,
-      imageUrl: room.imageUrl,
+      imageUrl: room.imageUrls?.[0] || catalogRoom?.imageUrls?.[0] || room.imageUrl || catalogRoom?.imageUrl,
       gallery: getRoomGalleryImages(
         room.roomTypeName,
         room.roomTypeNameEn,
@@ -78,6 +83,8 @@ const mapAvailabilityOptions = (
       pricePerHour: room.pricePerHour,
       firstBlockMinutes: room.firstBlockMinutes,
       firstBlockPrice: room.firstBlockPrice,
+      overnightPrice: room.overnightPrice ?? catalogRoom?.overnightPrice,
+      dailyPrice: room.dailyPrice ?? catalogRoom?.dailyPrice,
       estimatedPricePerRoom: room.estimatedPricePerRoom,
       estimatedPackage: room.estimatedPackage,
       totalHours: room.totalHours,
@@ -88,9 +95,16 @@ const mapAvailabilityOptions = (
   });
 };
 
-const loadAvailabilityOptions = async (checkIn: string, checkOut: string) => {
+const loadAvailabilityOptions = async (
+  checkIn: string,
+  checkOut: string,
+  signal?: AbortSignal,
+) => {
   const [response, catalog] = await Promise.all([
-    apiClient.get(`/api/reservations/availability?checkIn=${checkIn}&checkOut=${checkOut}`),
+    apiClient.get("/api/reservations/availability", {
+      params: { checkIn, checkOut },
+      signal,
+    }),
     getPublicRoomTypes<RoomTypeCatalogOption>().catch(() => []),
   ]);
   const data: AvailabilityRoomOption[] = Array.isArray(response.data?.data) ? response.data.data : [];
@@ -124,6 +138,7 @@ export default function ReservationPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const resultsRef = useRef<HTMLElement>(null);
   const availabilityRequestRef = useRef(0);
+  const availabilityAbortControllerRef = useRef<AbortController | null>(null);
   const autoSearchTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -202,6 +217,8 @@ export default function ReservationPage() {
 
     const requestId = availabilityRequestRef.current + 1;
     availabilityRequestRef.current = requestId;
+    availabilityAbortControllerRef.current?.abort();
+    availabilityAbortControllerRef.current = null;
     if (autoSearchTimerRef.current !== null) {
       window.clearTimeout(autoSearchTimerRef.current);
       autoSearchTimerRef.current = null;
@@ -221,7 +238,13 @@ export default function ReservationPage() {
     setToast(null);
     autoSearchTimerRef.current = window.setTimeout(() => {
       autoSearchTimerRef.current = null;
-      loadAvailabilityOptions(`${checkIn}:00`, `${checkOut}:00`)
+      const controller = new AbortController();
+      availabilityAbortControllerRef.current = controller;
+      loadAvailabilityOptions(
+        `${checkIn}:00`,
+        `${checkOut}:00`,
+        controller.signal,
+      )
         .then((availableOptions) => {
           if (availabilityRequestRef.current !== requestId) return;
           setRooms(availableOptions);
@@ -237,7 +260,8 @@ export default function ReservationPage() {
             setSelectedRooms({});
           }
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          if (axios.isCancel(error)) return;
           if (availabilityRequestRef.current === requestId) {
             setToast({
               message: localize("Không thể tự động kiểm tra phòng trống. Vui lòng thử lại.", "Could not check availability automatically. Please try again."),
@@ -246,15 +270,20 @@ export default function ReservationPage() {
           }
         })
         .finally(() => {
+          if (availabilityAbortControllerRef.current === controller) {
+            availabilityAbortControllerRef.current = null;
+          }
           if (availabilityRequestRef.current === requestId) setIsLoading(false);
         });
-    }, 550);
+    }, 700);
 
     return () => {
       if (autoSearchTimerRef.current !== null) {
         window.clearTimeout(autoSearchTimerRef.current);
         autoSearchTimerRef.current = null;
       }
+      availabilityAbortControllerRef.current?.abort();
+      availabilityAbortControllerRef.current = null;
     };
   }, [canAutoCheckAvailability, checkIn, checkOut, isFormReady, localize, preferredRoomTypeId]);
 
@@ -296,6 +325,9 @@ export default function ReservationPage() {
     }
     const requestId = availabilityRequestRef.current + 1;
     availabilityRequestRef.current = requestId;
+    availabilityAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    availabilityAbortControllerRef.current = controller;
 
     setIsLoading(true);
     setHasSearched(true);
@@ -304,7 +336,11 @@ export default function ReservationPage() {
     try {
       const checkInDateTime = `${checkIn}:00`;
       const checkOutDateTime = `${checkOut}:00`;
-      const availableOptions = await loadAvailabilityOptions(checkInDateTime, checkOutDateTime);
+      const availableOptions = await loadAvailabilityOptions(
+        checkInDateTime,
+        checkOutDateTime,
+        controller.signal,
+      );
       if (availabilityRequestRef.current !== requestId) return;
       setRooms(availableOptions);
       setPreviewRoom(null);
@@ -321,11 +357,15 @@ export default function ReservationPage() {
       window.requestAnimationFrame(() => {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
-    } catch {
+    } catch (error: unknown) {
+      if (axios.isCancel(error)) return;
       if (availabilityRequestRef.current === requestId) {
         setToast({ message: localize("Không thể kiểm tra phòng trống. Vui lòng thử lại.", "Could not check availability. Please try again."), type: "error" });
       }
     } finally {
+      if (availabilityAbortControllerRef.current === controller) {
+        availabilityAbortControllerRef.current = null;
+      }
       if (availabilityRequestRef.current === requestId) setIsLoading(false);
     }
   };
@@ -510,13 +550,8 @@ export default function ReservationPage() {
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[#66727C]">{localize("Chưa có ảnh", "No image")}</div>
                   )}
-                  <StayPriceEstimate
-                    estimatedPricePerRoom={room.estimatedPricePerRoom}
-                    estimatedPackage={room.estimatedPackage}
-                    totalHours={room.totalHours}
-                    firstBlockMinutes={room.firstBlockMinutes}
-                    firstBlockPrice={room.firstBlockPrice ?? room.pricePerHour}
-                    fallbackPrice={room.price}
+                  <RoomRateCompact
+                    rate={room}
                     className="absolute right-4 top-4"
                   />
                 </div>

@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -144,5 +146,29 @@ class AvailabilityPricingServiceTest {
 
         assertEquals(ErrorCode.PRICING_PROFILE_NOT_FOUND, exception.getErrorCode());
         assertTrue(exception.getMessage().contains("chồng thời gian"));
+    }
+
+    @Test
+    void batchesEffectiveRateLookupWithoutChangingTheEstimate() {
+        when(rateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(1L)), any(Instant.class)))
+                .thenReturn(List.of(rateProfile));
+
+        Map<Long, AvailabilityPricingService.Estimate> estimates =
+                service.estimateAll(
+                        List.of(roomType),
+                        LocalDateTime.of(2026, 8, 1, 12, 0),
+                        LocalDateTime.of(2026, 8, 2, 12, 15));
+
+        AvailabilityPricingService.Estimate estimate =
+                estimates.get(roomType.getId());
+        assertEquals(120, estimate.firstBlockMinutes());
+        assertEquals(0, new BigDecimal("70000")
+                .compareTo(estimate.firstBlockPrice()));
+        assertEquals(0, new BigDecimal("300000")
+                .compareTo(estimate.estimatedPricePerRoom()));
+        assertEquals(StayPackage.DAILY, estimate.estimatedPackage());
+        verify(rateProfileRepository).findEffectiveByRoomTypeIds(
+                eq(List.of(1L)), any(Instant.class));
     }
 }

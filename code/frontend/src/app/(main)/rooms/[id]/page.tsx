@@ -254,6 +254,12 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
         const facilityById = new Map(facilityCatalog.map((facility) => [Number(facility.id), facility]));
         const dbData = roomTypes.find((item) => String(item.id) === String(roomId));
         if (dbData) {
+          const roomGallery = getRoomGalleryImages(
+            dbData.typeName,
+            dbData.typeNameEn,
+            dbData.imageUrl,
+            dbData.imageUrls,
+          );
           const normalizedType = normalizeCatalogText(`${dbData.typeName || ""} ${dbData.typeNameEn || ""}`);
           const specs = normalizedType.includes("presidential") || normalizedType.includes("tong thong")
             ? { bed: localize("1 giường King + phòng khách", "1 king bed + living room"), size: "90 m²", view: localize("Toàn cảnh thành phố", "Panoramic city view") }
@@ -283,9 +289,9 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
             dailyPrice: dbData.dailyPrice,
             extraGuestPrice: dbData.extraGuestPrice,
             maxGuests: dbData.maxGuests || 2,
-            imageUrl: dbData.imageUrl || "",
+            imageUrl: roomGallery[0] || dbData.imageUrl || "",
             specs,
-            gallery: getRoomGalleryImages(dbData.typeName, dbData.typeNameEn, dbData.imageUrl, dbData.imageUrls),
+            gallery: roomGallery,
             amenities: (dbData.facilities || []).map((facility) => {
               const detail = facility.id ? facilityById.get(Number(facility.id)) : undefined;
               const facilityName = facility.facilityName || detail?.facilityName || detail?.name;
@@ -369,7 +375,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
   return (
     <div className="bg-[#F1F0EA]">
       <GuestPageHero
-        imageSrc={room.imageUrl || ROOMS_CONTENT.hero.bg}
+        imageSrc={galleryImages[0] || room.imageUrl || ROOMS_CONTENT.hero.bg}
         imageAlt={localize(`Không gian hạng phòng ${room.typeName}`, `${room.typeName} room interior`)}
         eyebrow={localize("Phòng & hạng phòng", "Rooms & suites")}
         title={room.typeName}
