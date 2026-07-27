@@ -30,7 +30,8 @@ public class RoomTypeRequest {
 
     @NotNull(message = "Giá không được để trống")
     @DecimalMin(value = "0.0", inclusive = false, message = "Giá phải lớn hơn 0")
-    @Digits(integer = 10, fraction = 2, message = "Giá tối đa 10 chữ số nguyên, 2 chữ số thập phân")
+    @Digits(integer = 10, fraction = 0,
+            message = "Giá phải là số VND nguyên, tối đa 10 chữ số")
     private BigDecimal price;
 
     @NotNull(message = "Sức chứa không được để trống")

@@ -95,6 +95,29 @@ class ReservationAddOnServiceTest {
     }
 
     @Test
+    void pricingV2BookingQuoteUsesAuthoritativePackageCycles() {
+        AddOnService rollaway = catalog(
+                3L, "EXTRA_ROLLAWAY_BED", AddOnPricingUnit.PER_NIGHT, "200000.00");
+        when(catalogRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(rollaway));
+
+        ReservationAddOnService.BookingQuote quote =
+                service.quoteBookingTimeForPackageCycles(
+                        List.of(ServiceOrderRequest.builder()
+                                .serviceId(3L)
+                                .quantity(2)
+                                .build()),
+                        4,
+                        1);
+
+        assertThat(quote.totalAmount()).isEqualByComparingTo("400000.00");
+        assertThat(quote.lines()).singleElement().satisfies(line -> {
+            assertThat(line.quantity()).isEqualTo(2);
+            assertThat(line.multiplier()).isEqualTo(1);
+            assertThat(line.billableQuantity()).isEqualTo(2);
+        });
+    }
+
+    @Test
     void perGuestDefaultsToReservationGuestCount() {
         AddOnService breakfast = catalog(
                 1L, "IN_ROOM_BREAKFAST", AddOnPricingUnit.PER_GUEST, "50000.00");

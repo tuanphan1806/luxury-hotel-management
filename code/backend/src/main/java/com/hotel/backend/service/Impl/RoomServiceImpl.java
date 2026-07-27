@@ -155,7 +155,7 @@ public class RoomServiceImpl implements RoomService {
                                 reservationId,
                                 id,
                                 reservation.getCheckIn(),
-                                reservation.getCheckOut())
+                                availabilityEnd(reservation))
                         .stream())
                 .map(RoomResponse::from)
                 .toList();
@@ -163,6 +163,15 @@ public class RoomServiceImpl implements RoomService {
         log.info("Found {} available rooms for reservationId={}, roomTypeId={}",
                 result.size(), reservationId, roomTypeId);
         return result;
+    }
+
+    private java.time.LocalDateTime availabilityEnd(Reservation reservation) {
+        java.time.LocalDateTime protectedUntil =
+                reservation.getInventoryProtectedUntil();
+        return protectedUntil != null
+                && protectedUntil.isAfter(reservation.getCheckOut())
+                ? protectedUntil
+                : reservation.getCheckOut();
     }
 
     @Override

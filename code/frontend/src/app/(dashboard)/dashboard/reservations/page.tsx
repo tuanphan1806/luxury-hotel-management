@@ -58,6 +58,13 @@ interface ReservationRoomType {
   quantity: number;
   maxGuestsPerRoom?: number;
   subtotal?: number;
+  plannedRoomCharge?: number;
+  actualRoomCharge?: number;
+  plannedExtraGuestCharge?: number;
+  extraGuestCharge?: number;
+  plannedSubtotal?: number;
+  actualSubtotal?: number;
+  appliedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
   roomHold?: {
     id: number;
     expiresAt: string;
@@ -82,6 +89,8 @@ interface AssignedRoomGroup {
 interface ReservationItem {
   id: number;
   reservationCode: string;
+  pricingVersion?: "LEGACY_V1" | "MOTEL_PACKAGE_V2";
+  displayPackageSummary?: "HOURLY" | "OVERNIGHT" | "DAILY";
   customerId?: number;
   customerName?: string;
   checkIn: string;
@@ -90,7 +99,15 @@ interface ReservationItem {
   actualCheckOut?: string;
   lateCheckoutFee?: number;
   totalAmount: number;
+  actualTotalAmount?: number;
+  projectedTotalAmount?: number;
   plannedTotalAmount?: number;
+  plannedRoomCharge?: number;
+  actualRoomCharge?: number;
+  plannedExtraGuestCharge?: number;
+  extraGuestCharge?: number;
+  postCommitmentRoomIncrease?: number;
+  plannedAddOnServiceAmount?: number;
   paidAmount?: number;
   status: ReservationStatus;
   note?: string;
@@ -128,7 +145,6 @@ interface RoomItem {
   roomTypeNameEn?: string;
   status: string;
   cleaningStatus: string;
-  price?: number;
   maxGuestsPerRoom?: number;
 }
 
@@ -141,9 +157,12 @@ interface WalkInPriceOverrideDraft {
 
 interface FinalPayment {
   reservationId: number;
+  pricingVersion?: "LEGACY_V1" | "MOTEL_PACKAGE_V2";
   totalAmount: number;
   roomCharge: number;
   plannedRoomCharge: number;
+  extraGuestCharge?: number;
+  postCommitmentRoomIncrease?: number;
   paidAmount: number;
   remainingAmount: number;
   lateCheckoutFee?: number;
@@ -168,6 +187,11 @@ interface CheckoutReconciliationApi {
   uncoveredRefundAmount: number;
   outstandingAmount: number;
   deltaAmount: number;
+  pricingVersion?: "LEGACY_V1" | "MOTEL_PACKAGE_V2";
+  plannedRoomCharge?: number;
+  actualRoomCharge?: number;
+  extraGuestCharge?: number;
+  postCommitmentRoomIncrease?: number;
   lateCheckoutFee?: number;
   earlyCheckoutAdjustment?: number;
   checkoutAdditionalFee?: number;
@@ -646,7 +670,7 @@ export default function ReservationsManagement() {
   };
 
   const selectedWalkInRoomTypes = useMemo(() => {
-    const grouped = new Map<number, { roomTypeId: number; name: string; nameEn?: string; basePrice?: number; quantity: number }>();
+    const grouped = new Map<number, { roomTypeId: number; name: string; nameEn?: string; quantity: number }>();
     walkInRooms.filter((room) => selectedWalkInRoomIds.includes(room.id)).forEach((room) => {
       const current = grouped.get(room.roomTypeId);
       if (current) current.quantity += 1;
@@ -654,7 +678,6 @@ export default function ReservationsManagement() {
         roomTypeId: room.roomTypeId,
         name: room.roomTypeName,
         nameEn: room.roomTypeNameEn,
-        basePrice: room.price,
         quantity: 1,
       });
     });
@@ -1054,7 +1077,12 @@ export default function ReservationsManagement() {
     const selectedDayEnd = selectedDayStart === null ? null : new Date(`${stayDate}T00:00:00`).setDate(new Date(`${stayDate}T00:00:00`).getDate() + 1);
     const matched = reservations.filter((reservation) => {
       const matchesStatus = selectedStatus === "ALL" || reservation.status === selectedStatus;
-      const total = Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0);
+      const total = Number(
+        reservation.projectedTotalAmount
+          ?? reservation.actualTotalAmount
+          ?? reservation.totalAmount
+          ?? 0,
+      );
       const paid = Number(reservation.paidAmount ?? 0);
       const matchesPayment = paymentFilter === "ALL"
         || (paymentFilter === "UNPAID" && paid <= 0)
@@ -1508,16 +1536,22 @@ export default function ReservationsManagement() {
       const lateFee = reconciliation.lateCheckoutFee || 0;
       const additionalFee = reconciliation.checkoutAdditionalFee || 0;
       const addOnServiceAmount = reconciliation.addOnServiceAmount || 0;
-      const roomCharge = Math.max(
+      const fallbackRoomCharge = Math.max(
         0,
         reconciliation.requiredAmount - lateFee - additionalFee - addOnServiceAmount,
       );
+      const roomCharge = reconciliation.actualRoomCharge ?? fallbackRoomCharge;
       setSelectedReservation(toData<ReservationItem>(detailRes));
       setFinalPayment({
         reservationId: reconciliation.reservationId,
+        pricingVersion: reconciliation.pricingVersion,
         totalAmount: reconciliation.requiredAmount,
         roomCharge,
-        plannedRoomCharge: roomCharge + earlyAdjustment,
+        plannedRoomCharge:
+          reconciliation.plannedRoomCharge ?? roomCharge + earlyAdjustment,
+        extraGuestCharge: reconciliation.extraGuestCharge || 0,
+        postCommitmentRoomIncrease:
+          reconciliation.postCommitmentRoomIncrease || 0,
         paidAmount: reconciliation.acceptedAmount,
         remainingAmount: reconciliation.outstandingAmount,
         lateCheckoutFee: lateFee,
@@ -2140,8 +2174,8 @@ export default function ReservationsManagement() {
 
       showToast(
         walkInPaymentMethod === "NONE"
-          ? `Đã check-in ${selectedRooms.length} phòng, chưa thu tiền`
-          : `Đã tạo, check-in và xử lý thanh toán ${selectedRooms.length} phòng`,
+          ? `Đã check-in ${selectedRooms.length} phòng · ${formatVND(createdReservation.totalAmount)} · chưa thu tiền`
+          : `Đã tạo, check-in và xử lý ${formatVND(createdReservation.totalAmount)} cho ${selectedRooms.length} phòng`,
         "success"
       );
       setIsWalkInOpen(false);
@@ -2679,7 +2713,16 @@ export default function ReservationsManagement() {
                         emptyLabel={localize("Chưa gán phòng", "Not assigned")}
                       />
                     </td>
-                    <td className="px-5 py-4 text-right tabular-nums"><p className="font-bold text-[#0F2A43]">{formatVND(Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0))}</p><p className="mt-1 text-xs font-semibold text-emerald-700">{localize("Đã trả", "Paid")}: {formatVND(Number(reservation.paidAmount || 0))}</p></td>
+                    <td className="px-5 py-4 text-right tabular-nums">
+                      <p className="font-bold text-[#0F2A43]">{formatVND(Number(reservation.projectedTotalAmount ?? reservation.actualTotalAmount ?? reservation.totalAmount ?? 0))}</p>
+                      {Number(reservation.projectedTotalAmount ?? reservation.actualTotalAmount ?? reservation.totalAmount ?? 0) !== Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0) && (
+                        <p className="mt-1 text-[11px] font-semibold text-[#66727C]">{localize("Cam kết", "Committed")}: {formatVND(Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0))}</p>
+                      )}
+                      {reservation.status === "CHECKED_IN" && reservation.projectedTotalAmount != null && (
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#80632F]">{localize("Tạm tính hiện tại", "Current projection")}</p>
+                      )}
+                      <p className="mt-1 text-xs font-semibold text-emerald-700">{localize("Đã trả", "Paid")}: {formatVND(Number(reservation.paidAmount || 0))}</p>
+                    </td>
                     <td className="px-4 py-4">
                       <span className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${reservation.cancellationRefundPending ? "border-amber-200 bg-amber-50 text-amber-800" : getStatusClass(reservation.status)}`}>{reservation.cancellationRefundPending ? reservation.refundRoute === "CASH_AT_COUNTER" ? localize("Chờ giao tiền mặt", "Cash handover pending") : localize("Chờ hoàn QR", "QR refund pending") : getStatusLabel(reservation.status)}</span>
                     </td>
@@ -2709,7 +2752,13 @@ export default function ReservationsManagement() {
                   <div className="col-span-2"><dt className="text-[#66727C]">{localize("Thời gian dự kiến", "Planned stay")}</dt><dd className="mt-1 font-semibold text-[#0F2A43]">{formatDate(reservation.checkIn)} → {formatDate(reservation.checkOut)}</dd></div>
                   <div className="col-span-2"><dt className="text-[#66727C]">{localize("Loại phòng", "Room types")}</dt><dd className="mt-1 font-semibold text-[#0F2A43]">{(reservation.roomTypes || []).length ? reservation.roomTypes?.map((roomType) => `${localize(roomType.roomTypeName, roomType.roomTypeNameEn)} × ${roomType.quantity}`).join(" · ") : "—"}</dd></div>
                   <div className="col-span-2"><dt className="text-[#66727C]">{localize("Phòng ở", "Assigned rooms")}</dt><dd className="mt-1"><AssignedRoomDisplay groups={getAssignedRoomGroups(reservation)} emptyLabel={localize("Chưa gán phòng", "Not assigned")} /></dd></div>
-                  <div><dt className="text-[#66727C]">{localize("Tổng dự kiến", "Planned total")}</dt><dd className="mt-1 font-bold tabular-nums text-[#0F2A43]">{formatVND(Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0))}</dd></div>
+                  <div>
+                    <dt className="text-[#66727C]">{localize("Tổng hiện tại", "Current total")}</dt>
+                    <dd className="mt-1 font-bold tabular-nums text-[#0F2A43]">{formatVND(Number(reservation.projectedTotalAmount ?? reservation.actualTotalAmount ?? reservation.totalAmount ?? 0))}</dd>
+                    {Number(reservation.projectedTotalAmount ?? reservation.actualTotalAmount ?? reservation.totalAmount ?? 0) !== Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0) && (
+                      <p className="mt-1 text-[11px] font-semibold text-[#66727C]">{localize("Cam kết", "Committed")}: {formatVND(Number(reservation.plannedTotalAmount ?? reservation.totalAmount ?? 0))}</p>
+                    )}
+                  </div>
                   <div><dt className="text-[#66727C]">{localize("Đã thanh toán", "Paid")}</dt><dd className="mt-1 font-bold tabular-nums text-emerald-700">{formatVND(Number(reservation.paidAmount || 0))}</dd></div>
                 </dl>
                 <div className="mt-4 border-t border-[#0F2A43]/10 pt-3">{renderReservationActions(reservation)}</div>
@@ -2958,7 +3007,7 @@ export default function ReservationsManagement() {
                   const draft = walkInPriceOverrides[roomType.roomTypeId] || { enabled: false, amount: "", reasonCode: "APPROVED_WALK_IN_RATE", note: "" };
                   const updateDraft = (value: Partial<WalkInPriceOverrideDraft>) => setWalkInPriceOverrides((current) => ({ ...current, [roomType.roomTypeId]: { ...draft, ...value } }));
                   return <div key={roomType.roomTypeId} className="rounded-lg border border-orange-200 bg-white p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold text-[#0F2A43]">{localize(roomType.name, roomType.nameEn)} × {roomType.quantity}</p><p className="text-[11px] text-[#66727C]">{localize("Giá giờ đầu tham khảo", "Base first-hour reference")}: {formatVND(roomType.basePrice || 0)}</p></div><label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-orange-800"><input type="checkbox" checked={draft.enabled} onChange={(event) => updateDraft({ enabled: event.target.checked })} className="h-4 w-4 accent-orange-700" />{localize("Nhập giá khác", "Override")}</label></div>
+                    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold text-[#0F2A43]">{localize(roomType.name, roomType.nameEn)} × {roomType.quantity}</p><p className="text-[11px] text-[#66727C]">{localize("Giá hệ thống được tính và khóa theo thời lượng khi tạo đơn", "The system rate is calculated and locked from the stay duration")}</p></div><label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-orange-800"><input type="checkbox" checked={draft.enabled} onChange={(event) => updateDraft({ enabled: event.target.checked })} className="h-4 w-4 accent-orange-700" />{localize("Nhập giá khác", "Override")}</label></div>
                     {draft.enabled && <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="grid gap-1 text-[10px] font-bold uppercase text-[#66727C]">{localize("Giá lưu trú / phòng (VND)", "Stay price / room (VND)")} *<input inputMode="numeric" value={draft.amount} onChange={(event) => updateDraft({ amount: event.target.value.replace(/[^0-9]/g, "") })} className="min-h-10 rounded-lg border px-3 text-right text-sm font-bold normal-case" /></label><label className="grid gap-1 text-[10px] font-bold uppercase text-[#66727C]">{localize("Loại phê duyệt", "Approval type")} *<select value={draft.reasonCode} onChange={(event) => updateDraft({ reasonCode: event.target.value })} className="min-h-10 rounded-lg border bg-white px-3 text-sm normal-case"><option value="APPROVED_WALK_IN_RATE">{localize("Giá walk-in đã duyệt", "Approved walk-in rate")}</option><option value="SERVICE_RECOVERY">{localize("Bù trải nghiệm dịch vụ", "Service recovery")}</option><option value="CONTRACTED_RATE">{localize("Giá hợp đồng", "Contracted rate")}</option></select></label><label className="grid gap-1 text-[10px] font-bold uppercase text-[#66727C] sm:col-span-2">{localize("Căn cứ / người phê duyệt", "Basis / approver")} *<textarea rows={2} maxLength={500} value={draft.note} onChange={(event) => updateDraft({ note: event.target.value })} className="resize-none rounded-lg border px-3 py-2 text-sm normal-case" /></label></div>}
                   </div>;
                 })}</div>
@@ -3133,8 +3182,10 @@ export default function ReservationsManagement() {
                   <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Tiền phòng dự kiến", "Planned room charge")}</span><span className="font-semibold">{formatVND(finalPayment.plannedRoomCharge)}</span></div>
                   {(finalPayment.earlyCheckoutAdjustment || 0) > 0 && <div className="flex justify-between gap-4 text-blue-700"><span>{localize("Giảm do trả phòng sớm", "Early checkout adjustment")}</span><span className="font-semibold">− {formatVND(finalPayment.earlyCheckoutAdjustment)}</span></div>}
                   <div className="flex justify-between gap-4 border-t border-[#0F2A43]/10 pt-3"><span className="font-semibold text-[#0F2A43]">{localize("Tiền phòng thực tế", "Actual room charge")}</span><span className="font-bold text-[#0F2A43]">{formatVND(finalPayment.roomCharge)}</span></div>
+                  {finalPayment.pricingVersion === "MOTEL_PACKAGE_V2" && (finalPayment.postCommitmentRoomIncrease || 0) > 0 && <div className="flex justify-between gap-4 text-xs text-[#66727C]"><span>{localize("Trong đó: tăng tiền phòng sau cam kết", "Included: room-price increase after commitment")}</span><span className="font-semibold">{formatVND(finalPayment.postCommitmentRoomIncrease || 0)}</span></div>}
+                  {(finalPayment.extraGuestCharge || 0) > 0 && <div className="flex justify-between gap-4 text-[#80632F]"><span className="font-semibold">{localize("Phụ thu khách thêm", "Extra guest charge")}</span><span className="font-bold">+ {formatVND(finalPayment.extraGuestCharge || 0)}</span></div>}
                   {(finalPayment.addOnServiceAmount || 0) > 0 && <div className="flex justify-between gap-4 text-[#80632F]"><span className="font-semibold">{localize("Dịch vụ thêm", "Add-on services")}</span><span className="font-bold">+ {formatVND(finalPayment.addOnServiceAmount)}</span></div>}
-                  <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Phụ phí trả muộn", "Late checkout fee")}</span><span className="font-semibold">+ {formatVND(finalPayment.lateCheckoutFee || 0)}</span></div>
+                  {finalPayment.pricingVersion !== "MOTEL_PACKAGE_V2" && <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Phụ phí trả muộn", "Late checkout fee")}</span><span className="font-semibold">+ {formatVND(finalPayment.lateCheckoutFee || 0)}</span></div>}
                   <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Phụ phí khác", "Additional fee")}</span><span className="font-semibold">+ {formatVND(finalPayment.checkoutAdditionalFee || 0)}</span></div>
                   <div className="flex justify-between gap-4 border-t-2 border-[#0F2A43]/15 pt-4"><span className="font-bold text-[#0F2A43]">{localize("Tổng phải trả", "Total due")}</span><span className="text-xl font-extrabold text-[#0F2A43]">{formatVND(finalPayment.totalAmount)}</span></div>
                 </div>

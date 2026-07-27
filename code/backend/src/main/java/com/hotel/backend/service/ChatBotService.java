@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.math.BigDecimal;
+import java.text.NumberFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -896,9 +898,18 @@ public class ChatBotService {
                     .append(item.getTotalRooms())
                     .append(" phòng");
 
-            if (item.getAvailableRooms() > 0 && item.getPricePerHour() != null) {
-                answer.append(", giá ")
-                        .append(item.getPricePerHour())
+            if (item.getAvailableRooms() > 0
+                    && item.getEstimatedPricePerRoom() != null
+                    && item.getEstimatedPackage() != null) {
+                answer.append(", ước tính ")
+                        .append(formatVnd(item.getEstimatedPricePerRoom()))
+                        .append("/phòng (")
+                        .append(formatStayPackage(item.getEstimatedPackage().name()))
+                        .append(", chưa gồm khách thêm/dịch vụ)");
+            } else if (item.getAvailableRooms() > 0
+                    && item.getPricePerHour() != null) {
+                answer.append(", giá tham khảo ")
+                        .append(formatVnd(item.getPricePerHour()))
                         .append("/giờ");
             }
 
@@ -907,6 +918,20 @@ public class ChatBotService {
 
         answer.append("Lưu ý: số lượng có thể thay đổi khi có khách khác đặt hoặc giữ phòng.");
         return answer.toString();
+    }
+
+    private String formatVnd(BigDecimal amount) {
+        NumberFormat formatter = NumberFormat.getIntegerInstance(
+                Locale.forLanguageTag("vi-VN"));
+        return formatter.format(amount) + " đ";
+    }
+
+    private String formatStayPackage(String stayPackage) {
+        return switch (stayPackage) {
+            case "OVERNIGHT" -> "qua đêm";
+            case "DAILY" -> "24 giờ";
+            default -> "nghỉ giờ";
+        };
     }
 
     private ChatResponse buildAvailabilityResponse(
@@ -966,8 +991,8 @@ public class ChatBotService {
                 + " cho "
                 + guestCount
                 + " khách.\nBạn vui lòng kiểm tra lại loại phòng, số lượng, số khách và thời gian ở trên. "
-                + "Nhắn \"xác nhận\" để tạo phiên giữ chỗ chờ thanh toán hoặc \"hủy\" để dừng. "
-                + "Sau khi thanh toán cọc thành công, đơn chuyển sang DRAFT và chờ khách sạn CONFIRM.";
+                + "Nhắn \"xác nhận\" để mở trang báo giá và hoàn tất thông tin, hoặc \"hủy\" để dừng. "
+                + "Reservation chỉ được tạo sau khi bạn xem giá chính xác, chọn cọc 50%/trả 100% và xác nhận trên trang đặt phòng.";
 
         return ChatResponse.builder()
                 .answer(confirmationAnswer)

@@ -59,8 +59,8 @@ public interface RoomHoldRepository extends JpaRepository<RoomHold, Long> {
         WHERE rrt.roomType.id = :roomTypeId
         AND rh.status         = 'ACTIVE'
         AND rh.expiresAt      > :now
-        AND r.checkIn  < :checkOut
-        AND r.checkOut > :checkIn
+        AND r.checkIn < :checkOut
+        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
     """)
     int countActiveHeldQuantity(
         @Param("roomTypeId") Long roomTypeId,
@@ -79,8 +79,8 @@ public interface RoomHoldRepository extends JpaRepository<RoomHold, Long> {
         AND r.id             != :excludeReservationId
         AND rh.status         = 'ACTIVE'
         AND rh.expiresAt      > :now
-        AND r.checkIn  < :checkOut
-        AND r.checkOut > :checkIn
+        AND r.checkIn < :checkOut
+        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
     """)
     int countActiveHeldQuantityExcluding(
         @Param("roomTypeId")           Long roomTypeId,

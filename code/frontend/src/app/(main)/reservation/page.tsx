@@ -13,6 +13,7 @@ import { GALLERY_HERO_IMAGES } from "@/constants/content";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
+import { StayPriceEstimate } from "@/components/guest/RoomRateDisplay";
 
 type ReservationRoomOption = ReservationRoomQuickViewItem;
 
@@ -27,7 +28,10 @@ interface AvailabilityRoomOption {
   price?: number;
   pricePerNight?: number;
   pricePerHour?: number;
+  firstBlockMinutes?: number;
+  firstBlockPrice?: number;
   estimatedPricePerRoom?: number;
+  estimatedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
   totalHours?: number;
   maxGuestsPerRoom?: number;
   availableRooms?: number;
@@ -72,7 +76,10 @@ const mapAvailabilityOptions = (
       ),
       price: room.estimatedPricePerRoom ?? room.price ?? room.pricePerNight ?? room.pricePerHour,
       pricePerHour: room.pricePerHour,
+      firstBlockMinutes: room.firstBlockMinutes,
+      firstBlockPrice: room.firstBlockPrice,
       estimatedPricePerRoom: room.estimatedPricePerRoom,
+      estimatedPackage: room.estimatedPackage,
       totalHours: room.totalHours,
       maxGuestsPerRoom: room.maxGuestsPerRoom ?? catalogRoom?.maxGuests,
       availableRooms: room.availableRooms,
@@ -165,6 +172,15 @@ export default function ReservationPage() {
     () => selectedRoomBreakdown.reduce((sum, item) => sum + item.quantity, 0),
     [selectedRoomBreakdown],
   );
+  const selectedEstimatedRoomTotal = useMemo(
+    () => selectedRoomBreakdown.reduce(
+      (sum, { room, quantity }) => sum + Number(room.estimatedPricePerRoom ?? room.price ?? 0) * quantity,
+      0,
+    ),
+    [selectedRoomBreakdown],
+  );
+  const hasCompleteSelectedEstimate = selectedRoomBreakdown.length > 0
+    && selectedRoomBreakdown.every(({ room }) => typeof room.estimatedPricePerRoom === "number");
   const selectedGuestCapacity = useMemo(
     () => calculateSelectedGuestCapacity(selectedRoomBreakdown.map(({ room, quantity }) => ({
       quantity,
@@ -494,10 +510,15 @@ export default function ReservationPage() {
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[#66727C]">{localize("Chưa có ảnh", "No image")}</div>
                   )}
-                  <div className="absolute right-4 top-4 rounded-2xl border border-white/70 bg-[#FBFAF6]/96 px-4 py-2.5 text-right text-[#0F2A43] shadow-[0_10px_30px_rgba(9,30,48,0.2)] backdrop-blur-sm">
-                    <span className="block text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#80632F]">{localize("Giá giờ đầu", "First hour")}</span>
-                    <strong className="mt-0.5 block font-sans text-lg font-extrabold tabular-nums tracking-[-0.02em] text-[#0F2A43]">{formatVND(room.pricePerHour ?? room.price)}</strong>
-                  </div>
+                  <StayPriceEstimate
+                    estimatedPricePerRoom={room.estimatedPricePerRoom}
+                    estimatedPackage={room.estimatedPackage}
+                    totalHours={room.totalHours}
+                    firstBlockMinutes={room.firstBlockMinutes}
+                    firstBlockPrice={room.firstBlockPrice ?? room.pricePerHour}
+                    fallbackPrice={room.price}
+                    className="absolute right-4 top-4"
+                  />
                 </div>
                 <div className="flex flex-1 flex-col px-6 pb-4 pt-6">
                   <div className="flex items-start justify-between gap-4">
@@ -559,13 +580,26 @@ export default function ReservationPage() {
                 )}
               </p>
             </div>
-            <button
-              onClick={continueBooking}
-              disabled={!hasEnoughGuestCapacity}
-              className="rounded-[1.25rem] bg-[#B8944F] px-7 py-4 text-xs font-bold uppercase tracking-[0.18em] text-[#0F2A43] transition hover:bg-[#C9A863] disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/55"
-            >
-              {localize("Tiếp tục đặt phòng", "Continue booking")}
-            </button>
+            <div className="flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:items-center">
+              <div className="rounded-xl border border-white/15 bg-white/8 px-4 py-2.5 text-left sm:min-w-52 sm:text-right">
+                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#D9C38F]">
+                  {hasCompleteSelectedEstimate
+                    ? localize("Tạm tính tiền phòng", "Estimated room charge")
+                    : localize("Giá tham khảo", "Reference price")}
+                </p>
+                <p className="mt-0.5 text-lg font-extrabold tabular-nums text-white">{formatVND(selectedEstimatedRoomTotal)}</p>
+                <p className="mt-0.5 text-[10px] font-medium text-white/65">
+                  {localize("Chưa gồm khách thêm và dịch vụ", "Extra guests and services not included")}
+                </p>
+              </div>
+              <button
+                onClick={continueBooking}
+                disabled={!hasEnoughGuestCapacity}
+                className="min-h-12 rounded-[1.25rem] bg-[#B8944F] px-7 py-4 text-xs font-bold uppercase tracking-[0.18em] text-[#0F2A43] transition hover:bg-[#C9A863] disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/55"
+              >
+                {localize("Tiếp tục đặt phòng", "Continue booking")}
+              </button>
+            </div>
           </div>
         )}
       </section>

@@ -211,6 +211,10 @@ hotel:
   pricing:
     extra-hour-fee: ${HOTEL_EXTRA_HOUR_FEE:10000}
     late-checkout-fee-per-room-hour: ${HOTEL_LATE_CHECKOUT_FEE:10000}
+    engine-v2-enabled: ${PRICING_ENGINE_V2_ENABLED:false}
+    engine-v2-room-type-codes: ${PRICING_ENGINE_V2_ROOM_TYPE_CODES:}
+    engine-v2-require-quote: ${PRICING_ENGINE_V2_REQUIRE_QUOTE:false}
+    quote-ttl-minutes: ${PRICING_QUOTE_TTL_MINUTES:15}
   operations:
     draft-warning-minutes: ${DRAFT_WARNING_MINUTES:30}
     arrival-window-hours: ${ARRIVAL_WINDOW_HOURS:2}

@@ -89,6 +89,7 @@ public SecurityFilterChain securityFilterChain(
             .requestMatchers(HttpMethod.GET, "/api/rooms/available").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/reservations/availability").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/reservations/lookup").permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/pricing/quote").permitAll()
             // Đặt rule /my trước /{id}; nếu không "my" có thể bị xem như
             // path variable public và trả 403 từ method security thay vì 401 để refresh.
             .requestMatchers(HttpMethod.GET, "/api/reservations/my").authenticated()

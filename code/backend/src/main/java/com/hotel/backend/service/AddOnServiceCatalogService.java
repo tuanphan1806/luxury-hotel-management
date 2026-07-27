@@ -204,11 +204,11 @@ public class AddOnServiceCatalogService {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Giá dịch vụ không hợp lệ");
         }
         try {
-            return price.setScale(2, RoundingMode.UNNECESSARY);
+            return price.setScale(0, RoundingMode.UNNECESSARY);
         } catch (ArithmeticException exception) {
             throw new AppException(
                     ErrorCode.INVALID_REQUEST,
-                    "Giá dịch vụ chỉ được có tối đa 2 chữ số thập phân");
+                    "Giá dịch vụ phải là số VND nguyên");
         }
     }
 

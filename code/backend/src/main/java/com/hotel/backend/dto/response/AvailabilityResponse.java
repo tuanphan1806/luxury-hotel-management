@@ -1,6 +1,7 @@
 package com.hotel.backend.dto.response;
  
 import lombok.*;
+import com.hotel.backend.constant.StayPackage;
  
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -17,8 +18,15 @@ public class AvailabilityResponse {
     private String roomTypeNameEn;
     private String description;
     private String descriptionEn;
-    private BigDecimal pricePerHour;   // giá giờ đầu tiên
+    /**
+     * Legacy compatibility field. New clients should use firstBlockPrice and
+     * firstBlockMinutes because Pricing V2 starts with a two-hour block.
+     */
+    private BigDecimal pricePerHour;
+    private Integer firstBlockMinutes;
+    private BigDecimal firstBlockPrice;
     private BigDecimal estimatedPricePerRoom;
+    private StayPackage estimatedPackage;
     private int maxGuestsPerRoom;
     private String imageUrl;
     private List<String> imageUrls;

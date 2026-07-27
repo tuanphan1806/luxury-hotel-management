@@ -7,11 +7,15 @@ import com.hotel.backend.constant.PaymentStatus;
 import com.hotel.backend.constant.PaymentProvider;
 import com.hotel.backend.constant.PaymentPlan;
 import com.hotel.backend.constant.PaymentPurpose;
+import com.hotel.backend.constant.PricingAlgorithmVersion;
+import com.hotel.backend.constant.PricingTransitionReason;
+import com.hotel.backend.constant.RateSnapshotStage;
 import com.hotel.backend.constant.RefundChannel;
 import com.hotel.backend.constant.ReservationStatus;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.ReservationCancellationReasonCode;
 import com.hotel.backend.constant.RoomStatus;
+import com.hotel.backend.constant.StayPackage;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.constant.WalkInPaymentOption;
 import com.hotel.backend.dto.request.AssignRoomRequest;
@@ -20,6 +24,7 @@ import com.hotel.backend.dto.request.CheckoutRefundRequest;
 import com.hotel.backend.dto.request.CreateReservationRequest;
 import com.hotel.backend.dto.request.CreateWalkInReservationRequest;
 import com.hotel.backend.dto.request.CreateWalkInCheckedInRequest;
+import com.hotel.backend.dto.request.ExtendReservationRequest;
 import com.hotel.backend.dto.request.CustomerProfileRequest;
 import com.hotel.backend.dto.request.RoomTypeItemRequest;
 import com.hotel.backend.dto.request.ReservationRefundRequest;
@@ -41,6 +46,11 @@ import com.hotel.backend.service.ReservationResponseAssembler;
 import com.hotel.backend.service.ReservationInvoiceSnapshotService;
 import com.hotel.backend.service.ReservationCustomerProfileService;
 import com.hotel.backend.service.ReservationAddOnService;
+import com.hotel.backend.service.PricingQuoteCommitmentService;
+import com.hotel.backend.service.PricingV2LifecycleService;
+import com.hotel.backend.service.ReservationRateSnapshotService;
+import com.hotel.backend.service.WalkInPricingService;
+import com.hotel.backend.service.AvailabilityPricingService;
 import com.hotel.backend.service.CustomerProfileClaimService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundRecipientService;
@@ -91,6 +101,11 @@ public class ReservationServiceImpl implements ReservationService {
     private final ReservationInvoiceSnapshotService invoiceSnapshotService;
     private final ReservationCustomerProfileService customerProfileService;
     private final ReservationAddOnService reservationAddOnService;
+    private final PricingQuoteCommitmentService pricingQuoteCommitmentService;
+    private final ReservationRateSnapshotService rateSnapshotService;
+    private final PricingV2LifecycleService pricingV2LifecycleService;
+    private final WalkInPricingService walkInPricingService;
+    private final AvailabilityPricingService availabilityPricingService;
 
     @Value("${app.reservation.no-show-grace-minutes:360}")
     private long noShowGraceMinutes;
@@ -127,6 +142,9 @@ public class ReservationServiceImpl implements ReservationService {
         // 3. Check availability + tính tiền cho từng room type
         BigDecimal totalAmount = BigDecimal.ZERO;
         int totalCapacity = 0;
+        boolean pricingV2Requested =
+                pricingQuoteCommitmentService.requestsV2(request);
+        PricingQuoteCommitmentService.Commitment pricingCommitment = null;
 
         List<RoomTypeWithPrice> roomTypeWithPrices = new ArrayList<>();
 
@@ -134,33 +152,86 @@ public class ReservationServiceImpl implements ReservationService {
                 .sorted(Comparator.comparing(RoomTypeItemRequest::getRoomTypeId))
                 .toList();
 
-        for (RoomTypeItemRequest item : roomTypeRequests) {
-            RoomType roomType = roomTypeRepository.findByIdForUpdate(item.getRoomTypeId())
-                    .orElseThrow(() -> new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND));
+        Map<Long, RoomType> lockedRoomTypes = new LinkedHashMap<>();
+        if (pricingV2Requested) {
+            for (RoomTypeItemRequest item : roomTypeRequests) {
+                RoomType roomType = roomTypeRepository
+                        .findByIdForUpdate(item.getRoomTypeId())
+                        .orElseThrow(() -> new AppException(
+                                ErrorCode.ROOM_TYPE_NOT_FOUND));
+                lockedRoomTypes.put(roomType.getId(), roomType);
+            }
+            pricingCommitment = pricingQuoteCommitmentService
+                    .validateForReservation(request, lockedRoomTypes);
+            for (PricingQuoteCommitmentService.CommittedLine line
+                    : pricingCommitment.lines()) {
+                checkAvailabilityOrThrow(
+                        line.roomType(),
+                        line.quantity(),
+                        request.getCheckIn(),
+                        pricingCommitment.inventoryProtectedUntil(),
+                        null);
+                totalCapacity += roomCapacity(line.roomType()) * line.quantity();
+                roomTypeWithPrices.add(new RoomTypeWithPrice(
+                        line.roomType(),
+                        line.quantity(),
+                        line.breakdown().roomChargePerRoom(),
+                        line.breakdown().lineTotalBeforeServices(),
+                        line.lineGuestCount(),
+                        line.breakdown().roomCharge(),
+                        line.breakdown().appliedPackage()));
+            }
+            totalAmount = pricingCommitment.totalAmount();
+        } else {
+            pricingQuoteCommitmentService
+                    .validateLegacyReservationAllowed();
+            for (RoomTypeItemRequest item : roomTypeRequests) {
+                RoomType roomType = roomTypeRepository
+                        .findByIdForUpdate(item.getRoomTypeId())
+                        .orElseThrow(() -> new AppException(
+                                ErrorCode.ROOM_TYPE_NOT_FOUND));
 
-            checkAvailabilityOrThrow(roomType, item.getQuantity(),
-                    request.getCheckIn(), request.getCheckOut(), null);
+                checkAvailabilityOrThrow(
+                        roomType,
+                        item.getQuantity(),
+                        request.getCheckIn(),
+                        request.getCheckOut(),
+                        null);
 
-            BigDecimal pricePerRoom = pricingService.calculateStayPricePerRoom(
-                    roomType, request.getCheckIn(), request.getCheckOut());
+                BigDecimal pricePerRoom =
+                        pricingService.calculateStayPricePerRoom(
+                                roomType,
+                                request.getCheckIn(),
+                                request.getCheckOut());
+                BigDecimal subtotal = pricePerRoom.multiply(
+                        BigDecimal.valueOf(item.getQuantity()));
 
-            BigDecimal subtotal = pricePerRoom.multiply(BigDecimal.valueOf(item.getQuantity()));
-
-            totalAmount = totalAmount.add(subtotal);
-            totalCapacity += roomCapacity(roomType) * item.getQuantity();
-            roomTypeWithPrices.add(new RoomTypeWithPrice(roomType, item.getQuantity(),
-                    pricePerRoom, subtotal));
+                totalAmount = totalAmount.add(subtotal);
+                totalCapacity += roomCapacity(roomType) * item.getQuantity();
+                roomTypeWithPrices.add(new RoomTypeWithPrice(
+                        roomType,
+                        item.getQuantity(),
+                        pricePerRoom,
+                        subtotal,
+                        null,
+                        null,
+                        null));
+            }
         }
 
         validateCapacity(request.getGuestCount(), totalCapacity);
 
         ReservationAddOnService.BookingQuote bookingServices =
-                reservationAddOnService.quoteBookingTime(
-                        request.getServices(),
-                        request.getGuestCount(),
-                        request.getCheckIn(),
-                        request.getCheckOut());
-        totalAmount = totalAmount.add(bookingServices.totalAmount());
+                pricingCommitment != null
+                        ? pricingCommitment.bookingServices()
+                        : reservationAddOnService.quoteBookingTime(
+                                request.getServices(),
+                                request.getGuestCount(),
+                                request.getCheckIn(),
+                                request.getCheckOut());
+        if (pricingCommitment == null) {
+            totalAmount = totalAmount.add(bookingServices.totalAmount());
+        }
 
         PaymentPlan paymentPlan = request.getPaymentPlan() != null
                 ? request.getPaymentPlan() : PaymentPlan.DEPOSIT_50;
@@ -180,6 +251,15 @@ public class ReservationServiceImpl implements ReservationService {
                 .customerProfile(customerProfile)
                 .checkIn(request.getCheckIn())
                 .checkOut(request.getCheckOut())
+                .pricingVersion(pricingCommitment != null
+                        ? PricingAlgorithmVersion.MOTEL_PACKAGE_V2
+                        : PricingAlgorithmVersion.LEGACY_V1)
+                .displayPackageSummary(pricingCommitment != null
+                        ? pricingCommitment.displayPackage()
+                        : null)
+                .inventoryProtectedUntil(pricingCommitment != null
+                        ? pricingCommitment.inventoryProtectedUntil()
+                        : null)
                 .totalAmount(totalAmount)
                 .paymentPlan(paymentPlan)
                 .requiredInitialPayment(requiredInitialPayment)
@@ -193,7 +273,8 @@ public class ReservationServiceImpl implements ReservationService {
 
         // 5. Chỉ tạo chi tiết phòng. RoomHold chỉ được tạo khi khách mở QR
         // thanh toán, tránh khóa tồn kho khi khách mới điền xong biểu mẫu.
-        List<ReservationRoomTypeResponse> roomTypeResponses = new ArrayList<>();
+        Map<Long, ReservationRoomType> savedReservationLines =
+                new LinkedHashMap<>();
 
         for (RoomTypeWithPrice item : roomTypeWithPrices) {
             ReservationRoomType rrt = ReservationRoomType.builder()
@@ -202,8 +283,13 @@ public class ReservationServiceImpl implements ReservationService {
                     .quantity(item.quantity())
                     .roomPrice(item.price())
                     .subtotal(item.subtotal())
+                    .lineGuestCount(item.lineGuestCount())
+                    .minimumCommittedRoomCharge(
+                            item.minimumCommittedRoomCharge())
+                    .maxPackageReached(item.maxPackageReached())
                     .build();
             reservationRoomTypeRepository.save(rrt);
+            savedReservationLines.put(item.roomType().getId(), rrt);
 
             // ReservationRoom placeholder (1 row per unit, room chưa assign)
             for (int i = 0; i < item.quantity(); i++) {
@@ -214,15 +300,20 @@ public class ReservationServiceImpl implements ReservationService {
                 reservationRoomRepository.save(rr);
             }
 
-            ReservationRoomTypeResponse rrtRes = ReservationRoomTypeResponse.from(rrt);
-            roomTypeResponses.add(rrtRes);
+        }
+
+        if (pricingCommitment != null) {
+            rateSnapshotService.createCommitmentSnapshots(
+                    reservation, savedReservationLines, pricingCommitment);
+            pricingQuoteCommitmentService.recordCommitment(
+                    pricingCommitment, reservation);
         }
 
         log.info("Reservation created: code={} total={}", reservation.getReservationCode(), totalAmount);
-        ReservationResponse response = ReservationResponse.fromWithDetails(reservation, roomTypeResponses);
+        ReservationResponse response =
+                responseAssembler.withRoomTypeDetails(reservation);
         response.setGuestToken(guestToken);
-        return paymentRefundService.applyReservationRefundSummary(
-                reservationAddOnService.enrich(response));
+        return responseAssembler.applyRefundSummary(response);
     }
 
     private String resolveGuestToken(String deterministicGuestToken) {
@@ -269,7 +360,7 @@ public class ReservationServiceImpl implements ReservationService {
                     lockedRoomType,
                     item.getQuantity(),
                     reservation.getCheckIn(),
-                    reservation.getCheckOut(),
+                    availabilityEnd(reservation),
                     reservation.getId());
         }
 
@@ -411,7 +502,7 @@ public class ReservationServiceImpl implements ReservationService {
             RoomType roomType = roomTypeRepository.findByIdForUpdate(item.getRoomType().getId())
                     .orElseThrow(() -> new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND));
             if (!hasAvailability(roomType, item.getQuantity(), reservation.getCheckIn(),
-                    reservation.getCheckOut(), reservationId)) {
+                    availabilityEnd(reservation), reservationId)) {
                 return false;
             }
         }
@@ -454,7 +545,7 @@ public class ReservationServiceImpl implements ReservationService {
 
         CustomerProfile customerProfile = customerProfileService.resolveWalkInCustomerProfile(request);
 
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal totalAmount;
         int totalCapacity = 0;
 
         List<RoomTypeWithPrice> roomTypeWithPrices = new ArrayList<>();
@@ -463,32 +554,89 @@ public class ReservationServiceImpl implements ReservationService {
                 .sorted(Comparator.comparing(RoomTypeItemRequest::getRoomTypeId))
                 .toList();
 
+        Map<Long, RoomType> lockedRoomTypes = new LinkedHashMap<>();
         for (RoomTypeItemRequest item : roomTypeRequests) {
             RoomType roomType = roomTypeRepository.findByIdForUpdate(item.getRoomTypeId())
                     .orElseThrow(() -> new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND));
-
-            checkAvailabilityOrThrow(roomType, item.getQuantity(),
-                    actualCheckIn, request.getCheckOut(), null);
-
-            BigDecimal pricePerRoom = pricingService.calculateStayPricePerRoom(
-                    roomType, actualCheckIn, request.getCheckOut());
-
-            BigDecimal subtotal = pricePerRoom.multiply(BigDecimal.valueOf(item.getQuantity()));
-
-            totalAmount = totalAmount.add(subtotal);
+            lockedRoomTypes.put(roomType.getId(), roomType);
             totalCapacity += roomCapacity(roomType) * item.getQuantity();
-            roomTypeWithPrices.add(new RoomTypeWithPrice(roomType, item.getQuantity(),
-                    pricePerRoom, subtotal));
         }
-
         validateCapacity(request.getGuestCount(), totalCapacity);
 
-        ReservationAddOnService.BookingQuote bookingServices =
-                reservationAddOnService.quoteBookingTime(
-                        request.getServices(),
-                        request.getGuestCount(),
+        WalkInPricingService.Calculation pricingCalculation =
+                walkInPricingService.calculateIfEligible(
+                                actualCheckIn,
+                                request.getCheckOut(),
+                                request.getGuestCount(),
+                                roomTypeRequests.stream()
+                                        .map(item -> new WalkInPricingService.LineInput(
+                                                lockedRoomTypes.get(
+                                                        item.getRoomTypeId()),
+                                                item.getQuantity(),
+                                                item.getLineGuestCount(),
+                                                0))
+                                        .toList())
+                        .orElse(null);
+        if (pricingCalculation != null) {
+            for (WalkInPricingService.CalculatedLine line
+                    : pricingCalculation.lines()) {
+                checkAvailabilityOrThrow(
+                        line.roomType(),
+                        line.quantity(),
                         actualCheckIn,
-                        request.getCheckOut());
+                        pricingCalculation.inventoryProtectedUntil(),
+                        null);
+                roomTypeWithPrices.add(new RoomTypeWithPrice(
+                        line.roomType(),
+                        line.quantity(),
+                        line.breakdown().roomChargePerRoom(),
+                        line.breakdown().lineTotalBeforeServices(),
+                        line.lineGuestCount(),
+                        line.breakdown().roomCharge(),
+                        line.breakdown().appliedPackage()));
+            }
+            totalAmount = pricingCalculation.totalBeforeServices();
+        } else {
+            totalAmount = BigDecimal.ZERO;
+            for (RoomTypeItemRequest item : roomTypeRequests) {
+                RoomType roomType = lockedRoomTypes.get(item.getRoomTypeId());
+                checkAvailabilityOrThrow(
+                        roomType,
+                        item.getQuantity(),
+                        actualCheckIn,
+                        request.getCheckOut(),
+                        null);
+                BigDecimal pricePerRoom =
+                        pricingService.calculateStayPricePerRoom(
+                                roomType,
+                                actualCheckIn,
+                                request.getCheckOut());
+                BigDecimal subtotal = pricePerRoom.multiply(
+                        BigDecimal.valueOf(item.getQuantity()));
+                totalAmount = totalAmount.add(subtotal);
+                roomTypeWithPrices.add(new RoomTypeWithPrice(
+                        roomType,
+                        item.getQuantity(),
+                        pricePerRoom,
+                        subtotal,
+                        null,
+                        null,
+                        null));
+            }
+        }
+
+        ReservationAddOnService.BookingQuote bookingServices =
+                pricingCalculation != null
+                        ? reservationAddOnService
+                                .quoteBookingTimeForPackageCycles(
+                                        request.getServices(),
+                                        request.getGuestCount(),
+                                        pricingCalculation.packageCycles())
+                        : reservationAddOnService.quoteBookingTime(
+                                request.getServices(),
+                                request.getGuestCount(),
+                                actualCheckIn,
+                                request.getCheckOut());
         totalAmount = totalAmount.add(bookingServices.totalAmount());
 
         // Tạo Reservation — đi thẳng CONFIRMED, không qua DRAFT/Hold/Payment
@@ -497,6 +645,15 @@ public class ReservationServiceImpl implements ReservationService {
                 .customerProfile(customerProfile)
                 .checkIn(actualCheckIn)
                 .checkOut(request.getCheckOut())
+                .pricingVersion(pricingCalculation != null
+                        ? PricingAlgorithmVersion.MOTEL_PACKAGE_V2
+                        : PricingAlgorithmVersion.LEGACY_V1)
+                .displayPackageSummary(pricingCalculation != null
+                        ? pricingCalculation.displayPackage()
+                        : null)
+                .inventoryProtectedUntil(pricingCalculation != null
+                        ? pricingCalculation.inventoryProtectedUntil()
+                        : null)
                 .totalAmount(totalAmount)
                 .paymentPlan(PaymentPlan.PAY_AT_HOTEL)
                 .requiredInitialPayment(BigDecimal.ZERO)
@@ -509,17 +666,23 @@ public class ReservationServiceImpl implements ReservationService {
                 reservation, bookingServices, null);
 
         // Tạo ReservationRoomType + ReservationRoom (placeholder) — KHÔNG tạo RoomHold
-        List<ReservationRoomTypeResponse> roomTypeResponses = new ArrayList<>();
+        Map<Long, ReservationRoomType> savedReservationLines =
+                new LinkedHashMap<>();
 
         for (RoomTypeWithPrice item : roomTypeWithPrices) {
             ReservationRoomType rrt = ReservationRoomType.builder()
                     .reservation(reservation)
                     .roomType(item.roomType())
                     .quantity(item.quantity())
-                    .roomPrice(item.price())
-                    .subtotal(item.subtotal())
-                    .build();
+                     .roomPrice(item.price())
+                     .subtotal(item.subtotal())
+                     .lineGuestCount(item.lineGuestCount())
+                     .minimumCommittedRoomCharge(
+                             item.minimumCommittedRoomCharge())
+                     .maxPackageReached(item.maxPackageReached())
+                     .build();
             reservationRoomTypeRepository.save(rrt);
+            savedReservationLines.put(item.roomType().getId(), rrt);
 
             for (int i = 0; i < item.quantity(); i++) {
                 ReservationRoom rr = ReservationRoom.builder()
@@ -529,14 +692,20 @@ public class ReservationServiceImpl implements ReservationService {
                 reservationRoomRepository.save(rr);
             }
 
-            roomTypeResponses.add(ReservationRoomTypeResponse.from(rrt));
+        }
+
+        if (pricingCalculation != null) {
+            rateSnapshotService.createWalkInSnapshots(
+                    reservation,
+                    savedReservationLines,
+                    pricingCalculation,
+                    bookingServices.totalAmount());
         }
 
         log.info("Walk-in reservation created & confirmed: code={} total={}",
                 reservation.getReservationCode(), totalAmount);
-        return paymentRefundService.applyReservationRefundSummary(
-                reservationAddOnService.enrich(
-                        ReservationResponse.fromWithDetails(reservation, roomTypeResponses)));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     /**
@@ -673,28 +842,93 @@ public class ReservationServiceImpl implements ReservationService {
             }
         }
 
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        WalkInPricingService.Calculation pricingCalculation =
+                priceOverrides.isEmpty()
+                        ? walkInPricingService.calculateIfEligible(
+                                        actualCheckIn,
+                                        request.getCheckOut(),
+                                        request.getGuestCount(),
+                                        assignmentsByRoomType.entrySet().stream()
+                                                .map(entry ->
+                                                        new WalkInPricingService.LineInput(
+                                                                lockedRoomTypes.get(
+                                                                        entry.getKey()),
+                                                                entry.getValue().size(),
+                                                                null,
+                                                                entry.getValue().stream()
+                                                                        .map(AssignRoomRequest::getGuests)
+                                                                        .filter(Objects::nonNull)
+                                                                        .mapToInt(List::size)
+                                                                        .sum()))
+                                                .toList())
+                                .orElse(null)
+                        : null;
+
+        BigDecimal totalAmount;
         Map<Long, BigDecimal> priceByRoomType = new LinkedHashMap<>();
         Map<Long, BigDecimal> systemPriceByRoomType = new LinkedHashMap<>();
-        for (Map.Entry<Long, List<AssignRoomRequest>> entry : assignmentsByRoomType.entrySet()) {
-            RoomType roomType = lockedRoomTypes.get(entry.getKey());
-            int quantity = entry.getValue().size();
-            checkAvailabilityOrThrow(roomType, quantity, actualCheckIn, request.getCheckOut(), null);
-            BigDecimal systemPrice = pricingService.calculateStayPricePerRoom(
-                    roomType, actualCheckIn, request.getCheckOut());
-            systemPriceByRoomType.put(entry.getKey(), systemPrice);
-            WalkInPriceOverrideRequest override = priceOverrides.get(entry.getKey());
-            BigDecimal price = override != null ? override.getNewUnitPrice() : systemPrice;
-            priceByRoomType.put(entry.getKey(), price);
-            totalAmount = totalAmount.add(price.multiply(BigDecimal.valueOf(quantity)));
+        Map<Long, WalkInPricingService.CalculatedLine>
+                calculatedLineByRoomType = new LinkedHashMap<>();
+        if (pricingCalculation != null) {
+            totalAmount = pricingCalculation.totalBeforeServices();
+            for (WalkInPricingService.CalculatedLine line
+                    : pricingCalculation.lines()) {
+                checkAvailabilityOrThrow(
+                        line.roomType(),
+                        line.quantity(),
+                        actualCheckIn,
+                        pricingCalculation.inventoryProtectedUntil(),
+                        null);
+                calculatedLineByRoomType.put(
+                        line.roomType().getId(), line);
+                systemPriceByRoomType.put(
+                        line.roomType().getId(),
+                        line.breakdown().roomChargePerRoom());
+                priceByRoomType.put(
+                        line.roomType().getId(),
+                        line.breakdown().roomChargePerRoom());
+            }
+        } else {
+            totalAmount = BigDecimal.ZERO;
+            for (Map.Entry<Long, List<AssignRoomRequest>> entry
+                    : assignmentsByRoomType.entrySet()) {
+                RoomType roomType = lockedRoomTypes.get(entry.getKey());
+                int quantity = entry.getValue().size();
+                checkAvailabilityOrThrow(
+                        roomType,
+                        quantity,
+                        actualCheckIn,
+                        request.getCheckOut(),
+                        null);
+                BigDecimal systemPrice =
+                        pricingService.calculateStayPricePerRoom(
+                                roomType,
+                                actualCheckIn,
+                                request.getCheckOut());
+                systemPriceByRoomType.put(entry.getKey(), systemPrice);
+                WalkInPriceOverrideRequest override =
+                        priceOverrides.get(entry.getKey());
+                BigDecimal price = override != null
+                        ? override.getNewUnitPrice()
+                        : systemPrice;
+                priceByRoomType.put(entry.getKey(), price);
+                totalAmount = totalAmount.add(price.multiply(
+                        BigDecimal.valueOf(quantity)));
+            }
         }
 
         ReservationAddOnService.BookingQuote bookingServices =
-                reservationAddOnService.quoteBookingTime(
-                        request.getServices(),
-                        request.getGuestCount(),
-                        actualCheckIn,
-                        request.getCheckOut());
+                pricingCalculation != null
+                        ? reservationAddOnService
+                                .quoteBookingTimeForPackageCycles(
+                                        request.getServices(),
+                                        request.getGuestCount(),
+                                        pricingCalculation.packageCycles())
+                        : reservationAddOnService.quoteBookingTime(
+                                request.getServices(),
+                                request.getGuestCount(),
+                                actualCheckIn,
+                                request.getCheckOut());
         totalAmount = totalAmount.add(bookingServices.totalAmount());
 
         long remainingAmount = totalAmount.setScale(0, RoundingMode.CEILING).longValueExact();
@@ -716,6 +950,15 @@ public class ReservationServiceImpl implements ReservationService {
                 .checkIn(actualCheckIn)
                 .checkOut(request.getCheckOut())
                 .actualCheckIn(actualCheckIn)
+                .pricingVersion(pricingCalculation != null
+                        ? PricingAlgorithmVersion.MOTEL_PACKAGE_V2
+                        : PricingAlgorithmVersion.LEGACY_V1)
+                .displayPackageSummary(pricingCalculation != null
+                        ? pricingCalculation.displayPackage()
+                        : null)
+                .inventoryProtectedUntil(pricingCalculation != null
+                        ? pricingCalculation.inventoryProtectedUntil()
+                        : null)
                 .totalAmount(totalAmount)
                 .paymentPlan(PaymentPlan.PAY_AT_HOTEL)
                 .requiredInitialPayment(BigDecimal.ZERO)
@@ -728,18 +971,35 @@ public class ReservationServiceImpl implements ReservationService {
         reservationAddOnService.attachBookingTime(
                 reservation, bookingServices, currentUser);
 
-        List<ReservationRoomTypeResponse> roomTypeResponses = new ArrayList<>();
+        Map<Long, ReservationRoomType> savedReservationLines =
+                new LinkedHashMap<>();
         for (Map.Entry<Long, List<AssignRoomRequest>> entry : assignmentsByRoomType.entrySet()) {
             RoomType roomType = lockedRoomTypes.get(entry.getKey());
             BigDecimal price = priceByRoomType.get(entry.getKey());
+            WalkInPricingService.CalculatedLine calculatedLine =
+                    calculatedLineByRoomType.get(entry.getKey());
+            BigDecimal subtotal = calculatedLine != null
+                    ? calculatedLine.breakdown().lineTotalBeforeServices()
+                    : price.multiply(BigDecimal.valueOf(entry.getValue().size()));
             ReservationRoomType reservationRoomType = reservationRoomTypeRepository.save(
                     ReservationRoomType.builder()
                             .reservation(reservation)
                             .roomType(roomType)
                             .quantity(entry.getValue().size())
                             .roomPrice(price)
-                            .subtotal(price.multiply(BigDecimal.valueOf(entry.getValue().size())))
+                            .subtotal(subtotal)
+                            .lineGuestCount(calculatedLine != null
+                                    ? calculatedLine.lineGuestCount()
+                                    : null)
+                            .minimumCommittedRoomCharge(calculatedLine != null
+                                    ? calculatedLine.breakdown().roomCharge()
+                                    : null)
+                            .maxPackageReached(calculatedLine != null
+                                    ? calculatedLine.breakdown().appliedPackage()
+                                    : null)
                             .build());
+            savedReservationLines.put(
+                    roomType.getId(), reservationRoomType);
 
             WalkInPriceOverrideRequest override = priceOverrides.get(entry.getKey());
             BigDecimal systemPrice = systemPriceByRoomType.get(entry.getKey());
@@ -792,7 +1052,14 @@ public class ReservationServiceImpl implements ReservationService {
                 room.setStatus(RoomStatus.CHECKED_IN);
                 roomRepository.save(room);
             }
-            roomTypeResponses.add(ReservationRoomTypeResponse.from(reservationRoomType));
+        }
+
+        if (pricingCalculation != null) {
+            rateSnapshotService.createWalkInSnapshots(
+                    reservation,
+                    savedReservationLines,
+                    pricingCalculation,
+                    bookingServices.totalAmount());
         }
 
         PaymentResponse paymentResponse = null;
@@ -828,9 +1095,8 @@ public class ReservationServiceImpl implements ReservationService {
         auditService.record(reservation, ReservationAuditAction.CHECK_IN,
                 "Tạo walk-in và check-in nguyên tử " + assignments.size()
                         + " phòng, " + submittedGuestCount + " khách");
-        ReservationResponse reservationResponse = paymentRefundService.applyReservationRefundSummary(
-                reservationAddOnService.enrich(
-                        ReservationResponse.fromWithDetails(reservation, roomTypeResponses)));
+        ReservationResponse reservationResponse = responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
         return WalkInReservationResponse.builder()
                 .reservationCreated(true)
                 .reservation(reservationResponse)
@@ -920,7 +1186,8 @@ public class ReservationServiceImpl implements ReservationService {
 
         log.info("Cancellation requested: reservationId={} previousStatus={}",
                 reservationId, reservation.getStatusBeforeCancellation());
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -933,8 +1200,8 @@ public class ReservationServiceImpl implements ReservationService {
         }
         if (ReservationCancellationReasonCode.isRefundPending(
                 reservation.getCancellationReasonCode())) {
-            return paymentRefundService.applyReservationRefundSummary(
-                    ReservationResponse.from(reservation));
+            return responseAssembler
+                    .withRoomTypeDetailsAndRefundSummary(reservation);
         }
 
         // Chỉ hoàn số tiền khách sạn còn thực giữ; các khoản đã hoàn thành phải
@@ -993,7 +1260,8 @@ public class ReservationServiceImpl implements ReservationService {
 
         log.info("Cancellation approved: reservationId={} paid={} fee={} refund={}",
                 reservationId, paidAmount, amounts.penaltyAmount(), amounts.refundAmount());
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1018,7 +1286,8 @@ public class ReservationServiceImpl implements ReservationService {
         reservationRepository.save(reservation);
         auditService.record(reservation, ReservationAuditAction.CANCEL, "Từ chối yêu cầu hủy");
         log.info("Cancellation rejected: reservationId={} restoredStatus={}", reservationId, restoredStatus);
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1033,8 +1302,8 @@ public class ReservationServiceImpl implements ReservationService {
         }
         if (ReservationCancellationReasonCode.isRefundPending(
                 reservation.getCancellationReasonCode())) {
-            return paymentRefundService.applyReservationRefundSummary(
-                    ReservationResponse.from(reservation));
+            return responseAssembler
+                    .withRoomTypeDetailsAndRefundSummary(reservation);
         }
 
         // Không dùng tổng SUCCESS thô vì có thể đã tồn tại refund ledger trước đó.
@@ -1097,7 +1366,8 @@ public class ReservationServiceImpl implements ReservationService {
 
         log.info("Staff cancellation: reservationId={} refundRequested={} refundAmount={}",
                 reservationId, amounts.refundAmount() > 0L, amounts.refundAmount());
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1155,7 +1425,8 @@ public class ReservationServiceImpl implements ReservationService {
                 "Xác nhận đơn sau khi kiểm tra tiền cọc");
 
         log.info("Reservation confirmed: id={}", reservationId);
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1173,6 +1444,10 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         int booked    = reservationRoomTypeRepository.countBookedQuantity(rt.getId(), checkIn, checkOut);
         int held      = roomHoldRepository.countActiveHeldQuantity(rt.getId(), checkIn, checkOut, now);
         int available = Math.max(0, total - booked - held);
+        AvailabilityPricingService.Estimate pricingEstimate =
+                availabilityPricingService
+                        .estimate(rt, checkIn, checkOut)
+                        .orElse(null);
  
         return AvailabilityResponse.builder()
                 .roomTypeId(rt.getId())
@@ -1181,7 +1456,19 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .description(rt.getDescription())
                 .descriptionEn(rt.getDescriptionEn())
                 .pricePerHour(rt.getPrice())
-                .estimatedPricePerRoom(pricingService.calculateStayPricePerRoom(rt, checkIn, checkOut))
+                .firstBlockMinutes(pricingEstimate != null
+                        ? pricingEstimate.firstBlockMinutes()
+                        : 60)
+                .firstBlockPrice(pricingEstimate != null
+                        ? pricingEstimate.firstBlockPrice()
+                        : rt.getPrice())
+                .estimatedPricePerRoom(pricingEstimate != null
+                        ? pricingEstimate.estimatedPricePerRoom()
+                        : pricingService.calculateStayPricePerRoom(
+                                rt, checkIn, checkOut))
+                .estimatedPackage(pricingEstimate != null
+                        ? pricingEstimate.estimatedPackage()
+                        : null)
                 .maxGuestsPerRoom(roomCapacity(rt))
                 .imageUrl(rt.getImageUrl())
                 .imageUrls(rt.getImageUrls() == null || rt.getImageUrls().isEmpty()
@@ -1209,7 +1496,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
             throw new AppException(ErrorCode.RESERVATION_CANNOT_CHECKIN);
         }
-        validateCheckInTime(reservation);
+        LocalDateTime actualCheckIn = LocalDateTime.now();
+        validateCheckInTime(reservation, actualCheckIn);
         if (requests == null || requests.isEmpty()) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Phải chọn phòng để check-in");
         }
@@ -1250,11 +1538,39 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     .orElseThrow(() -> new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND));
         }
 
+        // Pricing V2 uses the real arrival time while preserving the immutable
+        // booking commitment as its minimum charge. A late arrival can extend
+        // the overnight entitlement, so revalidate the new protection window
+        // before assigning any physical room. Any later validation error rolls
+        // this snapshot and all entity changes back with the check-in
+        // transaction.
+        reservation.setActualCheckIn(actualCheckIn);
+        boolean pricingV2Reservation =
+                pricingV2LifecycleService.supports(reservation);
+        if (pricingV2Reservation) {
+            PricingV2LifecycleService.Projection checkInProjection =
+                    pricingV2LifecycleService.project(
+                            reservation, reservation.getCheckOut());
+            List<ReservationRoomType> pricingLines =
+                    reservationRoomTypeRepository
+                            .findDetailsByReservationId(reservationId);
+            for (ReservationRoomType line : pricingLines) {
+                checkAvailabilityOrThrow(
+                        line.getRoomType(),
+                        line.getQuantity(),
+                        availabilityStart(reservation),
+                        checkInProjection.inventoryProtectedUntil(),
+                        reservationId);
+            }
+        }
+
         List<AssignRoomRequest> sortedRequests = requests.stream()
                 .sorted(Comparator.comparing(AssignRoomRequest::getRoomId))
                 .toList();
         Set<Long> usedReservationRoomIds = new HashSet<>();
         Set<Long> usedRoomIds = new HashSet<>();
+        Map<Long, Integer> actualGuestsByReservationLine =
+                new LinkedHashMap<>();
 
         // Gán phòng + CHECKED_IN từng ReservationRoom
         for (AssignRoomRequest req : sortedRequests) {
@@ -1303,6 +1619,10 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                         String.format("Phòng '%s' chỉ chứa tối đa %d khách",
                                 room.getRoomName(), roomGuestCapacity));
             }
+            actualGuestsByReservationLine.merge(
+                    rr.getReservationRoomType().getId(),
+                    guests.size(),
+                    Math::addExact);
 
             long primaryCount = guests.stream()
             .filter(g -> Boolean.TRUE.equals(g.getIsPrimary()))
@@ -1342,15 +1662,23 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             roomRepository.save(room);
         }
 
+        if (pricingV2Reservation) {
+            pricingV2LifecycleService.applyAutomatic(
+                    reservation,
+                    reservation.getCheckOut(),
+                    RateSnapshotStage.CHECK_IN,
+                    actualGuestsByReservationLine);
+        }
+
         reservation.setStatus(ReservationStatus.CHECKED_IN);
-        reservation.setActualCheckIn(LocalDateTime.now());
         reservationRepository.save(reservation);
 
         auditService.record(reservation, ReservationAuditAction.CHECK_IN,
                 "Check-in " + requests.size() + " phòng, " + submittedGuestCount + " khách");
 
         log.info("Reservation checked-in: id={}", reservationId);
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     private ReservationRoom resolveReservationRoomForCheckIn(
@@ -1410,8 +1738,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         }
         ensureNoPendingSettlementPayment(reservationId);
         LocalDateTime now = LocalDateTime.now();
-        applyEarlyCheckoutAdjustment(reservation, now);
-        applyLateCheckoutFee(reservation, now);
+        applyCheckoutPricing(reservation, now, true);
         // Bắt buộc đã thanh toán đủ tổng tiền sau khi đã cộng phụ phí trả muộn.
         long totalAmount = reservation.getTotalAmount().longValue();
         long outstandingRefund = paymentRefundService.getOutstandingReservedRefundAmount(reservationId);
@@ -1499,7 +1826,148 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 "CHECK_OUT:" + reservationId);
 
         log.info("Reservation checked-out: id={}", reservationId);
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReservationResponse extendStay(
+            Long reservationId,
+            ExtendReservationRequest request) {
+        if (request == null || request.getNewCheckOut() == null) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Thiếu thời gian trả phòng mới");
+        }
+        Reservation reservation = reservationRepository
+                .findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new AppException(
+                        ErrorCode.RESERVATION_NOT_FOUND));
+        if (reservation.getStatus() != ReservationStatus.CONFIRMED
+                && reservation.getStatus()
+                        != ReservationStatus.CHECKED_IN) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Chỉ có thể gia hạn đơn đã xác nhận hoặc đang lưu trú");
+        }
+        if (!pricingV2LifecycleService.supports(reservation)) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Đơn dùng bảng giá cũ chưa hỗ trợ gia hạn tự động");
+        }
+        LocalDateTime oldCheckOut = reservation.getCheckOut();
+        LocalDateTime newCheckOut = request.getNewCheckOut();
+        if (!newCheckOut.isAfter(oldCheckOut)
+                || !newCheckOut.isAfter(LocalDateTime.now())) {
+            throw new AppException(
+                    ErrorCode.RESERVATION_INVALID_DATE,
+                    "Thời gian trả phòng mới phải sau thời gian hiện tại và sau mốc đã đặt");
+        }
+        ensureNoPendingSettlementPayment(reservationId);
+
+        PricingV2LifecycleService.Projection preview =
+                pricingV2LifecycleService.project(
+                        reservation, newCheckOut);
+        List<ReservationRoomType> roomTypeLines =
+                reservationRoomTypeRepository
+                        .findDetailsByReservationId(reservationId);
+        Map<Long, RoomType> lockedRoomTypes = new LinkedHashMap<>();
+        roomTypeLines.stream()
+                .map(line -> line.getRoomType().getId())
+                .distinct()
+                .sorted()
+                .forEach(roomTypeId -> lockedRoomTypes.put(
+                        roomTypeId,
+                        roomTypeRepository.findByIdForUpdate(roomTypeId)
+                                .orElseThrow(() -> new AppException(
+                                        ErrorCode.ROOM_TYPE_NOT_FOUND))));
+        for (ReservationRoomType line : roomTypeLines) {
+            checkAvailabilityOrThrow(
+                    lockedRoomTypes.get(line.getRoomType().getId()),
+                    line.getQuantity(),
+                    reservation.getCheckIn(),
+                    preview.inventoryProtectedUntil(),
+                    reservationId);
+        }
+
+        BigDecimal oldTotal = reservation.getTotalAmount();
+        LocalDateTime oldProtectedUntil =
+                reservation.getInventoryProtectedUntil();
+        reservation.setCheckOut(newCheckOut);
+        PricingV2LifecycleService.Projection applied =
+                pricingV2LifecycleService.apply(
+                        reservation,
+                        newCheckOut,
+                        RateSnapshotStage.EXTENSION,
+                        PricingTransitionReason.EXTENSION);
+        ReservationAddOnService.ExtensionAdjustment serviceAdjustment =
+                reservationAddOnService
+                        .repriceBookingTimeForExtension(
+                                reservation,
+                                newCheckOut,
+                                applied.packageCycles());
+        if (serviceAdjustment.additionalCharge().signum() > 0) {
+            reservation.setTotalAmount(
+                    reservation.getTotalAmount().add(
+                            serviceAdjustment.additionalCharge()));
+        }
+        reservation.setLastActivityAt(LocalDateTime.now());
+        reservationRepository.save(reservation);
+
+        Map<String, Object> oldValue = new LinkedHashMap<>();
+        oldValue.put("checkOut", oldCheckOut);
+        oldValue.put("inventoryProtectedUntil", oldProtectedUntil);
+        oldValue.put("totalAmount", oldTotal);
+        Map<String, Object> newValue = new LinkedHashMap<>();
+        newValue.put("checkOut", newCheckOut);
+        newValue.put(
+                "inventoryProtectedUntil",
+                applied.inventoryProtectedUntil());
+        newValue.put(
+                "totalAmount",
+                reservation.getTotalAmount());
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put(
+                "pricingDelta",
+                applied.deltaAmount());
+        detail.put(
+                "serviceDelta",
+                serviceAdjustment.additionalCharge());
+        detail.put(
+                "repricedServiceOrders",
+                serviceAdjustment.updatedOrders());
+        detail.put(
+                "totalDelta",
+                reservation.getTotalAmount().subtract(oldTotal));
+        detail.put(
+                "displayPackage",
+                applied.displayPackage().name());
+        detail.put(
+                "reason",
+                hasText(request.getReason())
+                        ? request.getReason().trim()
+                        : "Khách yêu cầu gia hạn");
+        auditService.record(
+                reservation,
+                "RESERVATION",
+                String.valueOf(reservationId),
+                ReservationAuditAction.RESERVATION_EXTENDED,
+                "Gia hạn lưu trú đến " + newCheckOut,
+                oldValue,
+                newValue,
+                detail,
+                UUID.randomUUID().toString(),
+                "RESERVATION_EXTENDED:"
+                        + reservationId
+                        + ":"
+                        + newCheckOut);
+        eventPublisher.publishEvent(
+                new CheckoutReconciliationChangedEvent(
+                        reservationId,
+                        "RESERVATION_EXTENDED"));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1556,7 +2024,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                         + "; refund " + refundChannel + " đang chờ hoàn tất, chưa chốt trạng thái reservation"
                         : "Staff/Admin từ chối booking: " + reason
                         + "; hoàn " + (acceptedPaid + existingRequiredRefund) + " VND");
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1573,8 +2042,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     "Chỉ có thể điều chỉnh phụ phí khi reservation đang CHECKED_IN");
         }
         ensureNoPendingSettlementPayment(reservationId);
-        applyEarlyCheckoutAdjustment(reservation, LocalDateTime.now());
-        applyLateCheckoutFee(reservation, LocalDateTime.now());
+        applyCheckoutPricing(
+                reservation, LocalDateTime.now(), false);
         long additionalFee = request.getAdditionalFee();
         BigDecimal currentAdditionalFee = reservation.getCheckoutAdditionalFee() != null
                 ? reservation.getCheckoutAdditionalFee() : BigDecimal.ZERO;
@@ -1604,7 +2073,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 null);
         eventPublisher.publishEvent(new CheckoutReconciliationChangedEvent(
                 reservationId, "CHECKOUT_FEE_UPDATED"));
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1617,8 +2087,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     "Chỉ có thể hoàn tiền khi reservation đang CHECKED_IN");
         }
         ensureNoPendingSettlementPayment(reservationId);
-        applyEarlyCheckoutAdjustment(reservation, LocalDateTime.now());
-        applyLateCheckoutFee(reservation, LocalDateTime.now());
+        applyCheckoutPricing(
+                reservation, LocalDateTime.now(), false);
         long refundableAmount = Math.max(0L,
                 getNetPaidAmount(reservationId) - reservation.getTotalAmount().longValue());
         long uncoveredRequiredRefund = paymentRefundService
@@ -1644,8 +2114,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             if (paymentRefundService.getOutstandingReservedRefundAmount(reservationId) > 0L) {
                 reservation.setRefundableAmount(BigDecimal.ZERO);
                 reservationRepository.save(reservation);
-                return paymentRefundService.applyReservationRefundSummary(
-                        ReservationResponse.from(reservation));
+                return responseAssembler
+                        .withRoomTypeDetailsAndRefundSummary(reservation);
             }
             throw new AppException(ErrorCode.INVALID_REQUEST, "Reservation hiện không có tiền thừa để hoàn");
         }
@@ -1663,7 +2133,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         }
         reservation.setRefundableAmount(BigDecimal.ZERO);
         reservationRepository.save(reservation);
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1689,7 +2160,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         reservationRepository.save(reservation);
         auditService.record(reservation, ReservationAuditAction.MARK_NO_SHOW, "Ghi nhận khách không đến");
         log.info("Reservation marked NO_SHOW: id={}", reservationId);
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1724,6 +2196,15 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         }
 
         if (request.getGuestCount() != null) {
+            if (pricingV2LifecycleService.supports(reservation)
+                    && !Objects.equals(
+                            request.getGuestCount(),
+                            reservation.getGuestCount())) {
+                throw new AppException(
+                        ErrorCode.PRICING_QUOTE_MISMATCH,
+                        "Pricing V2 khóa số khách theo báo giá đã cam kết; "
+                                + "không thể đổi số khách bằng API cập nhật đơn");
+            }
             int totalCapacity = reservation.getRoomTypes().stream()
                     .mapToInt(roomType -> roomType.getQuantity()
                             * Math.max(0, roomType.getRoomType().getMaxGuests() != null
@@ -1738,7 +2219,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
 
         reservationRepository.save(reservation);
         log.info("Reservation updated: id={}", reservationId);
-        return paymentRefundService.applyReservationRefundSummary(ReservationResponse.from(reservation));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
     }
 
     @Override
@@ -1757,14 +2239,17 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         long checkoutAdditionalFee = projected.checkoutAdditionalFee();
         long addOnServiceAmount = projected.addOnServiceAmount();
         long earlyCheckoutAdjustment = projected.earlyCheckoutAdjustment();
-        long roomCharge = Math.max(
-                0L, totalAmount - lateCheckoutFee - checkoutAdditionalFee - addOnServiceAmount);
+        long roomCharge = projected.actualRoomCharge();
 
         return FinalPaymentResponse.builder()
                 .reservationId(reservationId)
+                .pricingVersion(projected.pricingVersion())
                 .totalAmount(totalAmount)
                 .roomCharge(roomCharge)
-                .plannedRoomCharge(roomCharge + earlyCheckoutAdjustment)
+                .plannedRoomCharge(projected.plannedRoomCharge())
+                .extraGuestCharge(projected.extraGuestCharge())
+                .postCommitmentRoomIncrease(
+                        projected.postCommitmentRoomIncrease())
                 .paidAmount(paidAmount)
                 .remainingAmount(remaining)
                 .addOnServiceAmount(addOnServiceAmount)
@@ -1950,8 +2435,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 && normalized.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
     }
 
-    private void validateCheckInTime(Reservation reservation) {
-        LocalDateTime now = LocalDateTime.now();
+    private void validateCheckInTime(
+            Reservation reservation,
+            LocalDateTime now) {
         LocalDateTime earliestAllowed = reservation.getCheckIn().minusHours(2);
         if (now.isBefore(earliestAllowed)) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
@@ -1961,10 +2447,52 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             throw new AppException(ErrorCode.INVALID_REQUEST,
                     "Đã quá thời gian trả phòng dự kiến, reservation cần được nhân viên xử lý lại");
         }
-        if (now.toLocalDate().isAfter(reservation.getCheckIn().toLocalDate())) {
+        // Reaching the no-show grace threshold only makes the reservation
+        // eligible for an explicit staff no-show action; it must not silently
+        // turn a still-CONFIRMED reservation into a rejected check-in. Keep
+        // the legacy next-calendar-day boundary, while Pricing V2 overnight
+        // reservations may arrive after midnight as long as their scheduled
+        // checkout has not passed.
+        boolean arrivalDatePassed = reservation.getCheckIn().toLocalDate()
+                .isBefore(now.toLocalDate());
+        boolean v2OvernightLateArrival =
+                pricingV2LifecycleService.supports(reservation)
+                        && reservation.getDisplayPackageSummary()
+                                == StayPackage.OVERNIGHT;
+        if (arrivalDatePassed && !v2OvernightLateArrival) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Đã quá ngày check-in dự kiến; nhân viên cần xử lý reservation là no-show");
+                    "Đã qua ngày nhận phòng; nhân viên cần xử lý reservation là no-show");
         }
+    }
+
+    /**
+     * Pricing V2 is replayed from immutable line snapshots and never receives
+     * the legacy early-checkout discount. Legacy reservations keep the
+     * existing calculation byte-for-byte through the two old helpers.
+     */
+    private void applyCheckoutPricing(
+            Reservation reservation,
+            LocalDateTime now,
+            boolean finalCheckout) {
+        if (pricingV2LifecycleService.supports(reservation)) {
+            if (finalCheckout) {
+                pricingV2LifecycleService.apply(
+                        reservation,
+                        now,
+                        RateSnapshotStage.CHECKOUT,
+                        PricingTransitionReason.ACTUAL_CHECKOUT);
+            } else {
+                pricingV2LifecycleService.applyAutomatic(
+                        reservation,
+                        now,
+                        RateSnapshotStage.ADJUSTMENT);
+            }
+            reservation.setEarlyCheckoutAdjustment(BigDecimal.ZERO);
+            reservationRepository.save(reservation);
+            return;
+        }
+        applyEarlyCheckoutAdjustment(reservation, now);
+        applyLateCheckoutFee(reservation, now);
     }
 
     private void applyEarlyCheckoutAdjustment(Reservation reservation, LocalDateTime now) {
@@ -2050,6 +2578,27 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         BigDecimal addOnServiceAmount =
                 reservationAddOnService.committedTotal(reservation.getId());
 
+        if (pricingV2LifecycleService.supports(reservation)) {
+            LocalDateTime requestedCheckout =
+                    now.isAfter(reservation.getCheckIn())
+                            ? now
+                            : reservation.getCheckOut();
+            PricingV2LifecycleService.Projection projection =
+                    pricingV2LifecycleService.project(
+                            reservation, requestedCheckout);
+            return new ProjectedCheckout(
+                    projection.projectedTotalAmount().longValue(),
+                    0L,
+                    projection.cumulativePricingIncrease().longValue(),
+                    additionalFee.longValue(),
+                    addOnServiceAmount.longValue(),
+                    projection.plannedRoomCharge().longValue(),
+                    projection.actualRoomCharge().longValue(),
+                    projection.extraGuestCharge().longValue(),
+                    projection.cumulativePricingIncrease().longValue(),
+                    PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
+        }
+
         if (reservation.getStatus() == ReservationStatus.CHECKED_IN) {
             if (!now.isBefore(reservation.getCheckOut()) || reservation.getActualCheckIn() == null) {
                 if (projectedEarly.signum() > 0) {
@@ -2101,12 +2650,23 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             }
         }
 
+        long actualRoomCharge = Math.max(
+                0L,
+                projectedTotal.longValue()
+                        - projectedLate.longValue()
+                        - additionalFee.longValue()
+                        - addOnServiceAmount.longValue());
         return new ProjectedCheckout(
                 projectedTotal.longValue(),
                 projectedEarly.longValue(),
                 projectedLate.longValue(),
                 additionalFee.longValue(),
-                addOnServiceAmount.longValue());
+                addOnServiceAmount.longValue(),
+                actualRoomCharge + projectedEarly.longValue(),
+                actualRoomCharge,
+                0L,
+                projectedLate.longValue(),
+                PricingAlgorithmVersion.LEGACY_V1);
     }
 
     private CheckoutReconciliationResponse buildCheckoutReconciliation(
@@ -2151,6 +2711,12 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .uncoveredRefundAmount(uncoveredRefundAmount)
                 .outstandingAmount(outstandingAmount)
                 .deltaAmount(deltaAmount)
+                .pricingVersion(projected.pricingVersion())
+                .plannedRoomCharge(projected.plannedRoomCharge())
+                .actualRoomCharge(projected.actualRoomCharge())
+                .extraGuestCharge(projected.extraGuestCharge())
+                .postCommitmentRoomIncrease(
+                        projected.postCommitmentRoomIncrease())
                 .lateCheckoutFee(projected.lateCheckoutFee())
                 .earlyCheckoutAdjustment(projected.earlyCheckoutAdjustment())
                 .checkoutAdditionalFee(projected.checkoutAdditionalFee())
@@ -2173,7 +2739,12 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             long earlyCheckoutAdjustment,
             long lateCheckoutFee,
             long checkoutAdditionalFee,
-            long addOnServiceAmount) {}
+            long addOnServiceAmount,
+            long plannedRoomCharge,
+            long actualRoomCharge,
+            long extraGuestCharge,
+            long postCommitmentRoomIncrease,
+            PricingAlgorithmVersion pricingVersion) {}
 
     private String currentOperator() {
         var authentication = org.springframework.security.core.context.SecurityContextHolder
@@ -2330,8 +2901,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         boolean hasOverlap = reservationRoomRepository.existsOverlappingRoomAssignment(
                 room.getId(),
                 reservation.getId(),
-                reservation.getCheckIn(),
-                reservation.getCheckOut(),
+                availabilityStart(reservation),
+                availabilityEnd(reservation),
                 List.of(AssignStatus.ASSIGNED, AssignStatus.CHECKED_IN));
 
         if (hasOverlap) {
@@ -2374,6 +2945,26 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         return total - booked - held;
     }
 
+    /**
+     * Pricing V2 may reserve inventory beyond the customer's displayed
+     * checkout (package entitlement plus turnover). Legacy reservations keep
+     * their original checkout boundary because the new column is null.
+     */
+    private LocalDateTime availabilityStart(Reservation reservation) {
+        LocalDateTime actualCheckIn = reservation.getActualCheckIn();
+        return actualCheckIn != null
+                && actualCheckIn.isBefore(reservation.getCheckIn())
+                ? actualCheckIn
+                : reservation.getCheckIn();
+    }
+
+    private LocalDateTime availabilityEnd(Reservation reservation) {
+        LocalDateTime protectedUntil = reservation.getInventoryProtectedUntil();
+        return protectedUntil != null && protectedUntil.isAfter(reservation.getCheckOut())
+                ? protectedUntil
+                : reservation.getCheckOut();
+    }
+
     private String generateCode() {
         String code;
         do {
@@ -2391,6 +2982,12 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     }
 
     // Inner record tạm để truyền data giữa các bước
-    private record RoomTypeWithPrice(RoomType roomType, int quantity,
-                                     BigDecimal price, BigDecimal subtotal) {}
+    private record RoomTypeWithPrice(
+            RoomType roomType,
+            int quantity,
+            BigDecimal price,
+            BigDecimal subtotal,
+            Integer lineGuestCount,
+            BigDecimal minimumCommittedRoomCharge,
+            com.hotel.backend.constant.StayPackage maxPackageReached) {}
 }

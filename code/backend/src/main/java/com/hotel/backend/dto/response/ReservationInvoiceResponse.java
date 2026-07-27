@@ -1,5 +1,6 @@
 package com.hotel.backend.dto.response;
 
+import com.hotel.backend.constant.PricingAlgorithmVersion;
 import com.hotel.backend.constant.RefundChannel;
 import lombok.*;
 
@@ -35,6 +36,7 @@ public class ReservationInvoiceResponse {
     private LocalDateTime actualCheckOut;
     private Integer guestCount;
     private String note;
+    private PricingAlgorithmVersion pricingVersion;
 
     private List<RoomTypeLine> roomTypes;
     private List<PaymentLine> payments;
@@ -43,6 +45,12 @@ public class ReservationInvoiceResponse {
     private BigDecimal plannedRoomCharge;
     private BigDecimal roomCharge;
     private BigDecimal actualRoomCharge;
+    private BigDecimal extraGuestCharge;
+    /**
+     * Informational room-price increase since the original commitment.
+     * Included in actualRoomCharge for Pricing V2.
+     */
+    private BigDecimal postCommitmentRoomIncrease;
     private BigDecimal earlyCheckoutAdjustment;
     private BigDecimal lateCheckoutFee;
     private BigDecimal checkoutAdditionalFee;
@@ -63,10 +71,21 @@ public class ReservationInvoiceResponse {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class RoomTypeLine {
+        private String roomTypeCode;
         private String roomTypeName;
         private Integer quantity;
         private BigDecimal pricePerRoomForStay;
+        private BigDecimal plannedRoomCharge;
+        private BigDecimal actualRoomCharge;
+        private BigDecimal plannedExtraGuestCharge;
+        private BigDecimal extraGuestCharge;
+        /**
+         * Complete line obligation: room charge plus extra-guest charge.
+         */
         private BigDecimal plannedSubtotal;
+        private BigDecimal actualSubtotal;
+        private String appliedPackage;
+        private String pricingSnapshotHash;
     }
 
     @Data

@@ -5,6 +5,7 @@ import com.hotel.backend.dto.response.ReservationRoomResponse;
 import com.hotel.backend.dto.response.ReservationRoomTypeResponse;
 import com.hotel.backend.dto.response.RoomHoldResponse;
 import com.hotel.backend.entity.Reservation;
+import com.hotel.backend.repository.ReservationRoomTypeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -21,11 +22,15 @@ public class ReservationResponseAssembler {
 
     private final PaymentRefundService paymentRefundService;
     private final ReservationAddOnService reservationAddOnService;
+    private final ReservationPricingReadService pricingReadService;
+    private final ReservationRoomTypeRepository
+            reservationRoomTypeRepository;
 
     public ReservationResponse withRoomTypeDetails(Reservation reservation) {
-        return reservationAddOnService.enrich(
+        ReservationResponse response = reservationAddOnService.enrich(
                 ReservationResponse.fromWithDetails(
                         reservation, roomTypeDetails(reservation)));
+        return pricingReadService.enrich(reservation, response);
     }
 
     public ReservationResponse withRoomTypeDetailsAndRefundSummary(Reservation reservation) {
@@ -47,7 +52,9 @@ public class ReservationResponseAssembler {
     }
 
     private List<ReservationRoomTypeResponse> roomTypeDetails(Reservation reservation) {
-        return reservation.getRoomTypes().stream()
+        return reservationRoomTypeRepository
+                .findDetailsByReservationId(reservation.getId())
+                .stream()
                 .map(reservationRoomType -> {
                     ReservationRoomTypeResponse response =
                             ReservationRoomTypeResponse.from(reservationRoomType);
