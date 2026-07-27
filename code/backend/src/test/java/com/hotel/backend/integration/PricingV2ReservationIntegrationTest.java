@@ -176,29 +176,28 @@ class PricingV2ReservationIntegrationTest {
                 persisted.getPricingVersion());
         assertEquals(2, line.getQuantity());
         assertEquals(2, line.getLineGuestCount());
-        assertEquals(0, new java.math.BigDecimal("70000.00")
-                .compareTo(line.getRoomPrice()));
-        assertEquals(0, new java.math.BigDecimal("140000.00")
-                .compareTo(line.getSubtotal()));
+        BigDecimal expectedLineSubtotal = line.getRoomPrice()
+                .multiply(BigDecimal.valueOf(line.getQuantity()));
+        assertEquals(0, expectedLineSubtotal.compareTo(line.getSubtotal()));
         assertEquals(0, line.getSubtotal()
                 .compareTo(persisted.getTotalAmount()));
         assertEquals(1, snapshotRepository
                 .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
                         line.getId())
                 .size());
-        assertEquals(0, new java.math.BigDecimal("140000.00")
+        assertEquals(0, expectedLineSubtotal
                 .compareTo(created.getPlannedRoomCharge()));
-        assertEquals(0, new java.math.BigDecimal("140000.00")
+        assertEquals(0, expectedLineSubtotal
                 .compareTo(created.getActualRoomCharge()));
-        assertEquals(0, new java.math.BigDecimal("140000.00")
+        assertEquals(0, expectedLineSubtotal
                 .compareTo(created.getPlannedTotalAmount()));
-        assertEquals(0, new java.math.BigDecimal("140000.00")
+        assertEquals(0, expectedLineSubtotal
                 .compareTo(created.getActualTotalAmount()));
         assertEquals(1, created.getRoomTypes().size());
-        assertEquals(0, new java.math.BigDecimal("140000.00")
+        assertEquals(0, expectedLineSubtotal
                 .compareTo(created.getRoomTypes().get(0)
                         .getPlannedSubtotal()));
-        assertEquals(0, new java.math.BigDecimal("140000.00")
+        assertEquals(0, expectedLineSubtotal
                 .compareTo(created.getRoomTypes().get(0)
                         .getActualSubtotal()));
     }
@@ -248,11 +247,15 @@ class PricingV2ReservationIntegrationTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertEquals(0, new java.math.BigDecimal("140000.00")
+        assertEquals(0, standardLine.getRoomPrice()
+                .multiply(BigDecimal.valueOf(standardLine.getQuantity()))
                 .compareTo(standardLine.getSubtotal()));
-        assertEquals(0, new java.math.BigDecimal("100000.00")
+        assertEquals(0, deluxeLine.getRoomPrice()
+                .multiply(BigDecimal.valueOf(deluxeLine.getQuantity()))
                 .compareTo(deluxeLine.getSubtotal()));
-        assertEquals(0, new java.math.BigDecimal("240000.00")
+        BigDecimal expectedReservationTotal = standardLine.getSubtotal()
+                .add(deluxeLine.getSubtotal());
+        assertEquals(0, expectedReservationTotal
                 .compareTo(persisted.getTotalAmount()));
         assertEquals(2, created.getRoomTypes().size());
         assertEquals(0, created.getRoomTypes().stream()

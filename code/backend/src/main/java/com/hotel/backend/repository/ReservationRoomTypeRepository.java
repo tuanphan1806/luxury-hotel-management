@@ -42,6 +42,25 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
         @Param("checkOut")   LocalDateTime checkOut
     );
 
+    /**
+     * Batch variant used when displaying every room type on the public
+     * availability screen.
+     */
+    @Query("""
+        SELECT rrt.roomType.id AS roomTypeId,
+               COALESCE(SUM(rrt.quantity), 0) AS quantity
+        FROM ReservationRoomType rrt
+        JOIN rrt.reservation r
+        WHERE r.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
+          AND r.checkIn < :checkOut
+          AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
+        GROUP BY rrt.roomType.id
+    """)
+    List<RoomTypeQuantityProjection> countBookedQuantitiesGroupedByType(
+        @Param("checkIn") LocalDateTime checkIn,
+        @Param("checkOut") LocalDateTime checkOut
+    );
+
     // Đếm số phòng đã được confirm/check-in, trừ reservation hiện tại (dùng khi update)
     @Query("""
         SELECT COALESCE(SUM(rrt.quantity), 0)
