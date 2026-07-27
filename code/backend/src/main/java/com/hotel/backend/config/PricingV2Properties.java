@@ -20,6 +20,7 @@ public class PricingV2Properties {
     private String engineV2RoomTypeCodes = "";
     private boolean engineV2RequireQuote = false;
     private int quoteTtlMinutes = 15;
+    private int maxStayDays = 365;
 
     public boolean supportsRoomType(String roomTypeCode) {
         if (!engineV2Enabled || roomTypeCode == null || roomTypeCode.isBlank()) {
@@ -43,5 +44,9 @@ public class PricingV2Properties {
 
     public int safeQuoteTtlMinutes() {
         return Math.min(Math.max(quoteTtlMinutes, 1), 60);
+    }
+
+    public int safeMaxStayDays() {
+        return Math.min(Math.max(maxStayDays, 1), 1095);
     }
 }

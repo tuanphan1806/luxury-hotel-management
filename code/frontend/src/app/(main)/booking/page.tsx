@@ -24,6 +24,7 @@ import {
   chargeableNights,
   getAddOnCatalog,
 } from "@/lib/add-on-services";
+import { isStayWithinMaximum } from "@/lib/stay-window";
 
 interface BookingData {
   roomName: string;
@@ -248,8 +249,9 @@ function BookingFormContent() {
       Number.isNaN(checkInTime.getTime())
       || Number.isNaN(checkOutTime.getTime())
       || checkOutTime <= checkInTime
+      || !isStayWithinMaximum(checkInTime, checkOutTime)
     ) {
-      router.push("/rooms");
+      router.push("/reservation");
       return;
     }
     const totalHours = Math.max(
@@ -339,7 +341,6 @@ function BookingFormContent() {
     .map((service) => ({
       serviceId: service.id,
       quantity: addOnSelections[service.id].quantity,
-      notes: addOnSelections[service.id].notes.trim() || undefined,
     }));
   const quoteRequestPayload: PricingQuoteRequestPayload | null = bookingData
     && quoteGuestCount >= 1
@@ -482,6 +483,13 @@ function BookingFormContent() {
     : pricingQuote?.displayPackageSummary === "DAILY"
       ? localize("Ngày đêm", "Daily")
       : localize("Nghỉ giờ", "Hourly");
+  const checkInHourMatch = bookingData.checkInDate.match(
+    /(?:T|\s)(\d{2}):(\d{2})/,
+  );
+  const isEarlyMorningOvernight =
+    pricingQuote?.displayPackageSummary === "OVERNIGHT"
+    && checkInHourMatch != null
+    && Number(checkInHourMatch[1]) < 8;
   const isBookingActionDisabled = isSubmitting || (
     !pendingReservation
     && (
@@ -759,14 +767,22 @@ function BookingFormContent() {
       ) {
         if (reservationCreateScope) clearIdempotencyKey(reservationCreateScope);
         try {
+          const previousQuote = pricingQuote;
           const refreshedQuote = await requestPricingQuote(quoteRequestPayload);
+          const amountChanged = previousQuote != null
+            && Number(previousQuote.totalAmount) !== Number(refreshedQuote.totalAmount);
           setPricingQuote(refreshedQuote);
           setPricingQuoteMode("v2");
           setPricingQuoteError("");
-          setPaymentError(localize(
-            "Giá hoặc chính sách vừa thay đổi. Báo giá mới đã được cập nhật; vui lòng kiểm tra và xác nhận lại.",
-            "The price or policy changed. A new quote is ready; review it and confirm again.",
-          ));
+          setPaymentError(amountChanged
+            ? localize(
+                `Tổng tiền đã đổi từ ${formatVND(Number(previousQuote?.totalAmount || 0))} thành ${formatVND(refreshedQuote.totalAmount)}. Vui lòng kiểm tra và xác nhận lại.`,
+                `The total changed from ${formatVND(Number(previousQuote?.totalAmount || 0))} to ${formatVND(refreshedQuote.totalAmount)}. Review and confirm again.`,
+              )
+            : localize(
+                "Báo giá hoặc phiên bản chính sách đã được làm mới; tổng tiền không đổi. Vui lòng xác nhận lại.",
+                "The quote or policy version was refreshed; the total is unchanged. Confirm again.",
+              ));
         } catch (refreshError: unknown) {
           if (getApiErrorCode(refreshError) === 5080) {
             setPricingQuote(null);
@@ -1400,9 +1416,19 @@ function BookingFormContent() {
                 </p>
               )}
               {pricingQuoteMode === "v2" && pricingQuote && (
-                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
-                  {localize(`Đã khóa báo giá · ${displayedPackageLabel}`, `Quote ready · ${displayedPackageLabel}`)}
-                </p>
+                <div className="space-y-2">
+                  <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                    {localize(`Đã khóa báo giá · ${displayedPackageLabel}`, `Quote ready · ${displayedPackageLabel}`)}
+                  </p>
+                  {isEarlyMorningOvernight && (
+                    <p className="rounded-lg border border-[#B8944F]/35 bg-[#F7F1E5] px-3 py-2 text-xs font-semibold leading-relaxed text-[#6F5425]">
+                      {localize(
+                        "Nhận phòng trước 08:00 với kỳ lưu trú từ 2 giờ được áp dụng gói qua đêm.",
+                        "Check-in before 08:00 with a stay of at least 2 hours uses the overnight package.",
+                      )}
+                    </p>
+                  )}
+                </div>
               )}
               {pricingQuoteMode === "legacy" && (
                 <p className="rounded-lg border border-[#0F2A43]/10 bg-[#E5E9ED] px-3 py-2 text-xs font-semibold text-[#0F2A43]">

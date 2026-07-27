@@ -48,6 +48,8 @@ public class ReservationAddOnService {
             Set.of(ReservationServiceStatus.CONFIRMED, ReservationServiceStatus.FULFILLED);
     private static final Set<ReservationServiceStatus> CHECKOUT_BLOCKING_STATUSES =
             Set.of(ReservationServiceStatus.REQUESTED, ReservationServiceStatus.CONFIRMED);
+    private static final Set<ReservationServiceStatus> EXTENSION_REPRICEABLE_STATUSES =
+            Set.of(ReservationServiceStatus.REQUESTED, ReservationServiceStatus.CONFIRMED);
 
     private final AddOnServiceRepository catalogRepository;
     private final ReservationServiceOrderRepository orderRepository;
@@ -55,6 +57,7 @@ public class ReservationAddOnService {
     private final PaymentReservationAccessPolicy accessPolicy;
     private final ReservationAuditService auditService;
     private final ApplicationEventPublisher eventPublisher;
+    private final PricingV2LifecycleService pricingV2LifecycleService;
 
     @Transactional
     public BookingQuote quoteBookingTime(
@@ -73,9 +76,9 @@ public class ReservationAddOnService {
     }
 
     /**
-     * Pricing V2 entry point. PER_NIGHT services use the package-cycle count
-     * already decided by the room-pricing engine instead of rounding the stay
-     * duration independently.
+     * Pricing V2 entry point. Package-cycle services use the count already
+     * decided by the room-pricing engine instead of independently classifying
+     * the stay. Historical PER_NIGHT snapshots remain a compatibility alias.
      */
     @Transactional
     public BookingQuote quoteBookingTimeForPackageCycles(
@@ -189,6 +192,10 @@ public class ReservationAddOnService {
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
         accessPolicy.ensureCanAccessReservation(currentUser, reservation, guestToken);
         validateCanRequestInStay(reservation, currentUser);
+        Integer packageCycles = pricingV2LifecycleService.supports(reservation)
+                ? pricingV2LifecycleService.packageCycles(
+                        reservation, reservation.getCheckOut())
+                : null;
         BookingQuote quote = quote(
                 List.of(request),
                 requireGuestCount(reservation),
@@ -196,7 +203,7 @@ public class ReservationAddOnService {
                 reservation.getCheckOut(),
                 ReservationServiceOrigin.IN_STAY,
                 false,
-                null);
+                packageCycles);
         PricedService line = quote.lines().get(0);
         Instant now = Instant.now();
         ReservationServiceOrder saved = orderRepository.save(toEntity(
@@ -273,10 +280,13 @@ public class ReservationAddOnService {
     }
 
     /**
-     * Extends only still-confirmed booking-time services charged per night.
+     * Extends requested or confirmed services charged per package cycle,
+     * regardless of whether they were selected at booking time or requested
+     * during the stay.
      * The original unit-price snapshot remains authoritative; catalog changes
-     * are deliberately ignored. Fulfilled services are not reopened
-     * automatically and require a new in-stay request if needed.
+     * are deliberately ignored. Requested orders are repriced without changing
+     * reservation debt; confirmed orders add only their delta. Fulfilled
+     * services are not reopened automatically.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public ExtensionAdjustment repriceBookingTimeForExtension(
@@ -295,12 +305,8 @@ public class ReservationAddOnService {
         for (ReservationServiceOrder order :
                 orderRepository.findByReservationIdForUpdate(
                         reservation.getId())) {
-            if (order.getOrigin()
-                    != ReservationServiceOrigin.BOOKING_TIME
-                    || order.getPricingUnitSnapshot()
-                    != AddOnPricingUnit.PER_NIGHT
-                    || order.getStatus()
-                    != ReservationServiceStatus.CONFIRMED
+            if (!isPackageCycleUnit(order.getPricingUnitSnapshot())
+                    || !EXTENSION_REPRICEABLE_STATUSES.contains(order.getStatus())
                     || newMultiplier
                     <= order.getPricingMultiplier()) {
                 continue;
@@ -320,7 +326,9 @@ public class ReservationAddOnService {
             order.setBillableQuantity(newBillableQuantity);
             order.setTotalPrice(newTotal);
             orderRepository.save(order);
-            additionalCharge = additionalCharge.add(delta);
+            if (order.getStatus() == ReservationServiceStatus.CONFIRMED) {
+                additionalCharge = additionalCharge.add(delta);
+            }
             updatedOrders++;
 
             auditService.record(
@@ -329,7 +337,7 @@ public class ReservationAddOnService {
                     String.valueOf(order.getId()),
                     ReservationAuditAction
                             .RESERVATION_SERVICE_REPRICED,
-                    "Điều chỉnh dịch vụ theo số đêm sau gia hạn",
+                    "Điều chỉnh dịch vụ theo số chu kỳ lưu trú sau gia hạn",
                     Map.of(
                             "pricingMultiplier", oldMultiplier,
                             "billableQuantity", oldBillableQuantity,
@@ -439,7 +447,9 @@ public class ReservationAddOnService {
                             .orElseThrow(() -> serviceNotFound());
             validateAvailable(service, origin);
             int quantity = normalizeQuantity(service.getPricingUnit(), request.getQuantity(), guestCount);
-            int multiplier = service.getPricingUnit() == AddOnPricingUnit.PER_NIGHT ? nights : 1;
+            int multiplier = isPackageCycleUnit(service.getPricingUnit())
+                    ? nights
+                    : 1;
             int billableQuantity = Math.multiplyExact(quantity, multiplier);
             BigDecimal lineTotal = service.getPrice()
                     .multiply(BigDecimal.valueOf(billableQuantity))
@@ -565,8 +575,17 @@ public class ReservationAddOnService {
     }
 
     private int chargeableNights(LocalDateTime checkIn, LocalDateTime checkOut) {
-        long minutes = Duration.between(checkIn, checkOut).toMinutes();
+        Duration duration = Duration.between(checkIn, checkOut);
+        long minutes = duration.toMinutes();
+        if (!duration.equals(Duration.ofMinutes(minutes))) {
+            minutes++;
+        }
         return Math.max(1, Math.toIntExact((minutes + 1439L) / 1440L));
+    }
+
+    private boolean isPackageCycleUnit(AddOnPricingUnit unit) {
+        return unit == AddOnPricingUnit.PER_PACKAGE_CYCLE
+                || unit == AddOnPricingUnit.PER_NIGHT;
     }
 
     private LocalDateTime effectiveInStayStart(Reservation reservation) {

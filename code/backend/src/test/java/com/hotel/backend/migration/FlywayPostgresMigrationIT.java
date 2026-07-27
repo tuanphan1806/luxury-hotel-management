@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "20";
+    private static final String LATEST_VERSION = "22";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -75,6 +75,10 @@ class FlywayPostgresMigrationIT {
             assertColumn(connection, "reservation_room_types", "minimum_committed_room_charge");
             assertColumn(connection, "reservation_room_types", "max_package_reached");
             assertColumn(connection, "stay_policy_versions", "inventory_protection_mode");
+            assertColumn(connection, "stay_policy_versions",
+                    "early_morning_overnight_minimum_minutes");
+            assertColumn(connection, "stay_policy_versions",
+                    "remainder_cycle_starts_at_boundary");
             assertColumn(connection, "payment_provider_events", "bank_reference_code");
             assertColumn(connection, "payment_refunds", "completion_provider_event_id");
             assertColumn(connection, "payment_refunds", "refund_detail_json");
@@ -145,11 +149,14 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "chk_invoice_extra_guest_charge");
             assertConstraint(connection, "uk_stay_policy_code_version");
             assertConstraint(connection, "chk_stay_policy_inventory_protection");
+            assertConstraint(connection, "chk_stay_policy_early_morning_minimum");
             assertConstraint(connection, "uk_room_rate_profile_version");
             assertConstraint(connection, "uk_reservation_rate_snapshot_sequence");
             assertConstraint(connection, "chk_room_rate_profile_monotonic_package_prices");
             assertConstraint(connection, "chk_room_rate_profile_whole_vnd");
             assertConstraint(connection, "chk_service_catalog_whole_vnd");
+            assertConstraint(connection, "chk_service_catalog_pricing_unit");
+            assertConstraint(connection, "chk_reservation_services_pricing_unit");
             assertConstraint(connection, "chk_room_types_price_whole_vnd");
             assertConstraint(connection, "chk_rrt_minimum_one_guest_per_room");
             assertConstraint(connection, "chk_pricing_quote_minimum_one_guest_per_room");
@@ -159,6 +166,10 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "uk_pricing_quote_commitment_reservation");
             assertConstraintAbsent(connection, "uk_media_assets_owner");
             assertColumnDefault(connection, "rooms", "sellable", "true");
+            assertColumnDefault(connection, "stay_policy_versions",
+                    "early_morning_overnight_minimum_minutes", "120");
+            assertColumnDefault(connection, "stay_policy_versions",
+                    "remainder_cycle_starts_at_boundary", "true");
         }
 
         assertCanonicalFixedWidthMappings();
@@ -407,11 +418,31 @@ class FlywayPostgresMigrationIT {
                             + "WHERE policy_code = 'DEFAULT_MOTEL_POLICY' "
                             + "AND active = true AND effective_to_utc IS NULL",
                     "08:00:00");
+            assertScalar(connection,
+                    "SELECT early_morning_overnight_minimum_minutes::text "
+                            + "FROM stay_policy_versions "
+                            + "WHERE policy_code = 'DEFAULT_MOTEL_POLICY' "
+                            + "AND active = true AND effective_to_utc IS NULL",
+                    "120");
+            assertScalar(connection,
+                    "SELECT remainder_cycle_starts_at_boundary::text "
+                            + "FROM stay_policy_versions "
+                            + "WHERE policy_code = 'DEFAULT_MOTEL_POLICY' "
+                            + "AND active = true AND effective_to_utc IS NULL",
+                    "true");
+            assertScalar(connection,
+                    "SELECT concat_ws('|', "
+                            + "early_morning_overnight_minimum_minutes, "
+                            + "remainder_cycle_starts_at_boundary) "
+                            + "FROM stay_policy_versions "
+                            + "WHERE policy_code = 'DEFAULT_MOTEL_POLICY' "
+                            + "AND policy_version = 1",
+                    "0|f");
             assertScalar(connection, """
                     SELECT count(*)::text
                     FROM room_rate_profiles
                     WHERE room_type_id = %d
-                    """.formatted(canonicalRoomTypeId), "2");
+                    """.formatted(canonicalRoomTypeId), "3");
             assertScalar(connection, """
                     SELECT first_block_price::text
                     FROM room_rate_profiles
@@ -557,6 +588,24 @@ class FlywayPostgresMigrationIT {
                 """))
                 .isInstanceOf(SQLException.class)
                 .hasMessageContaining("create a new version");
+        assertThatThrownBy(() -> executeSql("""
+                UPDATE stay_policy_versions
+                SET early_morning_overnight_minimum_minutes = 121
+                WHERE policy_code = 'DEFAULT_MOTEL_POLICY'
+                  AND active = true
+                  AND effective_to_utc IS NULL
+                """))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("create a new version");
+        assertThatThrownBy(() -> executeSql("""
+                UPDATE stay_policy_versions
+                SET remainder_cycle_starts_at_boundary = false
+                WHERE policy_code = 'DEFAULT_MOTEL_POLICY'
+                  AND active = true
+                  AND effective_to_utc IS NULL
+                """))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("create a new version");
     }
 
     @Test
@@ -604,18 +653,220 @@ class FlywayPostgresMigrationIT {
                     SELECT concat_ws('|', grace_minutes,
                             overnight_start_time::text,
                             overnight_early_morning_end::text,
+                            early_morning_overnight_minimum_minutes,
                             overnight_hard_checkout_time::text,
                             overnight_maximum_minutes,
                             daily_threshold_minutes,
                             daily_duration_minutes,
-                            turnover_buffer_minutes)
+                            turnover_buffer_minutes,
+                            remainder_cycle_starts_at_boundary)
                     FROM stay_policy_versions
                     WHERE policy_code = 'DEFAULT_MOTEL_POLICY'
                       AND active = true
                       AND effective_to_utc IS NULL
                     """,
-                    "15|20:00:00|08:00:00|12:00:00|720|1200|1440|30");
+                    "15|20:00:00|08:00:00|120|12:00:00|720|1200|1440|30|t");
         }
+    }
+
+    @Test
+    void pricingBoundaryPolicyVersioningPreservesFiniteAndScheduledRates()
+            throws Exception {
+        Flyway v20 = flyway("20");
+        v20.clean();
+        v20.migrate();
+
+        executeSql("""
+                WITH room_type AS (
+                    INSERT INTO room_types (code, type_name, max_guests)
+                    VALUES ('FINITE_RATE_CHAIN', 'Finite rate chain', 2)
+                    RETURNING id
+                ),
+                policy AS (
+                    SELECT id
+                    FROM stay_policy_versions
+                    WHERE policy_code = 'DEFAULT_MOTEL_POLICY'
+                      AND active = true
+                      AND effective_to_utc IS NULL
+                    ORDER BY policy_version DESC
+                    LIMIT 1
+                )
+                INSERT INTO room_rate_profiles (
+                    room_type_id, stay_policy_version_id, profile_version,
+                    included_guests, first_block_minutes, first_block_price,
+                    extra_unit_minutes, extra_unit_price, overnight_price,
+                    daily_price, extra_guest_price, extra_guest_billing_mode,
+                    effective_from_utc, effective_to_utc, active,
+                    created_at_utc
+                )
+                SELECT
+                    room_type.id,
+                    policy.id,
+                    rate.profile_version,
+                    1,
+                    120,
+                    rate.first_block_price,
+                    60,
+                    20000,
+                    170000,
+                    300000,
+                    50000,
+                    'PER_PACKAGE_CYCLE',
+                    rate.effective_from_utc,
+                    rate.effective_to_utc,
+                    true,
+                    CURRENT_TIMESTAMP
+                FROM room_type
+                CROSS JOIN policy
+                CROSS JOIN (
+                    VALUES
+                        (
+                            1,
+                            71000::numeric,
+                            CURRENT_TIMESTAMP - INTERVAL '1 day',
+                            CURRENT_TIMESTAMP + INTERVAL '1 day'
+                        ),
+                        (
+                            2,
+                            72000::numeric,
+                            CURRENT_TIMESTAMP + INTERVAL '1 day',
+                            CURRENT_TIMESTAMP + INTERVAL '2 days'
+                        )
+                ) AS rate(
+                    profile_version,
+                    first_block_price,
+                    effective_from_utc,
+                    effective_to_utc
+                )
+                """);
+
+        flyway().migrate();
+
+        try (Connection connection = POSTGRES.createConnection("")) {
+            assertScalar(connection, """
+                    SELECT count(*)::text
+                    FROM room_rate_profiles profile
+                    JOIN room_types room_type
+                      ON room_type.id = profile.room_type_id
+                    JOIN stay_policy_versions policy
+                      ON policy.id = profile.stay_policy_version_id
+                    WHERE room_type.code = 'FINITE_RATE_CHAIN'
+                      AND profile.active = true
+                      AND policy.active = true
+                      AND policy.early_morning_overnight_minimum_minutes = 120
+                      AND policy.remainder_cycle_starts_at_boundary = true
+                    """, "2");
+            assertScalar(connection, """
+                    SELECT string_agg(
+                        profile.first_block_price::text,
+                        ',' ORDER BY profile.effective_from_utc)
+                    FROM room_rate_profiles profile
+                    JOIN room_types room_type
+                      ON room_type.id = profile.room_type_id
+                    WHERE room_type.code = 'FINITE_RATE_CHAIN'
+                      AND profile.active = true
+                    """, "71000.00,72000.00");
+            assertScalar(connection, """
+                    SELECT string_agg(
+                        profile.profile_version::text,
+                        ',' ORDER BY profile.profile_version)
+                    FROM room_rate_profiles profile
+                    JOIN room_types room_type
+                      ON room_type.id = profile.room_type_id
+                    WHERE room_type.code = 'FINITE_RATE_CHAIN'
+                      AND profile.active = true
+                    """, "3,4");
+            assertScalar(connection, """
+                    SELECT count(*)::text
+                    FROM room_rate_profiles profile
+                    JOIN room_types room_type
+                      ON room_type.id = profile.room_type_id
+                    WHERE room_type.code = 'FINITE_RATE_CHAIN'
+                      AND profile.active = true
+                      AND profile.effective_from_utc <= CURRENT_TIMESTAMP
+                      AND (
+                          profile.effective_to_utc IS NULL
+                          OR profile.effective_to_utc > CURRENT_TIMESTAMP
+                      )
+                    """, "1");
+            assertScalar(connection, """
+                    SELECT count(*)::text
+                    FROM room_rate_profiles profile
+                    JOIN room_types room_type
+                      ON room_type.id = profile.room_type_id
+                    WHERE room_type.code = 'FINITE_RATE_CHAIN'
+                      AND profile.active = true
+                      AND profile.effective_from_utc
+                            <= CURRENT_TIMESTAMP + INTERVAL '36 hours'
+                      AND profile.effective_to_utc
+                            > CURRENT_TIMESTAMP + INTERVAL '36 hours'
+                    """, "1");
+            assertScalar(connection, """
+                    SELECT count(*)::text
+                    FROM room_rate_profiles profile
+                    JOIN room_types room_type
+                      ON room_type.id = profile.room_type_id
+                    JOIN stay_policy_versions policy
+                      ON policy.id = profile.stay_policy_version_id
+                    WHERE room_type.code = 'FINITE_RATE_CHAIN'
+                      AND profile.active = false
+                      AND policy.early_morning_overnight_minimum_minutes = 0
+                    """, "2");
+        }
+    }
+
+    @Test
+    void legacyCatalogNightUnitBecomesCanonicalAndNewCatalogRejectsAlias()
+            throws Exception {
+        Flyway v21 = flyway("21");
+        v21.clean();
+        v21.migrate();
+
+        executeSql("""
+                INSERT INTO service_catalog (
+                    code, name, category, price, pricing_unit,
+                    booking_enabled, in_stay_enabled, is_active, sort_order
+                ) VALUES (
+                    'LEGACY_PACKAGE_SERVICE',
+                    'Legacy package service',
+                    'AMENITY',
+                    200000,
+                    'PER_NIGHT',
+                    true,
+                    true,
+                    true,
+                    1
+                )
+                """);
+
+        flyway().migrate();
+
+        try (Connection connection = POSTGRES.createConnection("")) {
+            assertScalar(connection, """
+                    SELECT pricing_unit
+                    FROM service_catalog
+                    WHERE code = 'LEGACY_PACKAGE_SERVICE'
+                    """, "PER_PACKAGE_CYCLE");
+        }
+
+        assertThatThrownBy(() -> executeSql("""
+                INSERT INTO service_catalog (
+                    code, name, category, price, pricing_unit,
+                    booking_enabled, in_stay_enabled, is_active, sort_order
+                ) VALUES (
+                    'NEW_LEGACY_UNIT',
+                    'New legacy unit',
+                    'AMENITY',
+                    1,
+                    'PER_NIGHT',
+                    true,
+                    true,
+                    true,
+                    2
+                )
+                """))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("chk_service_catalog_pricing_unit");
     }
 
     @Test
@@ -775,7 +1026,7 @@ class FlywayPostgresMigrationIT {
                     FROM room_rate_profiles profile
                     JOIN room_types room_type ON room_type.id = profile.room_type_id
                     WHERE room_type.code = 'STANDARD'
-                    """, "2");
+                    """, "3");
             assertScalar(connection, """
                     SELECT first_block_price::text
                     FROM room_rate_profiles profile
@@ -789,7 +1040,7 @@ class FlywayPostgresMigrationIT {
                     FROM room_rate_profiles profile
                     JOIN room_types room_type ON room_type.id = profile.room_type_id
                     WHERE room_type.code = 'DELUXE'
-                    """, "2");
+                    """, "3");
             assertScalar(connection, """
                     SELECT profile_version::text || ':' || first_block_price::text
                     FROM room_rate_profiles profile
@@ -797,7 +1048,7 @@ class FlywayPostgresMigrationIT {
                     WHERE room_type.code = 'DELUXE'
                       AND profile.active = true
                       AND profile.effective_to_utc IS NULL
-                    """, "8:111000.00");
+                    """, "9:111000.00");
         }
     }
 

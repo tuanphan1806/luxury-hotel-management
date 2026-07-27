@@ -52,6 +52,18 @@ public class PricingV2LifecycleService {
                 reservation, requestedCheckout, Map.of());
     }
 
+    /**
+     * Exposes the room engine's authoritative package-cycle count to adjacent
+     * financial modules such as add-on pricing. No second stay classifier is
+     * allowed to infer the count independently.
+     */
+    @Transactional(readOnly = true)
+    public int packageCycles(
+            Reservation reservation,
+            LocalDateTime requestedCheckout) {
+        return project(reservation, requestedCheckout).packageCycles();
+    }
+
     private Projection project(
             Reservation reservation,
             LocalDateTime requestedCheckout,

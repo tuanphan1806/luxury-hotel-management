@@ -48,6 +48,7 @@ public class WalkInPricingService {
     private final PricingDefinitionFactory definitionFactory;
     private final PricingQuoteAggregates aggregates;
     private final RoomRateProfileRepository rateProfileRepository;
+    private final StayWindowValidationService stayWindowValidationService;
 
     /**
      * Returns empty only at a compatibility/canary boundary. Once all selected
@@ -76,6 +77,7 @@ public class WalkInPricingService {
                 || declaredGuestCount < 1) {
             throw invalid("Thông tin tính giá walk-in không hợp lệ");
         }
+        stayWindowValidationService.validate(checkIn, checkOut);
 
         List<LineInput> sortedInputs = inputs.stream()
                 .sorted(Comparator.comparing(input -> input.roomType().getId()))

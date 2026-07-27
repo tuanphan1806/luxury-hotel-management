@@ -73,8 +73,10 @@ Trong một transaction, backend:
 7. tạo reservation `PAYMENT_PENDING`;
 8. ghi commitment + rate snapshot bất biến.
 
-Nếu giá/policy đổi, trả `409 PRICE_CHANGED`; client lấy quote mới và bắt khách
-xác nhận lại. Retry cùng request dùng cùng `Idempotency-Key`.
+Nếu giá/policy đổi, trả `409 PRICE_CHANGED`; client lấy quote mới, so sánh
+`totalAmount` với quote cũ để nói rõ “số tiền đã đổi” hay “chỉ làm mới
+quote/policy nhưng số tiền không đổi”, rồi bắt khách xác nhận lại. Retry cùng
+request dùng cùng `Idempotency-Key`.
 
 Quote và reservation chưa giữ phòng. RoomHold chỉ được tạo ở bước phát QR.
 
@@ -122,7 +124,10 @@ Trước khi thay đổi:
 4. nếu chồng tồn phòng đã bán/hold thì dừng, không đổi checkout;
 5. append snapshot `EXTENSION`;
 6. chỉ tăng nghĩa vụ tiền, không tự giảm mức đã cam kết;
-7. reprice dịch vụ booking-time `PER_NIGHT` bằng unit-price snapshot.
+7. reprice mọi dịch vụ `REQUESTED`/`CONFIRMED` dùng
+   `PER_PACKAGE_CYCLE` (cả booking-time và in-stay) bằng unit-price snapshot;
+   chỉ delta của dịch vụ `CONFIRMED` được cộng vào công nợ; snapshot lịch sử
+   `PER_NIGHT` được xử lý như alias tương thích.
 
 `inventoryProtectedUntil`:
 
@@ -136,6 +141,11 @@ OVERNIGHT:
 
 Turnover chỉ bảo vệ tồn phòng, không cộng vào doanh thu.
 
+Request tạo đơn/báo giá/availability/walk-in được giới hạn bởi
+`PRICING_MAX_STAY_DAYS` (mặc định 365 ngày, hard safety cap 1095 ngày). Mục
+đích là chặn payload breakdown theo chu kỳ tăng không giới hạn; checkout thực
+tế vẫn luôn được phép tính lại nên không thể bị kẹt chỉ vì khách trả muộn.
+
 Với policy hiện tại, `operationalNightHardCheckout` là 12:00. Vì vậy khách
 đến muộn vẫn có thể dùng đủ tối đa 12 giờ nhưng không quá 12:00 mà không bị
 đơn kế tiếp bán chồng quyền đã hứa. Khi khách checkout sớm:
@@ -147,6 +157,11 @@ Với policy hiện tại, `operationalNightHardCheckout` là 12:00. Vì vậy k
 
 Do đó phần tồn phòng còn được bảo vệ trong tương lai được giải phóng ngay,
 nhưng phòng chỉ sẵn sàng gán lại sau khi hoàn tất dọn phòng.
+
+MVP checkout theo toàn bộ reservation: mọi assignment của đơn được chốt cùng
+một transaction. Chưa hỗ trợ checkout/giảm giá riêng từng phòng trong cùng
+đơn; nếu cần phải là một workflow và snapshot tài chính mới, không sửa ngầm
+assignment hiện tại.
 
 ## 5. Final payment, checkout và invoice
 
@@ -191,29 +206,42 @@ Thứ tự:
 5. `V18__version_overnight_policy_to_08.sql`
 6. `V19__enforce_pricing_input_guards.sql`
 7. `V20__prevent_overlapping_pricing_versions.sql`
+8. `V21__version_pricing_boundary_policy.sql`
+9. `V22__canonicalize_add_on_package_cycle_unit.sql`
 
 Đã kiểm chứng trên PostgreSQL 16 Testcontainers:
 
-- database mới từ V1 đến V20;
-- database mô phỏng đã ở V13 có reservation/invoice cũ rồi nâng đến V20;
+- database mới từ V1 đến V22;
+- database mô phỏng đã ở V13 có reservation/invoice cũ rồi nâng đến V22;
 - constraint/index/backfill;
 - V17 chỉ seed rate profile cho room type canonical chưa có bất kỳ profile nào,
   không ghi đè version do operator tạo;
 - V18 version hóa mốc nhận khách qua đêm tới 08:00 mà không sửa snapshot cũ;
 - V19 khóa dữ liệu tiền về VND nguyên và bắt buộc ít nhất một khách mỗi phòng;
 - V20 preflight và chặn mọi policy/rate version có khoảng hiệu lực chồng nhau;
+- V21 tạo policy/rate version mới cho ngưỡng qua đêm sáng sớm 120 phút và
+  phần dư bắt đầu đúng biên 24 giờ; policy/rate lịch sử không bị ghi đè; cả
+  rate hiện tại có ngày kết thúc và chuỗi rate hữu hạn đã lên lịch tương lai
+  đều được clone sang policy mới mà không mất khoảng hiệu lực;
+- V22 đổi catalog `PER_NIGHT` thành `PER_PACKAGE_CYCLE` nhưng giữ alias trong
+  snapshot dịch vụ đã phát sinh;
 - policy inactive/future/expired không bị seed rate trái ý operator;
 - Hibernate schema validation.
 
-Kết quả: 18 test migration pass.
+Kết quả: 20 test PostgreSQL gate pass: 17 test migration/schema và 3 test
+idempotency concurrency.
 
 ## 7. Bằng chứng regression local
 
-- frontend production build: pass, 43 routes;
-- frontend unit test: 30 test pass, gồm contract chatbot → booking V2;
-- backend full suite: 418 test pass sau thay đổi chatbot;
-- PostgreSQL migration profile: 18 test pass, gồm database mới, nâng cấp dữ
-  liệu cũ, Hibernate validation và idempotency concurrency;
+- frontend production build: pass, 43 routes; ESLint pass;
+- frontend unit test: 35 test pass, gồm contract chatbot → booking V2,
+  giới hạn khoảng lưu trú và
+  canonical/legacy add-on pricing unit;
+- backend full unit/integration suite: 434 test pass, không
+  failure/error/skip;
+- PostgreSQL migration profile: 20 test pass (17 migration/schema + 3
+  idempotency concurrency), gồm database mới, nâng cấp dữ liệu cũ và
+  Hibernate validation;
 - runtime quote smoke trên PostgreSQL local: `STANDARD`, 20:00 → 08:00 được
   phân loại `OVERNIGHT`, tổng `170.000 VND`, policy V2 và bảo vệ tồn phòng
   tới `12:30` đúng turnover buffer;

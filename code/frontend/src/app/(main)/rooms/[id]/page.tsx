@@ -23,6 +23,7 @@ import {
   RoomRatePanel,
   type PublicRoomRate,
 } from "@/components/guest/RoomRateDisplay";
+import { isStayWithinMaximum, MAX_STAY_DAYS } from "@/lib/stay-window";
 
 
 interface RoomDetails extends PublicRoomRate {
@@ -154,6 +155,16 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
 
     if (new Date(checkOut) <= new Date(checkIn)) {
       setToast({ message: localize("Thời gian trả phòng phải sau thời gian nhận phòng.", "Check-out must be after check-in."), type: "error" });
+      return;
+    }
+    if (!isStayWithinMaximum(checkIn, checkOut)) {
+      setToast({
+        message: localize(
+          `Một đơn chỉ hỗ trợ tối đa ${MAX_STAY_DAYS} ngày. Vui lòng chia kỳ lưu trú hoặc liên hệ khách sạn.`,
+          `A booking supports up to ${MAX_STAY_DAYS} days. Split the stay or contact the hotel.`,
+        ),
+        type: "error",
+      });
       return;
     }
     if (new Date(checkIn) <= new Date()) {

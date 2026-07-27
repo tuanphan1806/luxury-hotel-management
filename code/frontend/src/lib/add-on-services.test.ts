@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { chargeableNights } from "./add-on-services";
+import {
+  calculateAddOnLineTotal,
+  chargeableNights,
+  type AddOnServiceItem,
+} from "./add-on-services";
 
 describe("chargeableNights", () => {
   it.each([
@@ -30,5 +34,42 @@ describe("chargeableNights", () => {
     expect(
       chargeableNights("2026-08-02T12:00", "2026-08-01T12:00"),
     ).toBe(1);
+  });
+});
+
+describe("package-cycle add-on pricing", () => {
+  const service = {
+    id: 1,
+    code: "EXTRA_ROLLAWAY_BED",
+    name: "Giường phụ",
+    category: "AMENITY",
+    price: 200_000,
+    pricingUnit: "PER_PACKAGE_CYCLE",
+    bookingEnabled: true,
+    inStayEnabled: true,
+    active: true,
+    sortOrder: 1,
+  } satisfies AddOnServiceItem;
+
+  it("uses the room-pricing package cycle count", () => {
+    expect(
+      calculateAddOnLineTotal(
+        service,
+        { quantity: 2, notes: "" },
+        4,
+        3,
+      ),
+    ).toBe(1_200_000);
+  });
+
+  it("keeps PER_NIGHT as a historical display/calculation alias", () => {
+    expect(
+      calculateAddOnLineTotal(
+        { ...service, pricingUnit: "PER_NIGHT" },
+        { quantity: 1, notes: "" },
+        2,
+        2,
+      ),
+    ).toBe(400_000);
   });
 });

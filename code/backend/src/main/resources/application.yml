@@ -215,6 +215,7 @@ hotel:
     engine-v2-room-type-codes: ${PRICING_ENGINE_V2_ROOM_TYPE_CODES:}
     engine-v2-require-quote: ${PRICING_ENGINE_V2_REQUIRE_QUOTE:false}
     quote-ttl-minutes: ${PRICING_QUOTE_TTL_MINUTES:15}
+    max-stay-days: ${PRICING_MAX_STAY_DAYS:365}
   operations:
     draft-warning-minutes: ${DRAFT_WARNING_MINUTES:30}
     arrival-window-hours: ${ARRIVAL_WINDOW_HOURS:2}

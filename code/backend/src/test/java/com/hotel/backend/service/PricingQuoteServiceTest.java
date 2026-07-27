@@ -35,7 +35,6 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,7 +79,8 @@ class PricingQuoteServiceTest {
                 new CanonicalJsonHasher(objectMapper),
                 new PricingQuoteRequestNormalizer(),
                 new PricingQuoteAggregates(),
-                objectMapper);
+                objectMapper,
+                new StayWindowValidationService(properties));
 
         StayPolicyVersion policy = StayPolicyVersion.builder()
                 .id(11L)
@@ -127,9 +127,10 @@ class PricingQuoteServiceTest {
 
     @Test
     void createsVersionedQuoteAndProtectsFullOvernightEntitlement() {
-        when(roomTypeRepository.findById(1L)).thenReturn(Optional.of(roomType));
-        when(rateProfileRepository.findEffectiveByRoomTypeCode(
-                eq("STANDARD"), any(Instant.class)))
+        when(roomTypeRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(roomType));
+        when(rateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(1L)), any(Instant.class)))
                 .thenReturn(List.of(rateProfile));
         when(reservationAddOnService
                 .previewBookingTimeForPackageCycles(
@@ -207,7 +208,8 @@ class PricingQuoteServiceTest {
     @Test
     void canaryListPreventsAnUnlistedRoomTypeFromUsingV2() {
         properties.setEngineV2RoomTypeCodes("DELUXE");
-        when(roomTypeRepository.findById(1L)).thenReturn(Optional.of(roomType));
+        when(roomTypeRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(roomType));
 
         AppException exception =
                 assertThrows(AppException.class, () -> service.createQuote(request(1)));
@@ -236,9 +238,10 @@ class PricingQuoteServiceTest {
                 .active(true)
                 .createdAtUtc(Instant.parse("2026-01-01T00:00:00Z"))
                 .build();
-        when(roomTypeRepository.findById(1L)).thenReturn(Optional.of(roomType));
-        when(rateProfileRepository.findEffectiveByRoomTypeCode(
-                eq("STANDARD"), any(Instant.class)))
+        when(roomTypeRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(roomType));
+        when(rateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(1L)), any(Instant.class)))
                 .thenReturn(List.of(overlapping, rateProfile));
 
         AppException exception = assertThrows(
