@@ -69,6 +69,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -1438,16 +1439,27 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     validateFutureDates(checkIn, checkOut);
     LocalDateTime now = LocalDateTime.now();
     long hours = pricingService.billableHours(checkIn, checkOut);
- 
-    return roomTypeRepository.findAll().stream().map(rt -> {
-        int total     = roomTypeRepository.countAvailableRoomsByType(rt.getId());
-        int booked    = reservationRoomTypeRepository.countBookedQuantity(rt.getId(), checkIn, checkOut);
-        int held      = roomHoldRepository.countActiveHeldQuantity(rt.getId(), checkIn, checkOut, now);
+
+    List<RoomType> roomTypes = roomTypeRepository.findAll();
+    Map<Long, Integer> totalByRoomType = quantityByRoomType(
+            roomTypeRepository.countAvailableRoomsGroupedByType());
+    Map<Long, Integer> bookedByRoomType = quantityByRoomType(
+            reservationRoomTypeRepository
+                    .countBookedQuantitiesGroupedByType(checkIn, checkOut));
+    Map<Long, Integer> heldByRoomType = quantityByRoomType(
+            roomHoldRepository.countActiveHeldQuantitiesGroupedByType(
+                    checkIn, checkOut, now));
+    Map<Long, AvailabilityPricingService.Estimate> estimatesByRoomType =
+            availabilityPricingService.estimateAll(
+                    roomTypes, checkIn, checkOut);
+
+    return roomTypes.stream().map(rt -> {
+        int total = totalByRoomType.getOrDefault(rt.getId(), 0);
+        int booked = bookedByRoomType.getOrDefault(rt.getId(), 0);
+        int held = heldByRoomType.getOrDefault(rt.getId(), 0);
         int available = Math.max(0, total - booked - held);
         AvailabilityPricingService.Estimate pricingEstimate =
-                availabilityPricingService
-                        .estimate(rt, checkIn, checkOut)
-                        .orElse(null);
+                estimatesByRoomType.get(rt.getId());
  
         return AvailabilityResponse.builder()
                 .roomTypeId(rt.getId())
@@ -1484,6 +1496,20 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .build();
     }).toList();
 }
+
+    private Map<Long, Integer> quantityByRoomType(
+            List<RoomTypeQuantityProjection> rows) {
+        Map<Long, Integer> quantities = new HashMap<>();
+        for (RoomTypeQuantityProjection row : rows) {
+            if (row.getRoomTypeId() == null || row.getQuantity() == null) {
+                continue;
+            }
+            quantities.put(
+                    row.getRoomTypeId(),
+                    Math.toIntExact(row.getQuantity()));
+        }
+        return quantities;
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)

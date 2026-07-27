@@ -71,6 +71,20 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, Long> {
             AND r.decommissionedAt IS NULL
     """)
     int countAvailableRoomsByType(@Param("roomTypeId") Long roomTypeId);
+
+    /**
+     * Batch variant for the public availability screen. A missing room type
+     * in the result means zero sellable rooms.
+     */
+    @Query("""
+        SELECT r.roomType.id AS roomTypeId, COUNT(r) AS quantity
+        FROM Room r
+        WHERE r.status != 'MAINTENANCE'
+          AND r.sellable = true
+          AND r.decommissionedAt IS NULL
+        GROUP BY r.roomType.id
+    """)
+    List<RoomTypeQuantityProjection> countAvailableRoomsGroupedByType();
  
     // Lấy tất cả room type còn phòng trống trong khoảng ngày
     @Query("""

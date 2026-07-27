@@ -18,9 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Read-only room-price preview for availability results.
@@ -55,6 +59,64 @@ public class AvailabilityPricingService {
             throw new AppException(ErrorCode.PRICE_CHANGED);
         }
 
+        return Optional.of(calculateEstimate(
+                rateProfile, checkIn, checkOut));
+    }
+
+    /**
+     * Calculates every supported room type with one effective-rate query.
+     * The same validation and pricing engine as {@link #estimate} are used,
+     * so this only changes database access shape, not pricing behaviour.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, Estimate> estimateAll(
+            Collection<RoomType> roomTypes,
+            LocalDateTime checkIn,
+            LocalDateTime checkOut) {
+        if (roomTypes == null || roomTypes.isEmpty()) {
+            return Map.of();
+        }
+
+        List<RoomType> supportedRoomTypes = roomTypes.stream()
+                .filter(roomType -> properties.supportsRoomType(
+                        roomType.getCode()))
+                .toList();
+        if (supportedRoomTypes.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> roomTypeIds = supportedRoomTypes.stream()
+                .map(RoomType::getId)
+                .toList();
+        Map<Long, List<RoomRateProfile>> ratesByRoomType =
+                rateProfileRepository.findEffectiveByRoomTypeIds(
+                                roomTypeIds, Instant.now())
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                rate -> rate.getRoomType().getId()));
+
+        Map<Long, Estimate> estimates = new LinkedHashMap<>();
+        for (RoomType roomType : supportedRoomTypes) {
+            RoomRateProfile rateProfile = requireSingleEffectiveRate(
+                    roomType,
+                    ratesByRoomType.getOrDefault(
+                            roomType.getId(), List.of()));
+            if (!Objects.equals(
+                    roomType.getId(),
+                    rateProfile.getRoomType().getId())) {
+                throw new AppException(ErrorCode.PRICE_CHANGED);
+            }
+            estimates.put(
+                    roomType.getId(),
+                    calculateEstimate(rateProfile, checkIn, checkOut));
+        }
+        return estimates;
+    }
+
+    private Estimate calculateEstimate(
+            RoomRateProfile rateProfile,
+            LocalDateTime checkIn,
+            LocalDateTime checkOut) {
         PricingBreakdown breakdown;
         try {
             breakdown = pricingEngine.calculate(
@@ -66,11 +128,11 @@ public class AvailabilityPricingService {
             throw new AppException(
                     ErrorCode.INVALID_REQUEST, exception.getMessage());
         }
-        return Optional.of(new Estimate(
+        return new Estimate(
                 rateProfile.getFirstBlockMinutes(),
                 rateProfile.getFirstBlockPrice(),
                 breakdown.roomChargePerRoom(),
-                breakdown.appliedPackage()));
+                breakdown.appliedPackage());
     }
 
     private RoomRateProfile requireSingleEffectiveRate(
