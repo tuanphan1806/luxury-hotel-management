@@ -56,7 +56,8 @@ class WalkInPricingServiceTest {
                 new MotelPackagePricingEngine(),
                 new PricingDefinitionFactory(),
                 new PricingQuoteAggregates(),
-                rateProfileRepository);
+                rateProfileRepository,
+                new StayWindowValidationService(properties));
 
         policy = StayPolicyVersion.builder()
                 .id(11L)

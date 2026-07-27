@@ -54,6 +54,7 @@ import com.hotel.backend.service.AvailabilityPricingService;
 import com.hotel.backend.service.CustomerProfileClaimService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundRecipientService;
+import com.hotel.backend.service.StayWindowValidationService;
 import com.hotel.backend.util.PaymentUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -107,6 +108,7 @@ public class ReservationServiceImpl implements ReservationService {
     private final PricingV2LifecycleService pricingV2LifecycleService;
     private final WalkInPricingService walkInPricingService;
     private final AvailabilityPricingService availabilityPricingService;
+    private final StayWindowValidationService stayWindowValidationService;
 
     @Value("${app.reservation.no-show-grace-minutes:360}")
     private long noShowGraceMinutes;
@@ -1890,6 +1892,11 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     ErrorCode.RESERVATION_INVALID_DATE,
                     "Thời gian trả phòng mới phải sau thời gian hiện tại và sau mốc đã đặt");
         }
+        stayWindowValidationService.validate(
+                reservation.getActualCheckIn() != null
+                        ? reservation.getActualCheckIn()
+                        : reservation.getCheckIn(),
+                newCheckOut);
         ensureNoPendingSettlementPayment(reservationId);
 
         PricingV2LifecycleService.Projection preview =
@@ -2349,9 +2356,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     }
 
     private void validateInterval(LocalDateTime checkIn, LocalDateTime checkOut) {
-    if (checkIn == null || checkOut == null || !checkOut.isAfter(checkIn)) {
-        throw new AppException(ErrorCode.RESERVATION_INVALID_DATE);
-    }
+        stayWindowValidationService.validate(checkIn, checkOut);
 }
 
     private void validateFutureDates(LocalDateTime checkIn, LocalDateTime checkOut) {

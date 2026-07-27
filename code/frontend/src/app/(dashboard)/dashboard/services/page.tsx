@@ -64,7 +64,7 @@ const categories: AddOnServiceCategory[] = [
 
 const pricingUnits: AddOnPricingUnit[] = [
   "PER_GUEST",
-  "PER_NIGHT",
+  "PER_PACKAGE_CYCLE",
   "PER_ITEM",
   "PER_ORDER",
   "PER_USE",
@@ -98,7 +98,8 @@ export default function DashboardServicesPage() {
 
   const unitLabel = (value: AddOnPricingUnit) => ({
     PER_GUEST: localize("Theo người", "Per guest"),
-    PER_NIGHT: localize("Theo món / đêm", "Per item / night"),
+    PER_PACKAGE_CYCLE: localize("Theo số lượng / chu kỳ lưu trú", "Per item / stay cycle"),
+    PER_NIGHT: localize("Theo số lượng / chu kỳ lưu trú", "Per item / stay cycle"),
     PER_ITEM: localize("Theo món", "Per item"),
     PER_ORDER: localize("Theo đơn", "Per order"),
     PER_USE: localize("Theo lần", "Per use"),

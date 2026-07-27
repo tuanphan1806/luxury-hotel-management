@@ -11,6 +11,7 @@ import { getPublicFacilities, getPublicGalleries, getPublicRoomTypes } from "@/l
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import FacilityDetailModal, { type FacilityDetailItem } from "@/components/guest/FacilityDetailModal";
 import { RoomRateCompact, type PublicRoomRate } from "@/components/guest/RoomRateDisplay";
+import { isStayWithinMaximum, MAX_STAY_DAYS } from "@/lib/stay-window";
 
 type FacilityItem = FacilityDetailItem;
 
@@ -189,6 +190,17 @@ export default function HomePage() {
 
     if (checkOutDate <= checkInDate) {
       setToast({ message: localize("Thời gian trả phòng phải sau thời gian nhận phòng.", "Check-out must be after check-in."), type: "error" });
+      return;
+    }
+
+    if (!isStayWithinMaximum(checkInDate, checkOutDate)) {
+      setToast({
+        message: localize(
+          `Một đơn chỉ hỗ trợ tối đa ${MAX_STAY_DAYS} ngày. Vui lòng chia kỳ lưu trú hoặc liên hệ khách sạn.`,
+          `A booking supports up to ${MAX_STAY_DAYS} days. Split the stay or contact the hotel.`,
+        ),
+        type: "error",
+      });
       return;
     }
 

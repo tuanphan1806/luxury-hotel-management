@@ -203,12 +203,12 @@ public class DataSeeder implements CommandLineRunner {
                 "EXTRA_ROLLAWAY_BED",
                 "Giường phụ",
                 "Rollaway bed",
-                "Giường xếp khách sạn kèm chăn, ga và gối cho mỗi đêm lưu trú.",
-                "Hotel rollaway bed with linens and pillow for each night of the stay.",
+                "Giường xếp khách sạn kèm chăn, ga và gối; phí tính theo từng chu kỳ giá của kỳ lưu trú.",
+                "Hotel rollaway bed with linens and pillow, charged for each stay-pricing cycle.",
                 "/add_on_services/extra-rollaway-bed.webp",
                 AddOnServiceCategory.AMENITY,
                 new BigDecimal("200000"),
-                AddOnPricingUnit.PER_NIGHT,
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
                 true,
                 true,
                 20);
@@ -216,12 +216,12 @@ public class DataSeeder implements CommandLineRunner {
                 "MINI_PROJECTOR",
                 "Máy chiếu mini",
                 "Mini projector",
-                "Máy chiếu nhỏ gọn dùng trong phòng, tính phí theo thiết bị và đêm sử dụng.",
-                "Compact in-room projector, charged per device and night of use.",
+                "Máy chiếu nhỏ gọn dùng trong phòng, tính phí theo thiết bị và từng chu kỳ giá của kỳ lưu trú.",
+                "Compact in-room projector, charged per device and stay-pricing cycle.",
                 "/add_on_services/mini-projector.webp",
                 AddOnServiceCategory.EQUIPMENT,
                 new BigDecimal("100000"),
-                AddOnPricingUnit.PER_NIGHT,
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
                 true,
                 true,
                 30);
@@ -470,11 +470,13 @@ public class DataSeeder implements CommandLineRunner {
                                     .overnightStartTime(LocalTime.of(20, 0))
                                     .overnightEarlyMorningEnd(
                                             LocalTime.of(8, 0))
+                                    .earlyMorningOvernightMinimumMinutes(120)
                                     .overnightHardCheckoutTime(LocalTime.NOON)
                                     .overnightMaximumMinutes(720)
                                     .dailyThresholdMinutes(1200)
                                     .dailyDurationMinutes(1440)
                                     .turnoverBufferMinutes(30)
+                                    .remainderCycleStartsAtBoundary(true)
                                     .inventoryProtectionMode(
                                             InventoryProtectionMode
                                                     .PACKAGE_ENTITLEMENT)

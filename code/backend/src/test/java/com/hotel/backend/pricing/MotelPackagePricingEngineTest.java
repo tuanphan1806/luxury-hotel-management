@@ -118,6 +118,31 @@ class MotelPackagePricingEngineTest {
         assertMoney("190000", calculate(
                 standard(), checkIn, at(2026, 8, 2, 10, 16))
                 .roomChargePerRoom());
+        assertMoney("190000", calculate(
+                standard(), checkIn, at(2026, 8, 2, 11, 15))
+                .roomChargePerRoom());
+        assertMoney("210000", calculate(
+                standard(), checkIn, at(2026, 8, 2, 11, 16))
+                .roomChargePerRoom());
+        assertMoney("210000", calculate(
+                standard(), checkIn, at(2026, 8, 2, 12, 0))
+                .roomChargePerRoom());
+    }
+
+    @Test
+    void overnightGraceRoundsAnyPartialMinuteUpConsistently() {
+        LocalDateTime checkIn = at(2026, 8, 1, 22, 0);
+
+        assertMoney("190000", calculate(
+                standard(),
+                checkIn,
+                at(2026, 8, 2, 10, 15).plusNanos(1))
+                .roomChargePerRoom());
+        assertMoney("190000", calculate(
+                standard(),
+                at(2026, 8, 1, 19, 45).minusNanos(1),
+                at(2026, 8, 2, 5, 0))
+                .roomChargePerRoom());
     }
 
     @Test
@@ -152,6 +177,23 @@ class MotelPackagePricingEngineTest {
         assertMoney("600000", calculate(
                 standard(), checkIn, checkIn.plusHours(48))
                 .roomChargePerRoom());
+    }
+
+    @Test
+    void chargeableDailyRemainderStartsAtTheExactDailyBoundary() {
+        LocalDateTime checkIn = at(2026, 8, 1, 12, 0);
+
+        PricingBreakdown firstRemainderBlock = calculate(
+                standard(), checkIn, checkIn.plusHours(24).plusMinutes(16));
+        PricingBreakdown extraRemainderHour = calculate(
+                standard(), checkIn, checkIn.plusHours(26).plusMinutes(16));
+
+        assertEquals(checkIn.plusHours(24),
+                firstRemainderBlock.cycles().get(1).billableStart());
+        assertEquals(checkIn.plusHours(26),
+                firstRemainderBlock.cycles().get(1).packageIncludedCheckout());
+        assertMoney("370000", firstRemainderBlock.roomChargePerRoom());
+        assertMoney("390000", extraRemainderHour.roomChargePerRoom());
     }
 
     @Test
@@ -285,6 +327,66 @@ class MotelPackagePricingEngineTest {
     }
 
     @Test
+    void shortEarlyMorningStayRemainsHourlyUntilMinimumOvernightDuration() {
+        LocalDateTime checkIn = at(2026, 8, 2, 7, 59);
+
+        PricingBreakdown elevenMinutes = calculate(
+                standard(), checkIn, at(2026, 8, 2, 8, 10));
+        PricingBreakdown oneHundredNineteenMinutes = calculate(
+                standard(), checkIn, checkIn.plusMinutes(119));
+        PricingBreakdown twoHours = calculate(
+                standard(), checkIn, checkIn.plusMinutes(120));
+
+        assertEquals(StayPackage.HOURLY, elevenMinutes.appliedPackage());
+        assertEquals(StayPackage.HOURLY, oneHundredNineteenMinutes.appliedPackage());
+        assertEquals(StayPackage.OVERNIGHT, twoHours.appliedPackage());
+        assertMoney("70000", elevenMinutes.roomChargePerRoom());
+        assertMoney("70000", oneHundredNineteenMinutes.roomChargePerRoom());
+        assertMoney("170000", twoHours.roomChargePerRoom());
+    }
+
+    @Test
+    void historicalPolicyFlagsReproduceThePreV21Boundaries() {
+        StayPolicyDefinition historicalPolicy = new StayPolicyDefinition(
+                15,
+                LocalTime.of(20, 0),
+                LocalTime.of(8, 0),
+                0,
+                LocalTime.NOON,
+                720,
+                1200,
+                1440,
+                30,
+                false,
+                InventoryProtectionMode.PACKAGE_ENTITLEMENT);
+        LocalDateTime dailyStart = at(2026, 8, 1, 12, 0);
+
+        PricingBreakdown historicalRemainder = engine.calculate(
+                new PricingRequest(
+                        dailyStart,
+                        dailyStart.plusHours(24).plusMinutes(16),
+                        1,
+                        1),
+                standard(),
+                historicalPolicy);
+        PricingBreakdown historicalEarlyMorning = engine.calculate(
+                new PricingRequest(
+                        at(2026, 8, 2, 7, 59),
+                        at(2026, 8, 2, 8, 10),
+                        1,
+                        1),
+                standard(),
+                historicalPolicy);
+
+        assertEquals(
+                dailyStart.plusHours(24).plusMinutes(15),
+                historicalRemainder.cycles().get(1).billableStart());
+        assertEquals(
+                StayPackage.OVERNIGHT,
+                historicalEarlyMorning.appliedPackage());
+    }
+
+    @Test
     void roomQuantityAndGuestCapacityAreCalculatedPerLine() {
         LocalDateTime checkIn = at(2026, 8, 1, 8, 0);
         PricingBreakdown result = engine.calculate(
@@ -374,11 +476,13 @@ class MotelPackagePricingEngineTest {
                 15,
                 LocalTime.of(20, 0),
                 LocalTime.of(8, 0),
+                120,
                 LocalTime.NOON,
                 720,
                 1200,
                 1440,
                 30,
+                true,
                 InventoryProtectionMode.PACKAGE_ENTITLEMENT);
     }
 

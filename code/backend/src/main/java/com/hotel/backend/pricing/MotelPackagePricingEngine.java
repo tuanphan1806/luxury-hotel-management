@@ -61,11 +61,14 @@ public final class MotelPackagePricingEngine implements PricingEngine {
                     rate,
                     policy));
         } else if (remainderMinutes > policy.graceMinutes()) {
-            int waivedBoundaryGrace = policy.graceMinutes();
             LocalDateTime billableRemainderStart =
-                    cycleStart.plusMinutes(waivedBoundaryGrace);
+                    policy.remainderCycleStartsAtBoundary()
+                            ? cycleStart
+                            : cycleStart.plusMinutes(policy.graceMinutes());
             long billableRemainderMinutes =
-                    remainderMinutes - (long) waivedBoundaryGrace;
+                    policy.remainderCycleStartsAtBoundary()
+                            ? remainderMinutes
+                            : remainderMinutes - (long) policy.graceMinutes();
             cycles.add(calculateSingleCycle(
                     cycles.size() + 1,
                     billableRemainderStart,
@@ -140,7 +143,8 @@ public final class MotelPackagePricingEngine implements PricingEngine {
                     0);
         }
 
-        if (usesOvernightWindow(billableStart, plannedSegmentEnd, policy)) {
+        if (usesOvernightWindow(
+                billableStart, plannedSegmentEnd, billableMinutes, policy)) {
             return overnightCycle(
                     sequence,
                     billableStart,
@@ -223,7 +227,7 @@ public final class MotelPackagePricingEngine implements PricingEngine {
 
         long earlyMinutes = start.isBefore(nominalStart)
                 ? Math.max(
-                        Duration.between(start, nominalStart).toMinutes()
+                        ceilingMinutes(start, nominalStart)
                                 - policy.graceMinutes(),
                         0)
                 : 0;
@@ -231,7 +235,7 @@ public final class MotelPackagePricingEngine implements PricingEngine {
 
         long lateMinutes = end.isAfter(includedCheckout)
                 ? Math.max(
-                        Duration.between(includedCheckout, end).toMinutes()
+                        ceilingMinutes(includedCheckout, end)
                                 - policy.graceMinutes(),
                         0)
                 : 0;
@@ -294,7 +298,7 @@ public final class MotelPackagePricingEngine implements PricingEngine {
         if (actualMinutes > policy.dailyDurationMinutes()) {
             return StayClassification.MULTI_DAY;
         }
-        if (usesOvernightWindow(checkIn, checkOut, policy)) {
+        if (usesOvernightWindow(checkIn, checkOut, actualMinutes, policy)) {
             return StayClassification.NIGHT_STAY;
         }
         return StayClassification.DAY_STAY;
@@ -303,11 +307,14 @@ public final class MotelPackagePricingEngine implements PricingEngine {
     private boolean usesOvernightWindow(
             LocalDateTime start,
             LocalDateTime end,
+            long durationMinutes,
             StayPolicyDefinition policy) {
         boolean crossesMidnight =
                 end.toLocalDate().isAfter(start.toLocalDate());
         boolean earlyMorningArrival =
-                start.toLocalTime().isBefore(policy.overnightEarlyMorningEnd());
+                start.toLocalTime().isBefore(policy.overnightEarlyMorningEnd())
+                        && durationMinutes
+                        >= policy.earlyMorningOvernightMinimumMinutes();
         return crossesMidnight || earlyMorningArrival;
     }
 

@@ -15,11 +15,13 @@ public record StayPolicyDefinition(
         int graceMinutes,
         LocalTime overnightStartTime,
         LocalTime overnightEarlyMorningEnd,
+        int earlyMorningOvernightMinimumMinutes,
         LocalTime overnightHardCheckoutTime,
         int overnightMaximumMinutes,
         int dailyThresholdMinutes,
         int dailyDurationMinutes,
         int turnoverBufferMinutes,
+        boolean remainderCycleStartsAtBoundary,
         InventoryProtectionMode inventoryProtectionMode) {
 
     public StayPolicyDefinition {
@@ -31,6 +33,11 @@ public record StayPolicyDefinition(
         overnightEarlyMorningEnd =
                 Objects.requireNonNull(
                         overnightEarlyMorningEnd, "overnightEarlyMorningEnd");
+        if (earlyMorningOvernightMinimumMinutes < 0
+                || earlyMorningOvernightMinimumMinutes > dailyDurationMinutes) {
+            throw new IllegalArgumentException(
+                    "earlyMorningOvernightMinimumMinutes must be between 0 and dailyDurationMinutes");
+        }
         overnightHardCheckoutTime =
                 Objects.requireNonNull(
                         overnightHardCheckoutTime, "overnightHardCheckoutTime");

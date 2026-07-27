@@ -88,6 +88,23 @@ class AddOnServiceCatalogServiceTest {
         assertThrows(AppException.class, () -> service.create(request));
     }
 
+    @Test
+    void createRejectsLegacyPerNightUnitForNewCatalogEntries() {
+        when(repository.existsByCodeIgnoreCase(anyString())).thenReturn(false);
+        AddOnServiceRequest request = AddOnServiceRequest.builder()
+                .code("LEGACY_UNIT")
+                .name("Đơn vị cũ")
+                .category(AddOnServiceCategory.AMENITY)
+                .price(new BigDecimal("200000"))
+                .pricingUnit(AddOnPricingUnit.PER_NIGHT)
+                .build();
+
+        AppException exception = assertThrows(
+                AppException.class, () -> service.create(request));
+
+        assertThat(exception).hasMessageContaining("PER_PACKAGE_CYCLE");
+    }
+
     private AddOnService catalog(
             Long id,
             String code,

@@ -15,6 +15,7 @@ import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 import { RoomRateCompact } from "@/components/guest/RoomRateDisplay";
+import { isStayWithinMaximum, MAX_STAY_DAYS } from "@/lib/stay-window";
 
 type ReservationRoomOption = ReservationRoomQuickViewItem;
 
@@ -133,6 +134,7 @@ export default function ReservationPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isFormReady, setIsFormReady] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [loadedAvailabilityKey, setLoadedAvailabilityKey] = useState("");
   const [preferredRoomTypeId, setPreferredRoomTypeId] = useState<number | null>(null);
   const [previewRoom, setPreviewRoom] = useState<ReservationRoomOption | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -177,6 +179,10 @@ export default function ReservationPage() {
   }, []);
 
   const totalGuests = useMemo(() => Number(adults || 0) + Number(childrenCount || 0), [adults, childrenCount]);
+  const currentAvailabilityKey = useMemo(
+    () => `${checkIn}|${checkOut}|${totalGuests}`,
+    [checkIn, checkOut, totalGuests],
+  );
   const selectedRoomBreakdown = useMemo(
     () => rooms
       .map((room) => ({ room, quantity: selectedRooms[room.id] || 0 }))
@@ -204,12 +210,17 @@ export default function ReservationPage() {
     [selectedRoomBreakdown],
   );
   const hasEnoughGuestCapacity = selectedGuestCapacity >= totalGuests;
+  const hasCurrentAvailability = !isLoading
+    && loadedAvailabilityKey !== ""
+    && loadedAvailabilityKey === currentAvailabilityKey;
   const canAutoCheckAvailability = useMemo(() => {
     if (!checkIn || !checkOut || totalGuests < 1) return false;
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
     if (Number.isNaN(checkInDate.getTime()) || Number.isNaN(checkOutDate.getTime())) return false;
-    return checkInDate > new Date() && checkOutDate > checkInDate;
+    return checkInDate > new Date()
+      && checkOutDate > checkInDate
+      && isStayWithinMaximum(checkInDate, checkOutDate);
   }, [checkIn, checkOut, totalGuests]);
 
   useEffect(() => {
@@ -227,6 +238,7 @@ export default function ReservationPage() {
     if (!canAutoCheckAvailability) {
       setIsLoading(false);
       setHasSearched(false);
+      setLoadedAvailabilityKey("");
       setRooms([]);
       setSelectedRooms({});
       setPreviewRoom(null);
@@ -235,7 +247,12 @@ export default function ReservationPage() {
 
     setHasSearched(true);
     setIsLoading(true);
+    setLoadedAvailabilityKey("");
+    setRooms([]);
+    setSelectedRooms({});
+    setPreviewRoom(null);
     setToast(null);
+    const requestKey = currentAvailabilityKey;
     autoSearchTimerRef.current = window.setTimeout(() => {
       autoSearchTimerRef.current = null;
       const controller = new AbortController();
@@ -248,6 +265,7 @@ export default function ReservationPage() {
         .then((availableOptions) => {
           if (availabilityRequestRef.current !== requestId) return;
           setRooms(availableOptions);
+          setLoadedAvailabilityKey(requestKey);
           setPreviewRoom(null);
           if (preferredRoomTypeId) {
             const preferred = availableOptions.find((room) => room.id === preferredRoomTypeId);
@@ -263,6 +281,10 @@ export default function ReservationPage() {
         .catch((error: unknown) => {
           if (axios.isCancel(error)) return;
           if (availabilityRequestRef.current === requestId) {
+            setLoadedAvailabilityKey("");
+            setRooms([]);
+            setSelectedRooms({});
+            setPreviewRoom(null);
             setToast({
               message: localize("Không thể tự động kiểm tra phòng trống. Vui lòng thử lại.", "Could not check availability automatically. Please try again."),
               type: "error",
@@ -285,7 +307,15 @@ export default function ReservationPage() {
       availabilityAbortControllerRef.current?.abort();
       availabilityAbortControllerRef.current = null;
     };
-  }, [canAutoCheckAvailability, checkIn, checkOut, isFormReady, localize, preferredRoomTypeId]);
+  }, [
+    canAutoCheckAvailability,
+    checkIn,
+    checkOut,
+    currentAvailabilityKey,
+    isFormReady,
+    localize,
+    preferredRoomTypeId,
+  ]);
 
   const validateDates = () => {
     if (!checkIn || !checkOut) {
@@ -304,6 +334,17 @@ export default function ReservationPage() {
 
     if (checkOutDate <= checkInDate) {
       setToast({ message: localize("Thời gian trả phòng phải sau thời gian nhận phòng.", "Check-out must be after check-in."), type: "error" });
+      return false;
+    }
+
+    if (!isStayWithinMaximum(checkInDate, checkOutDate)) {
+      setToast({
+        message: localize(
+          `Một đơn chỉ hỗ trợ tối đa ${MAX_STAY_DAYS} ngày. Vui lòng chia kỳ lưu trú hoặc liên hệ khách sạn.`,
+          `A booking supports up to ${MAX_STAY_DAYS} days. Split the stay or contact the hotel.`,
+        ),
+        type: "error",
+      });
       return false;
     }
 
@@ -331,7 +372,12 @@ export default function ReservationPage() {
 
     setIsLoading(true);
     setHasSearched(true);
+    setLoadedAvailabilityKey("");
+    setRooms([]);
+    setSelectedRooms({});
+    setPreviewRoom(null);
     setToast(null);
+    const requestKey = currentAvailabilityKey;
 
     try {
       const checkInDateTime = `${checkIn}:00`;
@@ -343,6 +389,7 @@ export default function ReservationPage() {
       );
       if (availabilityRequestRef.current !== requestId) return;
       setRooms(availableOptions);
+      setLoadedAvailabilityKey(requestKey);
       setPreviewRoom(null);
       if (preferredRoomTypeId) {
         const preferred = availableOptions.find((room: ReservationRoomOption) => room.id === preferredRoomTypeId);
@@ -360,6 +407,10 @@ export default function ReservationPage() {
     } catch (error: unknown) {
       if (axios.isCancel(error)) return;
       if (availabilityRequestRef.current === requestId) {
+        setLoadedAvailabilityKey("");
+        setRooms([]);
+        setSelectedRooms({});
+        setPreviewRoom(null);
         setToast({ message: localize("Không thể kiểm tra phòng trống. Vui lòng thử lại.", "Could not check availability. Please try again."), type: "error" });
       }
     } finally {
@@ -382,6 +433,16 @@ export default function ReservationPage() {
 
   const continueBooking = () => {
     if (!validateDates()) return;
+    if (!hasCurrentAvailability) {
+      setToast({
+        message: localize(
+          "Vui lòng chờ hệ thống cập nhật phòng trống cho thời gian hiện tại.",
+          "Wait for availability to refresh for the current stay time.",
+        ),
+        type: "info",
+      });
+      return;
+    }
     const roomTypes = Object.entries(selectedRooms)
       .filter(([, quantity]) => quantity > 0)
       .map(([id, quantity]) => `${id}:${quantity}`)
@@ -505,7 +566,7 @@ export default function ReservationPage() {
           <p className="text-sm font-semibold text-[#66727C]">{totalGuests} {localize("khách", "guests")}</p>
         </div>
 
-        {isLoading ? (
+        {isLoading || (hasSearched && !hasCurrentAvailability) ? (
           <div className="motion-stagger grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2].map((item) => (
               <div key={item} className="overflow-hidden rounded-[2rem] bg-white shadow-sm">
@@ -583,6 +644,7 @@ export default function ReservationPage() {
                     <select
                       aria-label={localize(`Số phòng ${room.typeName}`, `Rooms for ${room.typeNameEn || room.typeName}`)}
                       value={selectedRooms[room.id] || 0}
+                      disabled={!hasCurrentAvailability}
                       onChange={(event) => updateQuantity(room, Number(event.target.value))}
                       className="h-10 w-20 rounded-xl border border-[#0F2A43]/10 bg-white px-3 text-center font-bold outline-none focus:border-[#B8944F]"
                     >
@@ -594,7 +656,7 @@ export default function ReservationPage() {
           </div>
         )}
 
-        {selectedRoomBreakdown.length > 0 && (
+        {hasCurrentAvailability && selectedRoomBreakdown.length > 0 && (
           <div className="sticky bottom-5 z-30 mt-10 flex flex-col items-center justify-between gap-4 rounded-[1.75rem] bg-[#0F2A43] px-6 py-5 text-white shadow-2xl md:flex-row">
             <div>
               <p className="text-sm font-semibold">

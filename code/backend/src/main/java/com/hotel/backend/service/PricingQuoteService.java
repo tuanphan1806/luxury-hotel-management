@@ -39,6 +39,7 @@ public class PricingQuoteService {
     private final PricingQuoteRequestNormalizer requestNormalizer;
     private final PricingQuoteAggregates aggregates;
     private final ObjectMapper objectMapper;
+    private final StayWindowValidationService stayWindowValidationService;
 
     @Transactional
     public PricingQuoteResponse createQuote(PricingQuoteRequest request) {
@@ -51,22 +52,43 @@ public class PricingQuoteService {
         List<PricingQuoteRoomRequest> sortedRooms = request.getRooms().stream()
                 .sorted(Comparator.comparing(PricingQuoteRoomRequest::getRoomTypeId))
                 .toList();
+        List<Long> roomTypeIds = sortedRooms.stream()
+                .map(PricingQuoteRoomRequest::getRoomTypeId)
+                .toList();
+        Map<Long, RoomType> roomTypesById = roomTypeRepository
+                .findAllById(roomTypeIds)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        RoomType::getId,
+                        roomType -> roomType));
+        for (PricingQuoteRoomRequest roomRequest : sortedRooms) {
+            RoomType roomType = roomTypesById.get(roomRequest.getRoomTypeId());
+            if (roomType == null) {
+                throw new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND);
+            }
+            if (!properties.supportsRoomType(roomType.getCode())) {
+                throw new AppException(
+                        ErrorCode.PRICING_ENGINE_DISABLED,
+                        "Bảng giá mới chưa được mở cho hạng phòng "
+                                + roomType.getTypeName());
+            }
+        }
+        Map<Long, List<RoomRateProfile>> ratesByRoomType =
+                rateProfileRepository.findEffectiveByRoomTypeIds(
+                                roomTypeIds, now)
+                        .stream()
+                        .collect(java.util.stream.Collectors.groupingBy(
+                                rate -> rate.getRoomType().getId()));
 
         List<QuoteLineCalculation> calculatedLines = new ArrayList<>();
         StayPolicyVersion commonPolicy = null;
         for (PricingQuoteRoomRequest roomRequest : sortedRooms) {
-            RoomType roomType = roomTypeRepository.findById(roomRequest.getRoomTypeId())
-                    .orElseThrow(() -> new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND));
-            if (!properties.supportsRoomType(roomType.getCode())) {
-                throw new AppException(
-                        ErrorCode.PRICING_ENGINE_DISABLED,
-                        "Bảng giá mới chưa được mở cho hạng phòng " + roomType.getTypeName());
-            }
+            RoomType roomType = roomTypesById.get(roomRequest.getRoomTypeId());
 
             RoomRateProfile rateProfile = requireSingleEffectiveRate(
                     roomType,
-                    rateProfileRepository.findEffectiveByRoomTypeCode(
-                            roomType.getCode(), now));
+                    ratesByRoomType.getOrDefault(
+                            roomType.getId(), List.of()));
             if (commonPolicy == null) {
                 commonPolicy = rateProfile.getStayPolicyVersion();
             } else if (!Objects.equals(
@@ -192,6 +214,8 @@ public class PricingQuoteService {
             throw new AppException(
                     ErrorCode.INVALID_REQUEST, "Thông tin báo giá không hợp lệ");
         }
+        stayWindowValidationService.validate(
+                request.getCheckIn(), request.getCheckOut());
         ensureUniqueRoomTypes(request.getRooms());
         validateServiceItems(request.getServices());
         int lineGuestTotal = request.getRooms().stream()

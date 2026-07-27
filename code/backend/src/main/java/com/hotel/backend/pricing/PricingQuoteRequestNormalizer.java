@@ -42,7 +42,6 @@ public class PricingQuoteRequestNormalizer {
                     Map<String, Object> value = new LinkedHashMap<>();
                     value.put("serviceId", service.getServiceId());
                     value.put("quantity", service.getQuantity());
-                    value.put("notes", service.getNotes());
                     return value;
                 })
                 .toList());

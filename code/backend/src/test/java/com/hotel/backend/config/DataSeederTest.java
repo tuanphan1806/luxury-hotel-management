@@ -1,5 +1,6 @@
 package com.hotel.backend.config;
 
+import com.hotel.backend.constant.AddOnPricingUnit;
 import com.hotel.backend.entity.AddOnService;
 import com.hotel.backend.entity.RoomRateProfile;
 import com.hotel.backend.entity.RoomType;
@@ -77,6 +78,12 @@ class DataSeederTest {
                 .extracting(AddOnService::getImageUrl)
                 .allMatch(url -> url.startsWith(
                         "https://res.cloudinary.com/demo/image/upload/hotel-media/static/add_on_services/"));
+        assertThat(services.stream()
+                .filter(item -> List.of(
+                        "EXTRA_ROLLAWAY_BED",
+                        "MINI_PROJECTOR").contains(item.getCode()))
+                .map(AddOnService::getPricingUnit))
+                .containsOnly(AddOnPricingUnit.PER_PACKAGE_CYCLE);
 
         verify(facilityRepository, never()).findAll();
         verify(roomTypeRepository, never()).findAll();

@@ -1,7 +1,13 @@
 import { publicApiClient } from "@/lib/api";
 
 export type AddOnServiceFlow = "BOOKING_TIME" | "IN_STAY";
-export type AddOnPricingUnit = "PER_GUEST" | "PER_NIGHT" | "PER_ITEM" | "PER_ORDER" | "PER_USE";
+export type AddOnPricingUnit =
+  | "PER_GUEST"
+  | "PER_PACKAGE_CYCLE"
+  | "PER_NIGHT"
+  | "PER_ITEM"
+  | "PER_ORDER"
+  | "PER_USE";
 export type AddOnServiceCategory = "FOOD_BEVERAGE" | "AMENITY" | "EQUIPMENT" | "DECORATION" | "OTHER";
 export type ReservationServiceOrigin = "BOOKING_TIME" | "IN_STAY";
 export type ReservationServiceStatus = "REQUESTED" | "CONFIRMED" | "FULFILLED" | "CANCELLED";
@@ -84,8 +90,8 @@ const wallClockMilliseconds = (value: string) => {
  * Display estimator for Pricing V2 package cycles.
  *
  * The backend quote remains authoritative. This mirrors its rolling 24-hour
- * boundary and 15-minute grace so PER_NIGHT service previews do not charge a
- * second cycle at 24h15. Local date-times are parsed as hotel wall-clock
+ * boundary and 15-minute grace so package-cycle service previews do not charge
+ * a second cycle at 24h15. Local date-times are parsed as hotel wall-clock
  * values, avoiding browser timezone and DST shifts.
  */
 export const chargeableNights = (checkIn?: string, checkOut?: string) => {
@@ -119,7 +125,9 @@ export const calculateAddOnLineTotal = (
   nights: number,
 ) => {
   const quantity = normalizeSelectionQuantity(service, selection.quantity, guestCount);
-  const multiplier = service.pricingUnit === "PER_NIGHT" ? Math.max(1, nights) : 1;
+  const packageCycleUnit =
+    service.pricingUnit === "PER_PACKAGE_CYCLE" || service.pricingUnit === "PER_NIGHT";
+  const multiplier = packageCycleUnit ? Math.max(1, nights) : 1;
   return service.price * quantity * multiplier;
 };
 
@@ -128,7 +136,8 @@ export const pricingUnitLabel = (
   localize: (vi?: string | null, en?: string | null) => string,
 ) => ({
   PER_GUEST: localize("/ người", "/ guest"),
-  PER_NIGHT: localize("/ món / đêm", "/ item / night"),
+  PER_PACKAGE_CYCLE: localize("/ mục / chu kỳ lưu trú", "/ item / stay cycle"),
+  PER_NIGHT: localize("/ mục / chu kỳ lưu trú", "/ item / stay cycle"),
   PER_ITEM: localize("/ món", "/ item"),
   PER_ORDER: localize("/ đơn", "/ order"),
   PER_USE: localize("/ lần", "/ use"),

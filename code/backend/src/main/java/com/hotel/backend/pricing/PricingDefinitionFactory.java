@@ -33,11 +33,13 @@ public class PricingDefinitionFactory {
                 policy.getGraceMinutes(),
                 policy.getOvernightStartTime(),
                 policy.getOvernightEarlyMorningEnd(),
+                policy.getEarlyMorningOvernightMinimumMinutes(),
                 policy.getOvernightHardCheckoutTime(),
                 policy.getOvernightMaximumMinutes(),
                 policy.getDailyThresholdMinutes(),
                 policy.getDailyDurationMinutes(),
                 policy.getTurnoverBufferMinutes(),
+                Boolean.TRUE.equals(policy.getRemainderCycleStartsAtBoundary()),
                 policy.getInventoryProtectionMode());
     }
 }
