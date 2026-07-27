@@ -33,8 +33,8 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
         JOIN rrt.reservation r
         WHERE rrt.roomType.id = :roomTypeId
         AND r.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
-        AND r.checkIn  < :checkOut
-        AND r.checkOut > :checkIn
+        AND r.checkIn < :checkOut
+        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
     """)
     int countBookedQuantity(
         @Param("roomTypeId") Long roomTypeId,
@@ -50,8 +50,8 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
         WHERE rrt.roomType.id  = :roomTypeId
         AND r.id              != :excludeReservationId
         AND r.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
-        AND r.checkIn  < :checkOut
-        AND r.checkOut > :checkIn
+        AND r.checkIn < :checkOut
+        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
     """)
     int countBookedQuantityExcluding(
         @Param("roomTypeId")           Long roomTypeId,

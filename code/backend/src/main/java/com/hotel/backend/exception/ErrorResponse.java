@@ -13,6 +13,7 @@ import java.util.List;
  * Format:
  * {
  *   "success"   : false,
+ *   "code"      : 4004,
  *   "status"    : 404,
  *   "error"     : "Not Found",
  *   "message"   : "RoomType không tìm thấy với id: 99",
@@ -31,6 +32,8 @@ public class ErrorResponse {
 
     @Builder.Default
     private boolean success = false;
+    /** Stable application code for clients that need a specific recovery path. */
+    private Integer code;
     private int status;
     private String error;
     private String message;

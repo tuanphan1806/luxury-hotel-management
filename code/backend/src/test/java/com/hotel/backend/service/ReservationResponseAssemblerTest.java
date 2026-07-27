@@ -9,6 +9,7 @@ import com.hotel.backend.entity.ReservationRoomType;
 import com.hotel.backend.entity.Room;
 import com.hotel.backend.entity.RoomHold;
 import com.hotel.backend.entity.RoomType;
+import com.hotel.backend.repository.ReservationRoomTypeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,18 +33,32 @@ class ReservationResponseAssemblerTest {
     @Mock
     private ReservationAddOnService reservationAddOnService;
 
+    @Mock
+    private ReservationPricingReadService pricingReadService;
+
+    @Mock
+    private ReservationRoomTypeRepository
+            reservationRoomTypeRepository;
+
     private ReservationResponseAssembler assembler;
 
     @BeforeEach
     void setUp() {
         assembler = new ReservationResponseAssembler(
-                paymentRefundService, reservationAddOnService);
+                paymentRefundService,
+                reservationAddOnService,
+                pricingReadService,
+                reservationRoomTypeRepository);
     }
 
     @Test
     void preservesRoomHoldInDetailedReservationResponse() {
         when(reservationAddOnService.enrich(any(ReservationResponse.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(pricingReadService.enrich(
+                any(Reservation.class),
+                any(ReservationResponse.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         Reservation reservation = baseReservation();
         RoomType roomType = RoomType.builder()
                 .typeName("Deluxe")
@@ -60,6 +75,9 @@ class ReservationResponseAssemblerTest {
         item.setId(8L);
         item.setRoomHold(RoomHold.builder().reservationRoomType(item).build());
         reservation.setRoomTypes(new LinkedHashSet<>(List.of(item)));
+        when(reservationRoomTypeRepository
+                .findDetailsByReservationId(reservation.getId()))
+                .thenReturn(List.of(item));
         when(paymentRefundService.applyReservationRefundSummary(any(ReservationResponse.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 

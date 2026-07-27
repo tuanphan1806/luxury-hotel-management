@@ -2,9 +2,11 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
-import { apiClient, authSession, publicApiClient, type ApiErrorPayload } from "@/lib/api";
-import { saveGuestReservationToken } from "@/lib/guest-reservation-token";
-import { clearIdempotencyKey, getOrCreateIdempotencyKey } from "@/lib/idempotency";
+import { publicApiClient, type ApiErrorPayload } from "@/lib/api";
+import {
+  buildChatBookingUrl,
+  type ChatBookingPayload,
+} from "@/lib/chat-booking";
 
 /**
  * ChatWidget - Floating chatbot widget tích hợp API /api/chat
@@ -20,40 +22,10 @@ interface ChatMessage {
   timestamp: Date | null;
 }
 
-interface ChatReservationPayload {
-  checkIn: string;
-  checkOut: string;
-  guestCount?: number;
-  note?: string;
-  roomTypes: Array<{
-    roomTypeId: number;
-    quantity: number;
-  }>;
-}
-
 interface ChatApiResponse {
   answer?: string;
   action?: string;
-  payload?: ChatReservationPayload | { context?: string };
-}
-
-interface PendingPayment {
-  reservationId: number;
-  reservationCode: string;
-  guestToken?: string;
-}
-
-interface GuestCustomer {
-  fullName: string;
-  email: string;
-  phone: string;
-  address?: string;
-}
-
-interface GuestBookingDraft {
-  payload: ChatReservationPayload;
-  customer: Partial<GuestCustomer>;
-  step: "fullName" | "email" | "phone" | "address" | "confirm";
+  payload?: ChatBookingPayload | { context?: string };
 }
 
 const INITIAL_BOT_MESSAGE: ChatMessage = {
@@ -73,9 +45,7 @@ export default function ChatWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const [pendingReservationPayload, setPendingReservationPayload] =
-    useState<ChatReservationPayload | null>(null);
-  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
-  const [guestBookingDraft, setGuestBookingDraft] = useState<GuestBookingDraft | null>(null);
+    useState<ChatBookingPayload | null>(null);
   const [pendingChatContext, setPendingChatContext] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -133,9 +103,6 @@ export default function ChatWidget() {
     return ["huy", "khong", "cancel", "no"].includes(normalized);
   };
 
-  const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-  const isValidPhone = (value: string) => /^[0-9+][0-9\s.-]{7,14}$/.test(value);
-
   const getChatErrorMessage = (error: unknown) => {
     const status = axios.isAxiosError<ApiErrorPayload>(error) ? error.response?.status : undefined;
     const payload = axios.isAxiosError<ApiErrorPayload>(error) ? error.response?.data : undefined;
@@ -180,192 +147,21 @@ export default function ChatWidget() {
     setIsLoading(true);
 
     try {
-      if (pendingPayment && isReservationCancellation(trimmed)) {
-        const reservationClient = pendingPayment.guestToken ? publicApiClient : apiClient;
-        const operationScope = `reservation:${pendingPayment.reservationId}:CANCEL_CHAT`;
-        await reservationClient.patch(
-          `/api/reservations/cancel/${pendingPayment.reservationId}`,
-          { cancellationReason: "Khách hủy trong chatbot trước khi thanh toán" },
-          {
-            headers: {
-              "Idempotency-Key": getOrCreateIdempotencyKey(operationScope),
-              ...(pendingPayment.guestToken
-                ? { "X-Guest-Token": pendingPayment.guestToken }
-                : {}),
-            },
-          }
-        );
-        clearIdempotencyKey(operationScope);
-        setPendingPayment(null);
-        appendBotMessage(
-          `Đã hủy mã đặt phòng ${pendingPayment.reservationCode}. Trạng thái đã chuyển sang CANCELLED và phòng giữ đã được giải phóng.`
-        );
-        return;
-      }
-
-      if (pendingPayment && isReservationConfirmation(trimmed)) {
-        const paymentClient = pendingPayment.guestToken ? publicApiClient : apiClient;
-        const paymentResponse = await paymentClient.post(
-          "/api/payments/create",
-          {
-            bookingId: pendingPayment.reservationId,
-            provider: "SEPAY",
-            orderInfo: `Thanh toan dat phong ${pendingPayment.reservationCode}`,
-          },
-          {
-            headers: {
-              "Idempotency-Key": getOrCreateIdempotencyKey(
-                `payment:${pendingPayment.reservationId}:DEPOSIT`,
-              ),
-              ...(pendingPayment.guestToken
-                ? { "X-Guest-Token": pendingPayment.guestToken }
-                : {}),
-            },
-          }
-        );
-        const payment = paymentResponse.data?.data ?? paymentResponse.data;
-        const paymentUrl = payment?.paymentUrl || (payment?.transactionId
-          ? `/booking/payment-result?transactionId=${encodeURIComponent(payment.transactionId)}`
-          : "");
-        if (!paymentUrl) {
-          throw new Error("Backend không trả về trang thanh toán SePay VietQR");
-        }
-        setPendingPayment(null);
-        window.location.assign(paymentUrl);
-        return;
-      }
-
       if (pendingChatContext && isReservationCancellation(trimmed)) {
         setPendingChatContext(null);
         appendBotMessage("Mình đã hủy yêu cầu tư vấn đặt phòng đang nhập. Chưa có reservation nào được tạo.");
         return;
       }
 
-      if (guestBookingDraft && isReservationCancellation(trimmed)) {
-        setGuestBookingDraft(null);
-        clearIdempotencyKey("reservation:create:chat:guest");
-        appendBotMessage("Mình đã hủy việc thu thập thông tin đặt phòng. Chưa có reservation nào được tạo.");
-        return;
-      }
-
-      if (guestBookingDraft) {
-        const { payload, customer, step } = guestBookingDraft;
-
-        if (step === "fullName") {
-          if (trimmed.length < 2) {
-            appendBotMessage("Họ tên chưa hợp lệ. Bạn vui lòng nhập họ và tên của người đặt phòng.");
-            return;
-          }
-          setGuestBookingDraft({ payload, customer: { ...customer, fullName: trimmed }, step: "email" });
-          appendBotMessage("Bạn vui lòng nhập email để nhận link tra cứu booking và guest token.");
-          return;
-        }
-
-        if (step === "email") {
-          if (!isValidEmail(trimmed)) {
-            appendBotMessage("Email chưa đúng định dạng. Ví dụ: khachhang@example.com");
-            return;
-          }
-          setGuestBookingDraft({ payload, customer: { ...customer, email: trimmed }, step: "phone" });
-          appendBotMessage("Bạn vui lòng nhập số điện thoại liên hệ.");
-          return;
-        }
-
-        if (step === "phone") {
-          if (!isValidPhone(trimmed)) {
-            appendBotMessage("Số điện thoại chưa hợp lệ. Bạn vui lòng nhập lại, ví dụ 0901234567.");
-            return;
-          }
-          setGuestBookingDraft({ payload, customer: { ...customer, phone: trimmed }, step: "address" });
-          appendBotMessage('Bạn vui lòng nhập địa chỉ, hoặc nhắn "bỏ qua" nếu không muốn cung cấp.');
-          return;
-        }
-
-        if (step === "address") {
-          const address = normalizeMessage(trimmed) === "bo qua" ? undefined : trimmed;
-          const completeCustomer = { ...customer, address } as GuestCustomer;
-          setGuestBookingDraft({ payload, customer: completeCustomer, step: "confirm" });
-          appendBotMessage(
-            `Bạn vui lòng xác nhận thông tin khách:\n- Họ tên: ${completeCustomer.fullName}\n- Email: ${completeCustomer.email}\n- Điện thoại: ${completeCustomer.phone}\n- Địa chỉ: ${completeCustomer.address || "Không cung cấp"}\n- Check-in: ${payload.checkIn}\n- Check-out: ${payload.checkOut}\n- Số khách: ${payload.guestCount || 1}\n\nNhắn "xác nhận" để tạo phiên giữ chỗ chờ thanh toán hoặc "hủy" để dừng.`
-          );
-          return;
-        }
-
-        if (step === "confirm") {
-          if (!isReservationConfirmation(trimmed)) {
-            appendBotMessage('Bạn vui lòng nhắn "xác nhận" để tạo booking hoặc "hủy" để dừng.');
-            return;
-          }
-          const reservationCreateScope = "reservation:create:chat:guest";
-          const createResResponse = await publicApiClient.post("/api/reservations", {
-            ...payload,
-            customer,
-          }, {
-            headers: {
-              "Idempotency-Key": getOrCreateIdempotencyKey(reservationCreateScope),
-            },
-          });
-          const reservation = createResResponse.data?.data;
-          if (typeof reservation?.id !== "number" || !reservation?.guestToken) {
-            throw new Error("Backend không trả về reservation id hoặc guest token hợp lệ");
-          }
-          clearIdempotencyKey(reservationCreateScope);
-          setGuestBookingDraft(null);
-          saveGuestReservationToken(reservation.id, reservation.guestToken);
-          setPendingPayment({
-            reservationId: reservation.id,
-            reservationCode: reservation.reservationCode || String(reservation.id),
-            guestToken: reservation.guestToken,
-          });
-          appendBotMessage(
-            `Đã ghi nhận thông tin đặt phòng với mã ${reservation.reservationCode}. Phòng chưa bị giữ ở bước này. Khi bạn nhắn "xác nhận" để mở SePay VietQR, hệ thống mới kiểm tra lại phòng trống và giữ phòng trong đúng 5 phút. Sau khi ngân hàng xác nhận đã nhận tiền, đơn chuyển sang DRAFT và chờ khách sạn xác nhận.`
-          );
-          return;
-        }
-      }
-
       if (pendingReservationPayload && isReservationCancellation(trimmed)) {
         setPendingReservationPayload(null);
-        clearIdempotencyKey("reservation:create:chat:authenticated");
         appendBotMessage("Mình đã hủy yêu cầu đặt phòng đang chờ xác nhận. Bạn có thể gửi lại thông tin mới bất cứ lúc nào.");
         return;
       }
 
       if (pendingReservationPayload && isReservationConfirmation(trimmed)) {
-        if (!(await authSession.isAuthenticated())) {
-          const payload = pendingReservationPayload;
-          setPendingReservationPayload(null);
-          setGuestBookingDraft({ payload, customer: {}, step: "fullName" });
-          appendBotMessage(
-            "Để tạo guest booking, mình cần bổ sung các thông tin còn thiếu ngay trong chat. Trước tiên, bạn vui lòng nhập họ và tên người đặt phòng. Bạn có thể nhắn \"hủy\" bất cứ lúc nào để dừng."
-          );
-          return;
-        }
-
-        const reservationCreateScope = "reservation:create:chat:authenticated";
-        const createResResponse = await apiClient.post(
-          "/api/reservations",
-          pendingReservationPayload,
-          {
-            headers: {
-              "Idempotency-Key": getOrCreateIdempotencyKey(reservationCreateScope),
-            },
-          },
-        );
-        const reservation = createResResponse.data?.data;
-        const reservationId = reservation?.id;
-        const reservationCode = reservation?.reservationCode || String(reservationId || "mới");
-
-        if (typeof reservationId !== "number") {
-          throw new Error("Backend không trả về reservation id hợp lệ");
-        }
-
-        clearIdempotencyKey(reservationCreateScope);
         setPendingReservationPayload(null);
-        setPendingPayment({ reservationId, reservationCode });
-        appendBotMessage(
-          `Đã ghi nhận thông tin đặt phòng với mã ${reservationCode}; phòng chưa bị giữ. Khi bạn nhắn "xác nhận" để mở SePay VietQR, hệ thống mới kiểm tra lại tồn phòng và giữ trong đúng 5 phút. Tiền cọc bằng 50% tổng giá trị đặt phòng. Sau khi ngân hàng xác nhận đã nhận tiền, đơn chuyển sang DRAFT và chờ khách sạn xác nhận.`
-        );
+        window.location.assign(buildChatBookingUrl(pendingReservationPayload));
         return;
       }
 
@@ -391,7 +187,7 @@ export default function ChatWidget() {
         chatResponse?.payload
       ) {
         setPendingChatContext(null);
-        setPendingReservationPayload(chatResponse.payload as ChatReservationPayload);
+        setPendingReservationPayload(chatResponse.payload as ChatBookingPayload);
       } else {
         setPendingChatContext(null);
       }

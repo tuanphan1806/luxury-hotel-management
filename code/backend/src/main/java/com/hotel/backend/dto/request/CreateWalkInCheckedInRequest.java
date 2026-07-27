@@ -3,9 +3,11 @@ package com.hotel.backend.dto.request;
 import com.hotel.backend.constant.WalkInPaymentOption;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,11 +32,14 @@ public class CreateWalkInCheckedInRequest {
 
     @NotNull(message = "Số khách không được để trống")
     @Min(value = 1, message = "Số khách phải ít nhất 1 người")
+    @Max(value = 1000, message = "Số khách vượt giới hạn cho phép")
     private Integer guestCount;
 
+    @Size(max = 2000, message = "Ghi chú tối đa 2000 ký tự")
     private String note;
 
     @NotEmpty(message = "Phải chọn ít nhất 1 phòng")
+    @Size(max = 100, message = "Một đơn tối đa 100 phòng")
     @Valid
     private List<AssignRoomRequest> rooms;
 
@@ -43,9 +48,11 @@ public class CreateWalkInCheckedInRequest {
      * stay price per physical room, not the room type's base hourly price.
      */
     @Valid
+    @Size(max = 100, message = "Một đơn tối đa 100 mức giá thay thế")
     private List<WalkInPriceOverrideRequest> priceOverrides;
 
     @Valid
+    @Size(max = 100, message = "Một đơn tối đa 100 dịch vụ")
     @Builder.Default
     private List<ServiceOrderRequest> services = List.of();
 

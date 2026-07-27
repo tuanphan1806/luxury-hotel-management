@@ -1,5 +1,6 @@
 package com.hotel.backend.service.Impl;
 
+import com.hotel.backend.config.PricingV2Properties;
 import com.hotel.backend.dto.request.RoomTypeRequest;
 import com.hotel.backend.dto.response.FacilityResponse;
 import com.hotel.backend.dto.response.RoomTypeResponse;
@@ -7,11 +8,13 @@ import com.hotel.backend.constant.MediaAssetOwnerType;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UploadFolder;
 import com.hotel.backend.entity.Facility;
+import com.hotel.backend.entity.RoomRateProfile;
 import com.hotel.backend.entity.RoomType;
 import com.hotel.backend.exception.DuplicateResourceException;
 import com.hotel.backend.exception.ResourceNotFoundException;
 import com.hotel.backend.repository.FacilityRepository;
 import com.hotel.backend.repository.ReviewRepository;
+import com.hotel.backend.repository.RoomRateProfileRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
 import com.hotel.backend.service.RoomTypeService;
 import com.hotel.backend.service.MediaAssetService;
@@ -22,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -42,6 +46,8 @@ public class RoomTypeServiceImpl implements RoomTypeService {
     private final ReviewRepository reviewRepository;
     private final MediaAssetService mediaAssetService;
     private final ReservationAuditService auditService;
+    private final RoomRateProfileRepository roomRateProfileRepository;
+    private final PricingV2Properties pricingV2Properties;
 
     // ── READ ──────────────────────────────────────────────────────────────────
 
@@ -51,8 +57,12 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         log.debug("Lấy tất cả room types");
         List<RoomType> roomTypes = roomTypeRepository.findAllWithFacilities();
         Map<Long, ReviewRepository.RoomTypeRatingSummary> ratings = loadRatings(roomTypes);
+        Map<Long, RoomRateProfile> publicRates = loadPublicRates(roomTypes);
         return roomTypes.stream()
-                .map(roomType -> mapToResponse(roomType, ratings.get(roomType.getId())))
+                .map(roomType -> mapToResponse(
+                        roomType,
+                        ratings.get(roomType.getId()),
+                        publicRates.get(roomType.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -61,7 +71,10 @@ public class RoomTypeServiceImpl implements RoomTypeService {
     public RoomTypeResponse getById(Long id) {
         log.debug("Lấy room type id={}", id);
         RoomType roomType = findOrThrow(id);
-        return mapToResponse(roomType, loadRatings(List.of(roomType)).get(id));
+        return mapToResponse(
+                roomType,
+                loadRatings(List.of(roomType)).get(id),
+                loadPublicRates(List.of(roomType)).get(id));
     }
 
     @Override
@@ -70,8 +83,12 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         log.debug("Lọc room type theo giá {} - {}", min, max);
         List<RoomType> roomTypes = roomTypeRepository.findByPriceBetweenOrderByPriceAsc(min, max);
         Map<Long, ReviewRepository.RoomTypeRatingSummary> ratings = loadRatings(roomTypes);
+        Map<Long, RoomRateProfile> publicRates = loadPublicRates(roomTypes);
         return roomTypes.stream()
-                .map(roomType -> mapToResponse(roomType, ratings.get(roomType.getId())))
+                .map(roomType -> mapToResponse(
+                        roomType,
+                        ratings.get(roomType.getId()),
+                        publicRates.get(roomType.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -113,7 +130,10 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         auditRoomType(saved, ReservationAuditAction.ROOM_TYPE_CREATED,
                 "Tạo hạng phòng", null, roomTypeSnapshot(saved));
         log.info("Đã tạo room type id={}", saved.getId());
-        return mapToResponse(saved, null);
+        return mapToResponse(
+                saved,
+                null,
+                loadPublicRates(List.of(saved)).get(saved.getId()));
     }
 
     @Override
@@ -154,7 +174,10 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         auditRoomType(saved, ReservationAuditAction.ROOM_TYPE_UPDATED,
                 "Cập nhật hạng phòng", oldValue, roomTypeSnapshot(saved));
         log.info("Đã cập nhật room type id={}", saved.getId());
-        return mapToResponse(saved, loadRatings(List.of(saved)).get(saved.getId()));
+        return mapToResponse(
+                saved,
+                loadRatings(List.of(saved)).get(saved.getId()),
+                loadPublicRates(List.of(saved)).get(saved.getId()));
     }
 
     @Override
@@ -212,6 +235,39 @@ public class RoomTypeServiceImpl implements RoomTypeService {
                         Function.identity()));
     }
 
+    private Map<Long, RoomRateProfile> loadPublicRates(
+            List<RoomType> roomTypes) {
+        List<Long> supportedIds = roomTypes.stream()
+                .filter(roomType -> roomType.getId() != null)
+                .filter(roomType -> pricingV2Properties
+                        .supportsRoomType(roomType.getCode()))
+                .map(RoomType::getId)
+                .toList();
+        if (supportedIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, List<RoomRateProfile>> grouped = roomRateProfileRepository
+                .findEffectiveByRoomTypeIds(supportedIds, Instant.now())
+                .stream()
+                .collect(Collectors.groupingBy(
+                        profile -> profile.getRoomType().getId()));
+        Map<Long, RoomRateProfile> result = new LinkedHashMap<>();
+        for (Long roomTypeId : supportedIds) {
+            List<RoomRateProfile> rates = grouped.getOrDefault(
+                    roomTypeId, List.of());
+            if (rates.size() == 1) {
+                result.put(roomTypeId, rates.get(0));
+            } else {
+                log.warn(
+                        "Không thể công bố bảng giá hạng phòng id={}: số version đang hiệu lực={}",
+                        roomTypeId,
+                        rates.size());
+            }
+        }
+        return Map.copyOf(result);
+    }
+
     private void auditRoomType(
             RoomType roomType,
             ReservationAuditAction action,
@@ -233,6 +289,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
     private Map<String, Object> roomTypeSnapshot(RoomType roomType) {
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("id", roomType.getId());
+        value.put("code", roomType.getCode());
         value.put("typeName", roomType.getTypeName());
         value.put("typeNameEn", roomType.getTypeNameEn());
         value.put("price", roomType.getPrice());
@@ -248,7 +305,8 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 
     private RoomTypeResponse mapToResponse(
             RoomType entity,
-            ReviewRepository.RoomTypeRatingSummary rating) {
+            ReviewRepository.RoomTypeRatingSummary rating,
+            RoomRateProfile publicRate) {
         List<FacilityResponse.Summary> facilitySummaries = entity.getFacilities()
                 .stream()
                 .map(f -> FacilityResponse.Summary.builder()
@@ -263,11 +321,32 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 
         return RoomTypeResponse.builder()
                 .id(entity.getId())
+                .code(entity.getCode())
                 .typeName(entity.getTypeName())
                 .typeNameEn(entity.getTypeNameEn())
                 .description(entity.getDescription())
                 .descriptionEn(entity.getDescriptionEn())
                 .price(entity.getPrice())
+                .packagePricingEnabled(
+                        pricingV2Properties.supportsRoomType(
+                                entity.getCode()))
+                .pricingAvailable(publicRate != null)
+                .includedGuests(publicRate != null
+                        ? publicRate.getIncludedGuests() : null)
+                .firstBlockMinutes(publicRate != null
+                        ? publicRate.getFirstBlockMinutes() : null)
+                .firstBlockPrice(publicRate != null
+                        ? publicRate.getFirstBlockPrice() : null)
+                .extraUnitMinutes(publicRate != null
+                        ? publicRate.getExtraUnitMinutes() : null)
+                .extraUnitPrice(publicRate != null
+                        ? publicRate.getExtraUnitPrice() : null)
+                .overnightPrice(publicRate != null
+                        ? publicRate.getOvernightPrice() : null)
+                .dailyPrice(publicRate != null
+                        ? publicRate.getDailyPrice() : null)
+                .extraGuestPrice(publicRate != null
+                        ? publicRate.getExtraGuestPrice() : null)
                 .maxGuests(entity.getMaxGuests())
                 .imageUrl(entity.getImageUrl())
                 .imageUrls(currentImages(entity))

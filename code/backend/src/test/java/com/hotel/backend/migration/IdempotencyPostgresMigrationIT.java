@@ -2,6 +2,9 @@ package com.hotel.backend.migration;
 
 import com.hotel.backend.constant.CleaningStatus;
 import com.hotel.backend.constant.RoomStatus;
+import com.hotel.backend.dto.request.PricingQuoteRequest;
+import com.hotel.backend.dto.request.PricingQuoteRoomRequest;
+import com.hotel.backend.dto.response.PricingQuoteResponse;
 import com.hotel.backend.entity.Room;
 import com.hotel.backend.entity.RoomType;
 import com.hotel.backend.repository.IdempotencyRequestRepository;
@@ -9,6 +12,8 @@ import com.hotel.backend.repository.InvalidatedTokenRepository;
 import com.hotel.backend.repository.RoomRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
 import com.hotel.backend.service.IdempotencyService;
+import com.hotel.backend.service.PricingQuoteService;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +27,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -40,7 +48,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.datasource.hikari.maximum-pool-size=12"
+        "spring.datasource.hikari.maximum-pool-size=12",
+        "hotel.pricing.engine-v2-enabled=true",
+        "hotel.pricing.engine-v2-room-type-codes="
+                + "STANDARD,DELUXE,EXECUTIVE,SUITE,FAMILY,PRESIDENTIAL"
 })
 @ActiveProfiles("test")
 class IdempotencyPostgresMigrationIT {
@@ -73,6 +84,12 @@ class IdempotencyPostgresMigrationIT {
 
     @Autowired
     private RoomRepository roomRepository;
+
+    @Autowired
+    private PricingQuoteService pricingQuoteService;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @AfterEach
     void cleanUp() {
@@ -156,6 +173,37 @@ class IdempotencyPostgresMigrationIT {
         assertThat(roomRepository.search(null, RoomStatus.MAINTENANCE, CleaningStatus.DIRTY))
                 .extracting(Room::getId)
                 .contains(room.getId());
+    }
+
+    @Test
+    @Transactional
+    void pricingQuotePersistsOnceAgainstImmutablePostgresEvidenceTables() {
+        RoomType roomType = roomTypeRepository.findByCode("STANDARD")
+                .orElseThrow();
+        LocalDateTime checkIn = LocalDate.now().plusDays(5).atTime(20, 0);
+        LocalDateTime checkOut = checkIn.toLocalDate().plusDays(1).atTime(8, 0);
+
+        PricingQuoteResponse quote = pricingQuoteService.createQuote(
+                PricingQuoteRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(1)
+                        .rooms(List.of(PricingQuoteRoomRequest.builder()
+                                .roomTypeId(roomType.getId())
+                                .quantity(1)
+                                .lineGuestCount(1)
+                                .build()))
+                        .services(List.of())
+                        .build());
+
+        entityManager.flush();
+
+        assertThat(quote.getQuoteId()).isNotNull();
+        assertThat(quote.getQuoteHash()).isNotBlank();
+        assertThat(quote.getTotalAmount())
+                .isEqualByComparingTo(new BigDecimal("170000.00"));
+        assertThat(quote.getInventoryProtectedUntil())
+                .isEqualTo(checkIn.toLocalDate().plusDays(1).atTime(12, 30));
     }
 
     private void sleep(long milliseconds) {

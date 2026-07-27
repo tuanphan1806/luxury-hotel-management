@@ -11,7 +11,11 @@ import { saveGuestReservationToken } from "@/lib/guest-reservation-token";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { clearIdempotencyKey, getOrCreateIdempotencyKey } from "@/lib/idempotency";
-import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
+import {
+  allocateGuestsToRoomTypes,
+  calculateSelectedGuestCapacity,
+  normalizeGuestCapacity,
+} from "@/lib/guest-capacity";
 import BookingAddOnSelector from "@/components/add-on-services/BookingAddOnSelector";
 import {
   type AddOnSelection,
@@ -54,6 +58,62 @@ interface PendingReservationSession {
   guest: boolean;
 }
 
+interface PricingQuoteLine {
+  roomTypeId: number;
+  roomTypeName: string;
+  quantity: number;
+  lineGuestCount: number;
+  appliedPackage: "HOURLY" | "OVERNIGHT" | "DAILY";
+  roomCharge: number;
+  extraGuestCount: number;
+  extraGuestCharge: number;
+}
+
+interface PricingQuoteServiceLine {
+  serviceId: number;
+  serviceCode: string;
+  serviceName: string;
+  pricingUnit: string;
+  unitPrice: number;
+  quantity: number;
+  multiplier: number;
+  billableQuantity: number;
+  totalPrice: number;
+}
+
+interface PricingQuote {
+  quoteId: string;
+  quoteExpiresAtUtc: string;
+  quoteHash: string;
+  pricingAlgorithmVersion: "MOTEL_PACKAGE_V2";
+  displayPackageSummary: "HOURLY" | "OVERNIGHT" | "DAILY";
+  inventoryProtectedUntil: string;
+  roomCharge: number;
+  extraGuestCharge: number;
+  serviceCharge: number;
+  totalAmount: number;
+  lines: PricingQuoteLine[];
+  services: PricingQuoteServiceLine[];
+}
+
+interface PricingQuoteRequestPayload {
+  checkIn: string;
+  checkOut: string;
+  guestCount: number;
+  rooms: Array<{
+    roomTypeId: number;
+    quantity: number;
+    lineGuestCount: number;
+  }>;
+  services: Array<{
+    serviceId: number;
+    quantity: number;
+    notes?: string;
+  }>;
+}
+
+type PricingQuoteMode = "checking" | "v2" | "legacy" | "error";
+
 interface BookingRoomType {
   id: number;
   typeName?: string;
@@ -70,6 +130,56 @@ const getApiErrorMessage = (error: unknown, fallback: string) =>
     : error instanceof Error && error.message
       ? error.message
       : fallback;
+
+const getApiErrorCode = (error: unknown) =>
+  axios.isAxiosError<{ code?: number }>(error)
+    ? Number(error.response?.data?.code || 0)
+    : 0;
+
+const toBackendLocalDateTime = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) ? `${value}:00` : value;
+
+const normalizePricingQuote = (value: PricingQuote): PricingQuote => ({
+  ...value,
+  roomCharge: Number(value.roomCharge || 0),
+  extraGuestCharge: Number(value.extraGuestCharge || 0),
+  serviceCharge: Number(value.serviceCharge || 0),
+  totalAmount: Number(value.totalAmount || 0),
+  lines: Array.isArray(value.lines)
+    ? value.lines.map((line) => ({
+        ...line,
+        roomCharge: Number(line.roomCharge || 0),
+        extraGuestCharge: Number(line.extraGuestCharge || 0),
+      }))
+    : [],
+  services: Array.isArray(value.services)
+    ? value.services.map((line) => ({
+        ...line,
+        serviceId: Number(line.serviceId),
+        unitPrice: Number(line.unitPrice || 0),
+        quantity: Number(line.quantity || 0),
+        multiplier: Number(line.multiplier || 0),
+        billableQuantity: Number(line.billableQuantity || 0),
+        totalPrice: Number(line.totalPrice || 0),
+      }))
+    : [],
+});
+
+const requestPricingQuote = async (
+  payload: PricingQuoteRequestPayload,
+  signal?: AbortSignal,
+) => {
+  const response = await publicApiClient.post(
+    "/api/pricing/quote",
+    payload,
+    { signal },
+  );
+  const quote = (response.data?.data ?? response.data) as PricingQuote;
+  if (!quote?.quoteId || !quote?.quoteHash || !quote?.quoteExpiresAtUtc) {
+    throw new Error("Backend không trả về báo giá hợp lệ");
+  }
+  return normalizePricingQuote(quote);
+};
 
 // Fallback details removed as we use API
 
@@ -100,6 +210,11 @@ function BookingFormContent() {
   const [addOnSelections, setAddOnSelections] = useState<Record<number, AddOnSelection>>({});
   const [isAddOnLoading, setIsAddOnLoading] = useState(true);
   const [addOnLoadError, setAddOnLoadError] = useState("");
+  const [lineGuestCounts, setLineGuestCounts] = useState<Record<number, number>>({});
+  const [pricingQuote, setPricingQuote] = useState<PricingQuote | null>(null);
+  const [pricingQuoteMode, setPricingQuoteMode] = useState<PricingQuoteMode>("checking");
+  const [pricingQuoteError, setPricingQuoteError] = useState("");
+  const [quoteRefreshNonce, setQuoteRefreshNonce] = useState(0);
 
   // Payment states
   const [agree, setAgree] = useState(false);
@@ -113,7 +228,8 @@ function BookingFormContent() {
   const [timeLeft, setTimeLeft] = useState(300); // QR giữ phòng tối đa 5 phút
 
   useEffect(() => {
-    // Match backend pricing: totalAmount = pricePerHour * quantity * totalHours.
+    // Load the legacy first-hour price. Pricing V2 replaces this display with
+    // the authoritative quote as soon as the selected room codes are enabled.
     const requestedRooms = roomTypesParam
       ? roomTypesParam.split(",").map((item) => {
           const [id, quantity] = item.split(":").map(Number);
@@ -172,6 +288,8 @@ function BookingFormContent() {
           maxGuestsPerRoom: normalizeGuestCapacity(roomType?.maxGuests),
         }));
         if (selectedRooms.length > 0) {
+          const totalGuests = Number(adults || 0) + Number(childrenVal || 0);
+          setLineGuestCounts(allocateGuestsToRoomTypes(selectedRooms, totalGuests));
           const match = matches[0].roomType as BookingRoomType;
           setBookingData({
             roomName: selectedRooms.map((room) => `${room.quantity} × ${room.roomName}`).join(", "),
@@ -211,6 +329,99 @@ function BookingFormContent() {
     };
   }, [localize]);
 
+  const quoteGuestCount = bookingData
+    ? Number(bookingData.adultsCount || 0) + Number(bookingData.childrenCount || 0)
+    : 0;
+  const quotedLineGuestTotal = Object.values(lineGuestCounts)
+    .reduce((sum, value) => sum + Number(value || 0), 0);
+  const quoteServices = addOnCatalog
+    .filter((service) => Boolean(addOnSelections[service.id]))
+    .map((service) => ({
+      serviceId: service.id,
+      quantity: addOnSelections[service.id].quantity,
+      notes: addOnSelections[service.id].notes.trim() || undefined,
+    }));
+  const quoteRequestPayload: PricingQuoteRequestPayload | null = bookingData
+    && quoteGuestCount >= 1
+    && quotedLineGuestTotal === quoteGuestCount
+    && bookingData.selectedRooms.every((room) => {
+      const allocated = lineGuestCounts[room.roomTypeId];
+      return Number.isInteger(allocated)
+        && allocated >= room.quantity
+        && allocated <= room.quantity * room.maxGuestsPerRoom;
+    })
+    ? {
+        checkIn: toBackendLocalDateTime(bookingData.checkInDate),
+        checkOut: toBackendLocalDateTime(bookingData.checkOutDate),
+        guestCount: quoteGuestCount,
+        rooms: bookingData.selectedRooms.map((room) => ({
+          roomTypeId: room.roomTypeId,
+          quantity: room.quantity,
+          lineGuestCount: lineGuestCounts[room.roomTypeId],
+        })),
+        services: quoteServices,
+      }
+    : null;
+  const quoteRequestKey = quoteRequestPayload
+    ? JSON.stringify(quoteRequestPayload)
+    : "";
+
+  useEffect(() => {
+    if (!bookingData || pendingReservation || isAddOnLoading) return;
+    if (!quoteRequestPayload) {
+      setPricingQuote(null);
+      setPricingQuoteMode("error");
+      setPricingQuoteError(localize(
+        "Hãy phân bổ đủ số khách cho từng hạng phòng trước khi kiểm tra giá.",
+        "Allocate every guest to a selected room type before checking the price.",
+      ));
+      return;
+    }
+
+    let active = true;
+    const abortController = new AbortController();
+    setPricingQuote(null);
+    setPricingQuoteMode("checking");
+    setPricingQuoteError("");
+    const timer = window.setTimeout(() => {
+      void requestPricingQuote(
+        quoteRequestPayload,
+        abortController.signal,
+      )
+        .then((quote) => {
+          if (!active) return;
+          setPricingQuote(quote);
+          setPricingQuoteMode("v2");
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          if (getApiErrorCode(error) === 5080) {
+            setPricingQuote(null);
+            setPricingQuoteMode("legacy");
+            setPricingQuoteError("");
+            return;
+          }
+          setPricingQuote(null);
+          setPricingQuoteMode("error");
+          setPricingQuoteError(getApiErrorMessage(
+            error,
+            localize(
+              "Chưa thể kiểm tra giá chính xác. Vui lòng thử lại.",
+              "The authoritative price could not be checked. Please try again.",
+            ),
+          ));
+        });
+    }, 350);
+
+    return () => {
+      active = false;
+      abortController.abort();
+      window.clearTimeout(timer);
+    };
+  // quoteRequestKey is the canonical dependency for nested room/service selections.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingData, isAddOnLoading, pendingReservation, quoteRequestKey, quoteRefreshNonce, localize]);
+
   // Hold Countdown effect
   useEffect(() => {
     if (step !== 3 || timeLeft <= 0) return;
@@ -223,30 +434,62 @@ function BookingFormContent() {
   if (!bookingData) return null;
 
   // Math calculations
-  const roomTotal = bookingData.selectedRooms.reduce(
+  const legacyRoomTotal = bookingData.selectedRooms.reduce(
     (sum, room) => sum + (room.pricePerHour + Math.max(0, bookingData.totalHours - 1) * 10_000) * room.quantity,
     0
   );
   const stayNights = chargeableNights(bookingData.checkInDate, bookingData.checkOutDate);
   const declaredGuestCount = Number(bookingData.adultsCount || 0) + Number(bookingData.childrenCount || 0);
+  const hasAuthoritativeQuote = pricingQuoteMode === "v2" && pricingQuote != null;
+  const quotedServicesById = new Map(
+    (hasAuthoritativeQuote ? pricingQuote.services : [])
+      .map((line) => [line.serviceId, line] as const),
+  );
   const selectedAddOns = addOnCatalog
     .filter((service) => Boolean(addOnSelections[service.id]))
-    .map((service) => ({
-      service,
-      selection: addOnSelections[service.id],
-      total: calculateAddOnLineTotal(
+    .map((service) => {
+      const quotedService = quotedServicesById.get(service.id);
+      return {
         service,
-        addOnSelections[service.id],
-        declaredGuestCount,
-        stayNights,
-      ),
-    }));
+        selection: addOnSelections[service.id],
+        total: quotedService?.totalPrice ?? calculateAddOnLineTotal(
+          service,
+          addOnSelections[service.id],
+          declaredGuestCount,
+          stayNights,
+        ),
+      };
+    });
   const addOnTotal = selectedAddOns.reduce((sum, item) => sum + item.total, 0);
-  const total = roomTotal + addOnTotal;
+  const authoritativeServiceTotals = Object.fromEntries(
+    [...quotedServicesById.values()].map((line) => [
+      line.serviceId,
+      line.totalPrice,
+    ]),
+  );
+  const roomTotal = hasAuthoritativeQuote ? pricingQuote.roomCharge : legacyRoomTotal;
+  const extraGuestTotal = hasAuthoritativeQuote ? pricingQuote.extraGuestCharge : 0;
+  const displayedAddOnTotal = hasAuthoritativeQuote ? pricingQuote.serviceCharge : addOnTotal;
+  const total = hasAuthoritativeQuote
+    ? pricingQuote.totalAmount
+    : legacyRoomTotal + addOnTotal;
   const deposit50 = Math.ceil(total * 0.5);
   const amountDueNow = paymentPlan === "PREPAY_100" ? total : deposit50;
   const selectedRoomCount = bookingData.selectedRooms.reduce((sum, room) => sum + room.quantity, 0);
   const selectedGuestCapacity = calculateSelectedGuestCapacity(bookingData.selectedRooms);
+  const displayedPackageLabel = pricingQuote?.displayPackageSummary === "OVERNIGHT"
+    ? localize("Qua đêm", "Overnight")
+    : pricingQuote?.displayPackageSummary === "DAILY"
+      ? localize("Ngày đêm", "Daily")
+      : localize("Nghỉ giờ", "Hourly");
+  const isBookingActionDisabled = isSubmitting || (
+    !pendingReservation
+    && (
+      !quoteRequestPayload
+      || pricingQuoteMode === "checking"
+      || pricingQuoteMode === "error"
+    )
+  );
 
   const formatVND = (num: number) => {
     return num.toLocaleString("vi-VN") + " đ";
@@ -278,6 +521,24 @@ function BookingFormContent() {
       return localize(
         `Các phòng đã chọn chỉ chứa tối đa ${selectedGuestCapacity} khách, thấp hơn ${declaredGuestCount} khách của đơn. Vui lòng quay lại chọn thêm phòng.`,
         `The selected rooms allow ${selectedGuestCapacity} guests, below the ${declaredGuestCount} guests in this reservation. Please go back and add rooms.`,
+      );
+    }
+    if (!pendingReservation && quotedLineGuestTotal !== declaredGuestCount) {
+      return localize(
+        `Đã phân bổ ${quotedLineGuestTotal}/${declaredGuestCount} khách. Vui lòng phân bổ đủ khách theo từng hạng phòng.`,
+        `${quotedLineGuestTotal}/${declaredGuestCount} guests are allocated. Allocate every guest to a room type.`,
+      );
+    }
+    if (!pendingReservation && pricingQuoteMode === "checking") {
+      return localize(
+        "Hệ thống đang kiểm tra giá chính xác, vui lòng chờ trong giây lát.",
+        "The authoritative price is being checked. Please wait a moment.",
+      );
+    }
+    if (!pendingReservation && pricingQuoteMode === "error") {
+      return pricingQuoteError || localize(
+        "Chưa thể kiểm tra giá chính xác. Vui lòng thử lại.",
+        "The authoritative price could not be checked. Please try again.",
       );
     }
     if (name.trim().length < 2 || name.trim().length > 100) {
@@ -324,17 +585,81 @@ function BookingFormContent() {
       return;
     }
 
+    if (!pendingReservation && pricingQuoteMode === "v2") {
+      const quoteExpiry = pricingQuote
+        ? new Date(pricingQuote.quoteExpiresAtUtc).getTime()
+        : Number.NaN;
+      if (!pricingQuote || Number.isNaN(quoteExpiry) || quoteExpiry <= Date.now() + 5_000) {
+        setIsConfirmationOpen(false);
+        if (!quoteRequestPayload) {
+          setPaymentError(localize(
+            "Thông tin phân bổ khách chưa hợp lệ để làm mới báo giá.",
+            "The guest allocation is not valid for refreshing the quote.",
+          ));
+          return;
+        }
+        setIsSubmitting(true);
+        try {
+          const refreshedQuote = await requestPricingQuote(quoteRequestPayload);
+          setPricingQuote(refreshedQuote);
+          setPricingQuoteMode("v2");
+          setPricingQuoteError("");
+          setPaymentError(localize(
+            "Báo giá vừa được làm mới. Vui lòng kiểm tra số tiền và xác nhận lại.",
+            "The quote was refreshed. Review the amount and confirm again.",
+          ));
+        } catch (error: unknown) {
+          if (getApiErrorCode(error) === 5080) {
+            setPricingQuote(null);
+            setPricingQuoteMode("legacy");
+            setPricingQuoteError("");
+            setPaymentError(localize(
+              "Hạng phòng này đang dùng bảng giá tương thích. Vui lòng kiểm tra số tiền và xác nhận lại.",
+              "This room uses compatibility pricing. Review the amount and confirm again.",
+            ));
+          } else {
+            setPricingQuote(null);
+            setPricingQuoteMode("error");
+            const message = getApiErrorMessage(
+              error,
+              localize("Không thể làm mới báo giá.", "The quote could not be refreshed."),
+            );
+            setPricingQuoteError(message);
+            setPaymentError(message);
+          }
+        } finally {
+          setIsSubmitting(false);
+        }
+        return;
+      }
+    }
+
     setIsConfirmationOpen(false);
     setIsSubmitting(true);
+    let reservationCreateScope: string | null = null;
     try {
       // Tạo PAYMENT_PENDING trước; backend chỉ khóa tồn phòng ở bước
       // /payments/create, ngay khi mã QR thực sự được phát hành.
-      const checkInDateTime = `${bookingData.checkInDate}:00`;
-      const checkOutDateTime = `${bookingData.checkOutDate}:00`;
+      const checkInDateTime = toBackendLocalDateTime(bookingData.checkInDate);
+      const checkOutDateTime = toBackendLocalDateTime(bookingData.checkOutDate);
       let reservation = pendingReservation;
       if (!reservation) {
         const reservationClient = isGuestBooking ? publicApiClient : apiClient;
-        const reservationCreateScope = "reservation:create:booking";
+        const activeQuote = pricingQuoteMode === "v2" ? pricingQuote : null;
+        const legacyScope = [
+          checkInDateTime,
+          checkOutDateTime,
+          paymentPlan,
+          bookingData.selectedRooms
+            .map((room) => `${room.roomTypeId}:${room.quantity}`)
+            .join(","),
+          selectedAddOns
+            .map(({ service, selection }) => `${service.id}:${selection.quantity}`)
+            .join(","),
+        ].join("|");
+        reservationCreateScope = activeQuote
+          ? `reservation:create:booking:${activeQuote.quoteId}`
+          : `reservation:create:booking:legacy:${legacyScope}`;
         const createResResponse = await reservationClient.post("/api/reservations", {
           checkIn: checkInDateTime,
           checkOut: checkOutDateTime,
@@ -350,12 +675,21 @@ function BookingFormContent() {
           roomTypes: bookingData.selectedRooms.map((room) => ({
             roomTypeId: room.roomTypeId,
             quantity: room.quantity,
+            ...(activeQuote
+              ? { lineGuestCount: lineGuestCounts[room.roomTypeId] }
+              : {}),
           })),
           services: selectedAddOns.map(({ service, selection }) => ({
             serviceId: service.id,
             quantity: selection.quantity,
             notes: selection.notes.trim() || undefined,
           })),
+          ...(activeQuote
+            ? {
+                quoteId: activeQuote.quoteId,
+                quoteHash: activeQuote.quoteHash,
+              }
+            : {}),
         }, {
           headers: {
             "Idempotency-Key": getOrCreateIdempotencyKey(reservationCreateScope),
@@ -417,6 +751,44 @@ function BookingFormContent() {
       window.location.assign(paymentResultUrl);
     } catch (error: unknown) {
       console.error("Booking error:", error);
+      const errorCode = getApiErrorCode(error);
+      if (
+        !pendingReservation
+        && (errorCode === 5082 || errorCode === 5083)
+        && quoteRequestPayload
+      ) {
+        if (reservationCreateScope) clearIdempotencyKey(reservationCreateScope);
+        try {
+          const refreshedQuote = await requestPricingQuote(quoteRequestPayload);
+          setPricingQuote(refreshedQuote);
+          setPricingQuoteMode("v2");
+          setPricingQuoteError("");
+          setPaymentError(localize(
+            "Giá hoặc chính sách vừa thay đổi. Báo giá mới đã được cập nhật; vui lòng kiểm tra và xác nhận lại.",
+            "The price or policy changed. A new quote is ready; review it and confirm again.",
+          ));
+        } catch (refreshError: unknown) {
+          if (getApiErrorCode(refreshError) === 5080) {
+            setPricingQuote(null);
+            setPricingQuoteMode("legacy");
+            setPricingQuoteError("");
+            setPaymentError(localize(
+              "Bảng giá mới vừa được tắt. Giá tương thích đã được khôi phục; vui lòng xác nhận lại.",
+              "The new price table was disabled. Compatibility pricing is restored; confirm again.",
+            ));
+          } else {
+            const refreshMessage = getApiErrorMessage(
+              refreshError,
+              localize("Không thể cập nhật lại báo giá.", "The quote could not be refreshed."),
+            );
+            setPricingQuote(null);
+            setPricingQuoteMode("error");
+            setPricingQuoteError(refreshMessage);
+            setPaymentError(refreshMessage);
+          }
+        }
+        return;
+      }
       const message = getApiErrorMessage(
         error,
         "Lỗi trong quá trình tạo thanh toán QR. Vui lòng kiểm tra thông tin và thử lại."
@@ -755,7 +1127,7 @@ function BookingFormContent() {
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Đã chọn", "Selected")}</p>
-                  <p className="mt-1 font-black tabular-nums text-[#80632F]">{formatVND(addOnTotal)}</p>
+                  <p className="mt-1 font-black tabular-nums text-[#80632F]">{formatVND(displayedAddOnTotal)}</p>
                 </div>
               </div>
               {addOnLoadError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">{addOnLoadError}</p>}
@@ -764,11 +1136,16 @@ function BookingFormContent() {
                 selections={addOnSelections}
                 guestCount={declaredGuestCount}
                 nights={stayNights}
+                authoritativeLineTotals={authoritativeServiceTotals}
                 loading={isAddOnLoading}
                 disabled={Boolean(pendingReservation)}
                 onChange={(next) => {
                   setAddOnSelections(next);
+                  setPricingQuote(null);
+                  setPricingQuoteMode("checking");
+                  setPricingQuoteError("");
                   setPaymentError("");
+                  setIsConfirmationOpen(false);
                 }}
               />
             </section>
@@ -876,6 +1253,61 @@ function BookingFormContent() {
               </div>
             </div>
 
+            <section className="overflow-hidden rounded-lg border border-[#0F2A43]/10 bg-[#FBFAF6]">
+              <div className="border-b border-[#0F2A43]/10 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#80632F]">
+                  {localize("Giá từng hạng phòng", "Price by room type")}
+                </p>
+              </div>
+              <div className="divide-y divide-[#0F2A43]/10">
+                {(hasAuthoritativeQuote
+                  ? pricingQuote.lines.map((line) => ({
+                      roomTypeId: line.roomTypeId,
+                      roomTypeName: line.roomTypeName,
+                      quantity: line.quantity,
+                      packageName: line.appliedPackage === "OVERNIGHT"
+                        ? localize("Qua đêm", "Overnight")
+                        : line.appliedPackage === "DAILY"
+                          ? localize("Ngày đêm", "Daily")
+                          : localize("Theo giờ", "Hourly"),
+                      unitPrice: line.quantity > 0 ? line.roomCharge / line.quantity : 0,
+                      roomCharge: line.roomCharge,
+                      extraGuestCharge: line.extraGuestCharge,
+                    }))
+                  : bookingData.selectedRooms.map((room) => {
+                       const unitPrice = room.pricePerHour
+                         + Math.max(0, bookingData.totalHours - 1) * 10_000;
+                      return {
+                        roomTypeId: room.roomTypeId,
+                        roomTypeName: room.roomName,
+                        quantity: room.quantity,
+                        packageName: localize(`${bookingData.totalHours} giờ`, `${bookingData.totalHours} hours`),
+                        unitPrice,
+                        roomCharge: unitPrice * room.quantity,
+                        extraGuestCharge: 0,
+                      };
+                    })
+                ).map((line) => (
+                  <div key={line.roomTypeId} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 text-xs">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-[#0F2A43]">{line.quantity} × {line.roomTypeName}</p>
+                      <p className="mt-0.5 text-[11px] font-medium text-[#66727C]">
+                        {formatVND(line.unitPrice)}/{localize("phòng", "room")} · {line.packageName}
+                      </p>
+                      {line.extraGuestCharge > 0 && (
+                        <p className="mt-1 font-semibold text-[#80632F]">
+                          {localize("Phụ thu khách", "Extra guests")}: +{formatVND(line.extraGuestCharge)}
+                        </p>
+                      )}
+                    </div>
+                    <p className="self-center font-bold tabular-nums text-[#0F2A43]">
+                      {formatVND(line.roomCharge + line.extraGuestCharge)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
             {/* Dates & Guests */}
             <div className="grid grid-cols-2 gap-4 border-t border-b border-gray-100 py-4 text-xs font-semibold text-text-dark">
               <div>
@@ -892,13 +1324,124 @@ function BookingFormContent() {
               </div>
             </div>
 
+            {bookingData.selectedRooms.length > 1 && (
+              <section className="space-y-3 rounded-lg border border-[#0F2A43]/10 bg-[#F7F4EC] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#80632F]">
+                      {localize("Phân bổ khách", "Guest allocation")}
+                    </p>
+                    <p className="mt-0.5 text-[11px] font-medium text-[#66727C]">
+                      {localize("Theo từng hạng phòng", "By room type")}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-black tabular-nums ${
+                    quotedLineGuestTotal === declaredGuestCount
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-amber-100 text-amber-900"
+                  }`}>
+                    {quotedLineGuestTotal}/{declaredGuestCount}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {bookingData.selectedRooms.map((room) => {
+                    const capacity = room.quantity * room.maxGuestsPerRoom;
+                    return (
+                      <label key={room.roomTypeId} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-[#0F2A43]/10 bg-white px-3 py-2">
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-bold text-[#0F2A43]">
+                            {room.quantity} × {room.roomName}
+                          </span>
+                          <span className="block text-[10px] font-medium text-[#66727C]">
+                            {localize(
+                              `${room.quantity}–${capacity} khách`,
+                              `${room.quantity}–${capacity} guests`,
+                            )}
+                          </span>
+                        </span>
+                        <select
+                          aria-label={localize(`Số khách cho ${room.roomName}`, `Guests for ${room.roomName}`)}
+                          value={lineGuestCounts[room.roomTypeId] || ""}
+                          disabled={Boolean(pendingReservation)}
+                          onChange={(event) => {
+                            const nextValue = Number(event.target.value);
+                            setLineGuestCounts((current) => ({
+                              ...current,
+                              [room.roomTypeId]: nextValue,
+                            }));
+                            setPricingQuote(null);
+                            setPricingQuoteMode("checking");
+                            setPricingQuoteError("");
+                            setPaymentError("");
+                            setIsConfirmationOpen(false);
+                          }}
+                          className="min-h-11 w-20 cursor-pointer rounded-lg border border-[#0F2A43]/20 bg-white px-2 text-center text-sm font-bold text-[#0F2A43] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                        >
+                          <option value="" disabled>—</option>
+                          {Array.from(
+                            { length: capacity - room.quantity + 1 },
+                            (_, index) => index + room.quantity,
+                          ).map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            <div aria-live="polite">
+              {pricingQuoteMode === "checking" && !pendingReservation && (
+                <p className="flex items-center gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800">
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" aria-hidden="true" />
+                  {localize("Đang kiểm tra giá chính xác...", "Checking the authoritative price...")}
+                </p>
+              )}
+              {pricingQuoteMode === "v2" && pricingQuote && (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                  {localize(`Đã khóa báo giá · ${displayedPackageLabel}`, `Quote ready · ${displayedPackageLabel}`)}
+                </p>
+              )}
+              {pricingQuoteMode === "legacy" && (
+                <p className="rounded-lg border border-[#0F2A43]/10 bg-[#E5E9ED] px-3 py-2 text-xs font-semibold text-[#0F2A43]">
+                  {localize("Đang áp dụng bảng giá tương thích hiện hành.", "Current compatibility pricing is applied.")}
+                </p>
+              )}
+              {pricingQuoteMode === "error" && !pendingReservation && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">
+                  <p>{pricingQuoteError}</p>
+                  {quoteRequestPayload && (
+                    <button
+                      type="button"
+                      onClick={() => setQuoteRefreshNonce((value) => value + 1)}
+                      className="mt-2 min-h-11 cursor-pointer rounded-lg border border-rose-300 bg-white px-3 font-bold transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                    >
+                      {localize("Thử kiểm tra lại", "Retry price check")}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Prices details */}
-              <div className="space-y-2 text-sm">
+            <div className="space-y-2 text-sm">
               <div className="flex justify-between text-text-light font-medium">
-                <span>Giá phòng ({bookingData.totalHours} giờ)</span>
+                <span>
+                  {hasAuthoritativeQuote
+                    ? localize(`Giá phòng · ${displayedPackageLabel}`, `Room charge · ${displayedPackageLabel}`)
+                    : localize(`Giá phòng (${bookingData.totalHours} giờ)`, `Room charge (${bookingData.totalHours} hours)`)}
+                </span>
                 <span>{formatVND(roomTotal)}</span>
               </div>
-              {addOnTotal > 0 && <div className="flex justify-between text-text-light font-medium"><span>{localize("Dịch vụ thêm", "Add-on services")}</span><span>{formatVND(addOnTotal)}</span></div>}
+              {extraGuestTotal > 0 && (
+                <div className="flex justify-between text-text-light font-medium">
+                  <span>{localize("Khách thêm", "Extra guests")}</span>
+                  <span>{formatVND(extraGuestTotal)}</span>
+                </div>
+              )}
+              {displayedAddOnTotal > 0 && <div className="flex justify-between text-text-light font-medium"><span>{localize("Dịch vụ thêm", "Add-on services")}</span><span>{formatVND(displayedAddOnTotal)}</span></div>}
               <div className="flex justify-between text-text-light font-medium">
                 <span>{paymentPlan === "PREPAY_100" ? "Thanh toán trước 100%" : "Đặt cọc 50%"}</span>
                 <span>{formatVND(amountDueNow)}</span>
@@ -912,10 +1455,14 @@ function BookingFormContent() {
             <button 
               type="button"
               onClick={handleRequestBooking}
-              disabled={isSubmitting}
+              disabled={isBookingActionDisabled}
               className="mt-2 w-full rounded-lg bg-[#80632F] py-3 text-sm font-bold uppercase tracking-widest text-white shadow-sm transition-colors hover:bg-[#735630] disabled:cursor-wait disabled:opacity-60"
             >
-              {isSubmitting ? localize("Đang xử lý...", "Processing...") : localize("Đặt phòng", "Book now")}
+              {pricingQuoteMode === "checking" && !pendingReservation
+                ? localize("Đang kiểm tra giá...", "Checking price...")
+                : isSubmitting
+                  ? localize("Đang xử lý...", "Processing...")
+                  : localize("Đặt phòng", "Book now")}
             </button>
 
             <p className="text-center text-[10px] text-text-light font-medium">

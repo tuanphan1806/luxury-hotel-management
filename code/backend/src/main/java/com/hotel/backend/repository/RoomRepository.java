@@ -63,7 +63,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
                           com.hotel.backend.constant.ReservationStatus.CHECKED_OUT
                       )
                       AND res.checkIn < :checkOut
-                      AND res.checkOut > :checkIn
+                      AND COALESCE(res.inventoryProtectedUntil, res.checkOut) > :checkIn
                 )
               ORDER BY r.floor ASC, r.roomName ASC
               """)

@@ -64,12 +64,40 @@ export const getAddOnCatalog = async (flow: AddOnServiceFlow): Promise<AddOnServ
     : [];
 };
 
+const wallClockMilliseconds = (value: string) => {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/,
+  );
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute, second = "0"] = match;
+  return Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  );
+};
+
+/**
+ * Display estimator for Pricing V2 package cycles.
+ *
+ * The backend quote remains authoritative. This mirrors its rolling 24-hour
+ * boundary and 15-minute grace so PER_NIGHT service previews do not charge a
+ * second cycle at 24h15. Local date-times are parsed as hotel wall-clock
+ * values, avoiding browser timezone and DST shifts.
+ */
 export const chargeableNights = (checkIn?: string, checkOut?: string) => {
   if (!checkIn || !checkOut) return 1;
-  const start = new Date(checkIn);
-  const end = new Date(checkOut);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return 1;
-  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
+  const start = wallClockMilliseconds(checkIn);
+  const end = wallClockMilliseconds(checkOut);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 1;
+  const minutes = Math.ceil((end - start) / 60_000);
+  const fullDays = Math.floor(minutes / 1_440);
+  if (fullDays === 0) return 1;
+  const remainderMinutes = minutes % 1_440;
+  return fullDays + (remainderMinutes > 15 ? 1 : 0);
 };
 
 export const normalizeSelectionQuantity = (

@@ -17,7 +17,10 @@ export interface ReservationRoomQuickViewItem {
   gallery?: string[];
   price?: number;
   pricePerHour?: number;
+  firstBlockMinutes?: number;
+  firstBlockPrice?: number;
   estimatedPricePerRoom?: number;
+  estimatedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
   totalHours?: number;
   maxGuestsPerRoom?: number;
   availableRooms?: number;
@@ -112,7 +115,13 @@ export default function ReservationRoomQuickViewModal({
     GALLERY_HERO_IMAGES.rooms,
   ].filter((image): image is string => Boolean(image)))).slice(0, 3);
   const estimatedPrice = room.estimatedPricePerRoom ?? room.price;
-  const hourlyPrice = room.pricePerHour;
+  const firstBlockPrice = room.firstBlockPrice ?? room.pricePerHour;
+  const firstBlockHours = (room.firstBlockMinutes ?? 60) / 60;
+  const estimatedPackage = room.estimatedPackage === "OVERNIGHT"
+    ? localize("qua đêm", "overnight")
+    : room.estimatedPackage === "DAILY"
+      ? localize("ngày đêm", "daily")
+      : localize("nghỉ giờ", "hourly");
 
   return createPortal(
     <div
@@ -179,10 +188,20 @@ export default function ReservationRoomQuickViewModal({
 
           <dl className="mt-5 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-[#B8944F]/28 bg-[#F4ECDD] p-3.5">
-              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">{localize("Ước tính mỗi phòng", "Estimate per room")}</dt>
+              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">
+                {localize(
+                  `Ước tính ${estimatedPackage} / phòng`,
+                  `Estimated ${estimatedPackage} / room`,
+                )}
+              </dt>
               <dd className="mt-1.5 font-sans text-xl font-extrabold tabular-nums tracking-[-0.02em] text-[#0F2A43]">{formatVND(estimatedPrice)}</dd>
-              {typeof hourlyPrice === "number" && (
-                <dd className="mt-1 text-xs font-semibold text-[#66727C]">{localize(`Giờ đầu: ${formatVND(hourlyPrice)}`, `First hour: ${formatVND(hourlyPrice)}`)}</dd>
+              {typeof firstBlockPrice === "number" && (
+                <dd className="mt-1 text-xs font-semibold text-[#66727C]">
+                  {localize(
+                    `${firstBlockHours} giờ đầu: ${formatVND(firstBlockPrice)}`,
+                    `First ${firstBlockHours} hours: ${formatVND(firstBlockPrice)}`,
+                  )}
+                </dd>
               )}
             </div>
             <div className="rounded-xl border border-[#527060]/16 bg-[#E5EEE9] p-3.5">

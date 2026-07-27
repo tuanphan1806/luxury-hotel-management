@@ -16,6 +16,7 @@ interface Props {
   selections: Record<number, AddOnSelection>;
   guestCount: number;
   nights: number;
+  authoritativeLineTotals?: Record<number, number>;
   loading?: boolean;
   disabled?: boolean;
   onChange: (selections: Record<number, AddOnSelection>) => void;
@@ -26,6 +27,7 @@ export default function BookingAddOnSelector({
   selections,
   guestCount,
   nights,
+  authoritativeLineTotals = {},
   loading = false,
   disabled = false,
   onChange,
@@ -84,7 +86,8 @@ export default function BookingAddOnSelector({
         const selected = selections[service.id];
         const image = service.imageUrl ? resolveMediaSource(service.imageUrl) : "";
         const lineTotal = selected
-          ? calculateAddOnLineTotal(service, selected, guestCount, nights)
+          ? authoritativeLineTotals[service.id]
+            ?? calculateAddOnLineTotal(service, selected, guestCount, nights)
           : 0;
         const maxQuantity = service.pricingUnit === "PER_GUEST" ? Math.max(1, guestCount) : 99;
         const quantityLocked = service.pricingUnit === "PER_ORDER";

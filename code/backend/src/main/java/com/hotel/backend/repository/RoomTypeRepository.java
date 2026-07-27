@@ -56,6 +56,10 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, Long> {
      */
     boolean existsByTypeNameIgnoreCaseAndIdNot(String typeName, Long id);
 
+    boolean existsByCode(String code);
+
+    Optional<RoomType> findByCode(String code);
+
     Optional<RoomType> findByTypeName(String typeName);
  
     // Tổng số phòng của 1 room type (dùng cho availability check)
@@ -83,8 +87,8 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, Long> {
             JOIN rrt.reservation res
             WHERE rrt.roomType = rt
             AND res.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
-            AND res.checkIn  < :checkOut
-            AND res.checkOut > :checkIn
+            AND res.checkIn < :checkOut
+            AND COALESCE(res.inventoryProtectedUntil, res.checkOut) > :checkIn
         )
     """)
     List<RoomType> findAvailableRoomTypes(

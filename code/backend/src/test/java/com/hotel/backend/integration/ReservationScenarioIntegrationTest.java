@@ -40,6 +40,7 @@ class ReservationScenarioIntegrationTest {
 
     @Autowired ReservationService reservationService;
     @Autowired ReservationRepository reservationRepository;
+    @Autowired ReservationRoomTypeRepository reservationRoomTypeRepository;
     @Autowired ReservationRoomRepository reservationRoomRepository;
     @Autowired RoomTypeRepository roomTypeRepository;
     @Autowired RoomRepository roomRepository;
@@ -736,6 +737,17 @@ class ReservationScenarioIntegrationTest {
         reservationService.checkIn(reservation.getId(), List.of(assignment(room.getId(), "Khách chính")));
 
         reservation = reservationRepository.findById(reservation.getId()).orElseThrow();
+        // A package entitlement may protect inventory beyond the guest's
+        // scheduled checkout (for example, an overnight stay protects the
+        // late-arrival right until noon). Once checkout succeeds, the
+        // CHECKED_OUT status must release that future inventory immediately.
+        LocalDateTime protectedWindowStart = reservation.getCheckOut().plusHours(1);
+        LocalDateTime protectedWindowEnd = protectedWindowStart.plusHours(1);
+        reservation.setInventoryProtectedUntil(protectedWindowEnd.plusMinutes(30));
+        reservationRepository.saveAndFlush(reservation);
+        assertEquals(1, reservationRoomTypeRepository.countBookedQuantity(
+                roomType.getId(), protectedWindowStart, protectedWindowEnd));
+
         long alreadyPaid = paymentTransactionRepository.findByReservationId(reservation.getId())
                 .stream().filter(tx -> tx.getStatus() == PaymentStatus.SUCCESS)
                 .mapToLong(PaymentTransaction::getAmount).sum();
@@ -776,6 +788,9 @@ class ReservationScenarioIntegrationTest {
         Room releasedRoom = roomRepository.findById(room.getId()).orElseThrow();
         assertEquals(RoomStatus.AVAILABLE, releasedRoom.getStatus());
         assertEquals(CleaningStatus.DIRTY, releasedRoom.getCleaningStatus());
+        assertEquals(0, reservationRoomTypeRepository.countBookedQuantity(
+                roomType.getId(), protectedWindowStart, protectedWindowEnd),
+                "Checkout phải giải phóng phần tồn phòng còn được bảo vệ trong tương lai");
         assertNotNull(guestRepository.findAllByReservationId(reservation.getId()).get(0).getCheckedOutAt());
         assertTrue(reservationInvoiceRepository.findByReservationId(reservation.getId()).isPresent());
     }
@@ -1009,6 +1024,79 @@ class ReservationScenarioIntegrationTest {
         assertEquals(ReservationStatus.DRAFT,
                 reservationRepository.findById(reservation.getId()).orElseThrow().getStatus());
         assertEquals(HoldStatus.CONVERTED, holdOf(reservation.getId()).getStatus());
+    }
+
+    @Test
+    void pricingV2InventoryProtectionBlocksAvailabilityAfterDisplayedCheckout() {
+        RoomType roomType = roomType(2);
+        room(roomType);
+        Reservation reservation =
+                confirmedReservation(customer(), roomType, 1, 1);
+        LocalDateTime displayedCheckout = reservation.getCheckOut();
+        LocalDateTime protectedUntil = displayedCheckout.plusHours(2);
+        reservation.setPricingVersion(PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
+        reservation.setInventoryProtectedUntil(protectedUntil);
+        reservationRepository.saveAndFlush(reservation);
+        entityManager.clear();
+
+        assertEquals(1, reservationRoomTypeRepository.countBookedQuantity(
+                roomType.getId(),
+                displayedCheckout.plusMinutes(30),
+                protectedUntil.minusMinutes(30)));
+        assertEquals(0, reservationRoomTypeRepository.countBookedQuantity(
+                roomType.getId(),
+                protectedUntil,
+                protectedUntil.plusHours(1)));
+    }
+
+    @Test
+    void legacyAvailabilityStillEndsAtDisplayedCheckout() {
+        RoomType roomType = roomType(2);
+        room(roomType);
+        Reservation reservation =
+                confirmedReservation(customer(), roomType, 1, 1);
+        LocalDateTime displayedCheckout = reservation.getCheckOut();
+
+        assertNull(reservation.getInventoryProtectedUntil());
+        assertEquals(0, reservationRoomTypeRepository.countBookedQuantity(
+                roomType.getId(),
+                displayedCheckout.plusMinutes(1),
+                displayedCheckout.plusHours(1)));
+    }
+
+    @Test
+    void qrHoldUsesPricingV2InventoryProtectionWhenCompetingStayStartsLater() {
+        RoomType roomType = roomType(2);
+        room(roomType);
+        LocalDateTime firstCheckIn = LocalDateTime.now().plusDays(1);
+        LocalDateTime firstCheckout = firstCheckIn.plusHours(2);
+        LocalDateTime protectedUntil = firstCheckout.plusHours(2);
+
+        ReservationResponse first = reservationService.createReservation(
+                customer(),
+                onlineRequest(roomType, 1, 1, firstCheckIn, firstCheckout));
+        Reservation firstReservation =
+                reservationRepository.findById(first.getId()).orElseThrow();
+        firstReservation.setPricingVersion(
+                PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
+        firstReservation.setInventoryProtectedUntil(protectedUntil);
+        reservationRepository.saveAndFlush(firstReservation);
+
+        ReservationResponse later = reservationService.createReservation(
+                customer(),
+                onlineRequest(
+                        roomType,
+                        1,
+                        1,
+                        firstCheckout.plusMinutes(30),
+                        protectedUntil.plusHours(1)));
+
+        reservationService.activatePaymentHolds(
+                first.getId(), LocalDateTime.now().plusMinutes(5));
+        assertThrows(
+                RuntimeException.class,
+                () -> reservationService.activatePaymentHolds(
+                        later.getId(), LocalDateTime.now().plusMinutes(5)));
     }
 
     private ReservationResponse createOnline(User customer, RoomType roomType, int quantity, int guests) {
