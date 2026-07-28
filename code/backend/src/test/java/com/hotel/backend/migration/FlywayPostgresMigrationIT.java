@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "22";
+    private static final String LATEST_VERSION = "24";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -127,6 +127,13 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_rate_snapshot_line_created");
             assertIndex(connection, "idx_pricing_quotes_expiry");
             assertIndex(connection, "idx_pricing_quote_lines_quote");
+            assertIndex(connection, "idx_payment_transactions_paid_at_utc");
+            assertIndex(connection, "idx_payment_refunds_succeeded_completed_at_utc");
+            assertIndex(connection, "idx_reservation_invoices_issued_at_utc");
+            assertIndex(connection, "idx_reservations_created_at_status");
+            assertIndex(connection, "idx_reservations_stay_window_status");
+            assertIndex(connection, "idx_reservation_room_types_room_type_reservation");
+            assertIndex(connection, "idx_provider_events_unlinked_cash_occurred_at");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
             assertConstraint(connection, "chk_payment_transactions_provider");
