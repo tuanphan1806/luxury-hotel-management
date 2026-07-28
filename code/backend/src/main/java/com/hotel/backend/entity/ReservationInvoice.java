@@ -1,5 +1,6 @@
 package com.hotel.backend.entity;
 
+import com.hotel.backend.constant.PricingAlgorithmVersion;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -57,6 +58,16 @@ public class ReservationInvoice {
 
     @Column(name = "planned_room_charge", precision = 19, scale = 2)
     private BigDecimal plannedRoomCharge;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pricing_version", nullable = false, length = 32)
+    private PricingAlgorithmVersion pricingVersion =
+            PricingAlgorithmVersion.LEGACY_V1;
+
+    @Builder.Default
+    @Column(name = "extra_guest_charge", nullable = false, precision = 19, scale = 2)
+    private BigDecimal extraGuestCharge = BigDecimal.ZERO;
 
     @Column(name = "early_checkout_adjustment", precision = 19, scale = 2)
     private BigDecimal earlyCheckoutAdjustment;

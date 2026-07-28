@@ -1,5 +1,6 @@
 package com.hotel.backend.dto.response;
- 
+
+import com.hotel.backend.constant.StayPackage;
 import com.hotel.backend.entity.ReservationRoomType;
 import lombok.*;
  
@@ -19,6 +20,21 @@ public class ReservationRoomTypeResponse {
     private Integer maxGuestsPerRoom;
     private BigDecimal roomPrice;
     private BigDecimal subtotal;
+    private BigDecimal plannedRoomCharge;
+    private BigDecimal actualRoomCharge;
+    private BigDecimal projectedRoomCharge;
+    private BigDecimal plannedExtraGuestCharge;
+    private BigDecimal extraGuestCharge;
+    private BigDecimal projectedExtraGuestCharge;
+    private BigDecimal plannedSubtotal;
+    private BigDecimal actualSubtotal;
+    private BigDecimal projectedSubtotal;
+    private Integer lineGuestCount;
+    private BigDecimal minimumCommittedRoomCharge;
+    private StayPackage appliedPackage;
+    private StayPackage projectedPackage;
+    private StayPackage maxPackageReached;
+    private String pricingSnapshotHash;
     private RoomHoldResponse roomHold;
  
     public static ReservationRoomTypeResponse from(ReservationRoomType rrt) {
@@ -33,6 +49,11 @@ public class ReservationRoomTypeResponse {
                         : 2)
                 .roomPrice(rrt.getRoomPrice())
                 .subtotal(rrt.getSubtotal())
+                .actualSubtotal(rrt.getSubtotal())
+                .lineGuestCount(rrt.getLineGuestCount())
+                .minimumCommittedRoomCharge(
+                        rrt.getMinimumCommittedRoomCharge())
+                .maxPackageReached(rrt.getMaxPackageReached())
                 .build();
     }
 }

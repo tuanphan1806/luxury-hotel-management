@@ -1,7 +1,9 @@
 package com.hotel.backend.entity;
 
-import com.hotel.backend.constant.ReservationStatus;
 import com.hotel.backend.constant.PaymentPlan;
+import com.hotel.backend.constant.PricingAlgorithmVersion;
+import com.hotel.backend.constant.ReservationStatus;
+import com.hotel.backend.constant.StayPackage;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -44,6 +46,22 @@ public class Reservation extends AbstractEntity<Long> implements Serializable {
 
     @Column(name = "actual_check_out")
     private LocalDateTime actualCheckOut;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pricing_version", nullable = false, length = 32)
+    private PricingAlgorithmVersion pricingVersion =
+            PricingAlgorithmVersion.LEGACY_V1;
+
+    /**
+     * Display-only aggregate. Financial calculations must use line snapshots.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "display_package_summary", length = 24)
+    private StayPackage displayPackageSummary;
+
+    @Column(name = "inventory_protected_until")
+    private LocalDateTime inventoryProtectedUntil;
 
     @Column(name = "last_activity_at")
     private LocalDateTime lastActivityAt;

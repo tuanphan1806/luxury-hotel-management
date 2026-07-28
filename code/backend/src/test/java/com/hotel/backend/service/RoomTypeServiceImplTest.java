@@ -1,9 +1,12 @@
 package com.hotel.backend.service;
 
+import com.hotel.backend.config.PricingV2Properties;
 import com.hotel.backend.dto.response.RoomTypeResponse;
+import com.hotel.backend.entity.RoomRateProfile;
 import com.hotel.backend.entity.RoomType;
 import com.hotel.backend.repository.FacilityRepository;
 import com.hotel.backend.repository.ReviewRepository;
+import com.hotel.backend.repository.RoomRateProfileRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
 import com.hotel.backend.service.Impl.RoomTypeServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,9 +16,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +35,8 @@ class RoomTypeServiceImplTest {
     @Mock ReviewRepository reviewRepository;
     @Mock MediaAssetService mediaAssetService;
     @Mock ReservationAuditService reservationAuditService;
+    @Mock RoomRateProfileRepository roomRateProfileRepository;
+    @Mock PricingV2Properties pricingV2Properties;
 
     private RoomTypeServiceImpl service;
 
@@ -38,7 +47,9 @@ class RoomTypeServiceImplTest {
                 facilityRepository,
                 reviewRepository,
                 mediaAssetService,
-                reservationAuditService);
+                reservationAuditService,
+                roomRateProfileRepository,
+                pricingV2Properties);
     }
 
     /**
@@ -63,14 +74,64 @@ class RoomTypeServiceImplTest {
         verify(reviewRepository, times(1)).summarizeByRoomTypeIds(List.of(11L, 12L));
     }
 
+    @Test
+    void getAllPublishesTheEffectivePackageRateInOneBatchQuery() {
+        RoomType standard = roomType(11L, "STANDARD");
+        RoomType deluxe = roomType(12L, "DELUXE");
+        when(roomTypeRepository.findAllWithFacilities())
+                .thenReturn(List.of(standard, deluxe));
+        when(reviewRepository.summarizeByRoomTypeIds(List.of(11L, 12L)))
+                .thenReturn(List.of());
+        when(pricingV2Properties.supportsRoomType("STANDARD"))
+                .thenReturn(true);
+        when(pricingV2Properties.supportsRoomType("DELUXE"))
+                .thenReturn(true);
+        when(roomRateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(11L, 12L)), any(Instant.class)))
+                .thenReturn(List.of(
+                        rate(standard, "70000", "20000", "170000", "300000"),
+                        rate(deluxe, "100000", "25000", "220000", "400000")));
+
+        List<RoomTypeResponse> result = service.getAll();
+
+        assertTrue(result.get(0).getPackagePricingEnabled());
+        assertTrue(result.get(0).getPricingAvailable());
+        assertEquals(new BigDecimal("70000"), result.get(0).getFirstBlockPrice());
+        assertEquals(new BigDecimal("170000"), result.get(0).getOvernightPrice());
+        assertEquals(new BigDecimal("400000"), result.get(1).getDailyPrice());
+        verify(roomRateProfileRepository, times(1))
+                .findEffectiveByRoomTypeIds(
+                        eq(List.of(11L, 12L)), any(Instant.class));
+    }
+
     private RoomType roomType(Long id, String name) {
         RoomType roomType = RoomType.builder()
+                .code(name.toUpperCase())
                 .typeName(name)
                 .price(BigDecimal.valueOf(100_000L))
                 .maxGuests(2)
                 .build();
         roomType.setId(id);
         return roomType;
+    }
+
+    private RoomRateProfile rate(
+            RoomType roomType,
+            String firstBlockPrice,
+            String extraUnitPrice,
+            String overnightPrice,
+            String dailyPrice) {
+        return RoomRateProfile.builder()
+                .roomType(roomType)
+                .includedGuests(1)
+                .firstBlockMinutes(120)
+                .firstBlockPrice(new BigDecimal(firstBlockPrice))
+                .extraUnitMinutes(60)
+                .extraUnitPrice(new BigDecimal(extraUnitPrice))
+                .overnightPrice(new BigDecimal(overnightPrice))
+                .dailyPrice(new BigDecimal(dailyPrice))
+                .extraGuestPrice(new BigDecimal("50000"))
+                .build();
     }
 
     private ReviewRepository.RoomTypeRatingSummary summary(

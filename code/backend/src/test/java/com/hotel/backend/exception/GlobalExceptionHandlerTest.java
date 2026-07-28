@@ -30,6 +30,22 @@ class GlobalExceptionHandlerTest {
                         .value("Thiếu header bắt buộc: 'Idempotency-Key'"));
     }
 
+    @Test
+    void appExceptionExposesStableCodeForClientRecovery() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new RequiredHeaderController())
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(post("/price-changed")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(5083))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message")
+                        .value(ErrorCode.PRICE_CHANGED.getMessage()));
+    }
+
     @RestController
     static class RequiredHeaderController {
 
@@ -37,6 +53,11 @@ class GlobalExceptionHandlerTest {
         String requiredHeader(
                 @RequestHeader("Idempotency-Key") String idempotencyKey) {
             return idempotencyKey;
+        }
+
+        @PostMapping("/price-changed")
+        String priceChanged() {
+            throw new AppException(ErrorCode.PRICE_CHANGED);
         }
     }
 }

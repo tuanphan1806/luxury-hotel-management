@@ -7,6 +7,7 @@ import com.hotel.backend.dto.request.RejectReservationRequest;
 import com.hotel.backend.dto.request.CreateReservationRequest;
 import com.hotel.backend.dto.request.CreateWalkInReservationRequest;
 import com.hotel.backend.dto.request.CreateWalkInCheckedInRequest;
+import com.hotel.backend.dto.request.ExtendReservationRequest;
 import com.hotel.backend.dto.request.ReservationRefundRequest;
 import com.hotel.backend.dto.request.RefundRecipientRequest;
 import com.hotel.backend.dto.request.UpdateReservationRequest;
@@ -450,6 +451,33 @@ public ApiResponse<List<AvailabilityResponse>> checkAvailability(
                 reservationId -> reservationService.getReservation(
                         Long.valueOf(reservationId), currentUser, null));
         return ApiResponse.success("Check-out thành công", response);
+    }
+
+    @Operation(
+            summary = "Extend a reservation stay",
+            description = "Revalidates inventory and immutable Pricing V2 snapshots before extending the planned checkout")
+    @PatchMapping("/{id}/extend")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
+    public ApiResponse<ReservationResponse> extendStay(
+            @PathVariable Long id,
+            @Valid @RequestBody ExtendReservationRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal com.hotel.backend.entity.User currentUser) {
+        ReservationResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "RESERVATION_EXTEND",
+                idempotencyService.actorScope(currentUser, null),
+                java.util.Map.of(
+                        "reservationId", id,
+                        "request", request),
+                "RESERVATION",
+                () -> reservationService.extendStay(id, request),
+                item -> String.valueOf(item.getId()),
+                reservationId -> reservationService.getReservation(
+                        Long.valueOf(reservationId), currentUser, null));
+        return ApiResponse.success(
+                "Đã gia hạn thời gian lưu trú và cập nhật nghĩa vụ thanh toán",
+                response);
     }
 
     @Operation(summary = "Update checkout additional fee", description = "Staff/Admin adds or edits the checkout additional fee")

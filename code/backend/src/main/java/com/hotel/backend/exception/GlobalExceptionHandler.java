@@ -318,6 +318,7 @@ public class GlobalExceptionHandler {
             return ResponseEntity
                     .status(code.getHttpStatus())
                     .body(ErrorResponse.builder()
+                            .code(code.getCode())
                             .status(code.getHttpStatus().value())
                             .error(code.getHttpStatus().getReasonPhrase())
                             .message(ex.getMessage())

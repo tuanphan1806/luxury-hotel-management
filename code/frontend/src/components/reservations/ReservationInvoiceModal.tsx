@@ -25,11 +25,20 @@ export interface ReservationInvoice {
   actualCheckOut?: string;
   guestCount: number;
   note?: string;
+  pricingVersion?: "LEGACY_V1" | "MOTEL_PACKAGE_V2";
   roomTypes: Array<{
+    roomTypeCode?: string;
     roomTypeName: string;
     quantity: number;
     pricePerRoomForStay: number;
+    plannedRoomCharge?: number;
+    actualRoomCharge?: number;
+    plannedExtraGuestCharge?: number;
+    extraGuestCharge?: number;
     plannedSubtotal: number;
+    actualSubtotal?: number;
+    appliedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
+    pricingSnapshotHash?: string;
   }>;
   payments: Array<{
     transactionId: string;
@@ -49,6 +58,8 @@ export interface ReservationInvoice {
   plannedRoomCharge: number;
   roomCharge: number;
   actualRoomCharge?: number;
+  extraGuestCharge?: number;
+  postCommitmentRoomIncrease?: number;
   earlyCheckoutAdjustment: number;
   lateCheckoutFee: number;
   checkoutAdditionalFee: number;
@@ -137,10 +148,19 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
     };
     return labels[value]?.[locale] || value;
   };
+  const packageLabel = (value?: string) => {
+    const labels: Record<string, { vi: string; en: string }> = {
+      HOURLY: { vi: "Nghỉ giờ", en: "Hourly" },
+      OVERNIGHT: { vi: "Qua đêm", en: "Overnight" },
+      DAILY: { vi: "Ngày đêm", en: "Daily" },
+    };
+    return value ? labels[value]?.[locale] || value : "";
+  };
   const billableServices = (invoice.services || []).filter(
     (service) => service.status === "CONFIRMED" || service.status === "FULFILLED",
   );
   const settled = invoice.settlementStatus === "PAID" && invoice.balanceAmount === 0;
+  const isPricingV2 = invoice.pricingVersion === "MOTEL_PACKAGE_V2";
 
   return (
     <ViewportModal
@@ -198,15 +218,27 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
             <div className="overflow-hidden rounded-lg border border-[#0F2A43]/15">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-[#E5E9ED] text-left text-xs text-[#66727C]">
-                  <tr><th className="px-4 py-3">{localize("Loại phòng", "Room type")}</th><th className="px-4 py-3 text-center">{localize("Số lượng", "Quantity")}</th><th className="px-4 py-3 text-right">{localize("Giá 1 phòng / kỳ lưu trú", "Price per room / stay")}</th><th className="px-4 py-3 text-right">{localize("Tạm tính dự kiến", "Planned subtotal")}</th></tr>
+                  <tr><th className="px-4 py-3">{localize("Loại phòng", "Room type")}</th><th className="px-4 py-3 text-center">{localize("Số lượng", "Quantity")}</th><th className="px-4 py-3 text-right">{localize("Giá 1 phòng / kỳ lưu trú", "Price per room / stay")}</th><th className="px-4 py-3 text-right">{isPricingV2 ? localize("Thành tiền thực tế", "Actual line total") : localize("Tạm tính dự kiến", "Planned subtotal")}</th></tr>
                 </thead>
                 <tbody className="divide-y divide-[#0F2A43]/10">
-                  {invoice.roomTypes.map((item, index) => (
-                    <tr key={`${item.roomTypeName}-${index}`}>
-                      <td className="px-4 py-3 font-semibold">{item.roomTypeName}</td>
+                  {invoice.roomTypes.map((item) => (
+                    <tr key={item.roomTypeCode || item.roomTypeName}>
+                      <td className="px-4 py-3 font-semibold">
+                        <span>{item.roomTypeName}</span>
+                        {isPricingV2 && item.appliedPackage && (
+                          <span className="mt-1 block text-[11px] font-bold uppercase tracking-[0.08em] text-[#80632F]">
+                            {packageLabel(item.appliedPackage)}
+                          </span>
+                        )}
+                        {isPricingV2 && (item.extraGuestCharge || 0) > 0 && (
+                          <span className="mt-1 block text-[11px] font-semibold text-[#80632F]">
+                            {localize("Gồm phụ thu khách", "Includes extra guests")}: {money(item.extraGuestCharge)}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center tabular-nums">{item.quantity}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{money(item.pricePerRoomForStay)}</td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(item.plannedSubtotal)}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(isPricingV2 ? item.actualSubtotal ?? item.plannedSubtotal : item.plannedSubtotal)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -267,7 +299,9 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
               <div className="flex justify-between"><span>{localize("Tiền phòng dự kiến", "Planned room charge")}</span><span>{money(invoice.plannedRoomCharge)}</span></div>
               {(invoice.earlyCheckoutAdjustment || 0) > 0 && <div className="flex justify-between text-blue-700"><span>{localize("Giảm do trả sớm", "Early checkout adjustment")}</span><span>− {money(invoice.earlyCheckoutAdjustment)}</span></div>}
               <div className="flex justify-between font-semibold"><span>{localize("Tiền phòng thực tế", "Actual room charge")}</span><span>{money(invoice.actualRoomCharge ?? invoice.roomCharge)}</span></div>
-              {(invoice.lateCheckoutFee || 0) > 0 && <div className="flex justify-between"><span>{localize("Phụ phí trả muộn", "Late checkout fee")}</span><span>+ {money(invoice.lateCheckoutFee)}</span></div>}
+              {isPricingV2 && (invoice.postCommitmentRoomIncrease || 0) > 0 && <div className="flex justify-between text-xs text-[#66727C]"><span>{localize("Trong đó: tăng tiền phòng sau cam kết", "Included: room-price increase after commitment")}</span><span>{money(invoice.postCommitmentRoomIncrease)}</span></div>}
+              {!isPricingV2 && (invoice.lateCheckoutFee || 0) > 0 && <div className="flex justify-between"><span>{localize("Phụ phí trả muộn", "Late checkout fee")}</span><span>+ {money(invoice.lateCheckoutFee)}</span></div>}
+              {(invoice.extraGuestCharge || 0) > 0 && <div className="flex justify-between font-semibold text-[#80632F]"><span>{localize("Phụ thu khách thêm", "Extra guest charge")}</span><span>+ {money(invoice.extraGuestCharge)}</span></div>}
               {(invoice.checkoutAdditionalFee || 0) > 0 && <div className="flex justify-between"><span>{localize("Phụ phí khác", "Additional fee")}</span><span>+ {money(invoice.checkoutAdditionalFee)}</span></div>}
               {(invoice.addOnServiceAmount || 0) > 0 && <div className="flex justify-between font-semibold text-[#80632F]"><span>{localize("Dịch vụ thêm", "Add-on services")}</span><span>+ {money(invoice.addOnServiceAmount)}</span></div>}
               {(invoice.discountAmount || 0) > 0 && <div className="flex justify-between"><span>{localize("Giảm giá", "Discount")}</span><span>− {money(invoice.discountAmount)}</span></div>}

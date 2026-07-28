@@ -2,6 +2,7 @@ package com.hotel.backend.service;
 
 import com.hotel.backend.dto.request.AssignRoomRequest;
 import com.hotel.backend.dto.request.CheckoutRefundRequest;
+import com.hotel.backend.dto.request.ExtendReservationRequest;
 import com.hotel.backend.dto.request.ReservationRefundRequest;
 import com.hotel.backend.dto.response.ReservationResponse;
 
@@ -12,6 +13,10 @@ public interface StayLifecycleUseCases {
     ReservationResponse checkIn(Long reservationId, List<AssignRoomRequest> requests);
 
     ReservationResponse checkOut(Long reservationId);
+
+    ReservationResponse extendStay(
+            Long reservationId,
+            ExtendReservationRequest request);
 
     ReservationResponse updateCheckoutAdditionalFee(
             Long reservationId,

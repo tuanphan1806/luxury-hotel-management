@@ -1,5 +1,6 @@
 package com.hotel.backend.entity;
 
+import com.hotel.backend.constant.StayPackage;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -31,6 +32,16 @@ public class ReservationRoomType extends AbstractEntity<Long> implements Seriali
 
     @Column(name = "subtotal", precision = 12, scale = 2, nullable = false)
     private BigDecimal subtotal; // = roomPrice x quantity x số đêm
+
+    @Column(name = "line_guest_count")
+    private Integer lineGuestCount;
+
+    @Column(name = "minimum_committed_room_charge", precision = 14, scale = 2)
+    private BigDecimal minimumCommittedRoomCharge;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "max_package_reached", length = 24)
+    private StayPackage maxPackageReached;
 
     @Builder.Default
     @OneToMany(mappedBy = "reservationRoomType", cascade = CascadeType.ALL, orphanRemoval = true)

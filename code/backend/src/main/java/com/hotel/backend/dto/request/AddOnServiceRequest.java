@@ -48,8 +48,8 @@ public class AddOnServiceRequest {
 
     @NotNull(message = "Giá dịch vụ không được để trống")
     @DecimalMin(value = "0", message = "Giá dịch vụ không được âm")
-    @Digits(integer = 10, fraction = 2,
-            message = "Giá dịch vụ tối đa 10 chữ số nguyên và 2 chữ số thập phân")
+    @Digits(integer = 10, fraction = 0,
+            message = "Giá dịch vụ phải là số VND nguyên, tối đa 10 chữ số")
     private BigDecimal price;
 
     @NotNull(message = "Đơn vị tính không được để trống")

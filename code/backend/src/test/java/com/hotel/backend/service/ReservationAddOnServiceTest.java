@@ -2,6 +2,7 @@ package com.hotel.backend.service;
 
 import com.hotel.backend.constant.AddOnPricingUnit;
 import com.hotel.backend.constant.AddOnServiceCategory;
+import com.hotel.backend.constant.PricingAlgorithmVersion;
 import com.hotel.backend.constant.ReservationServiceOrigin;
 import com.hotel.backend.constant.ReservationServiceStatus;
 import com.hotel.backend.constant.ReservationStatus;
@@ -46,6 +47,7 @@ class ReservationAddOnServiceTest {
     @Mock private PaymentReservationAccessPolicy accessPolicy;
     @Mock private ReservationAuditService auditService;
     @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private PricingV2LifecycleService pricingV2LifecycleService;
 
     private ReservationAddOnService service;
     private Reservation reservation;
@@ -59,7 +61,8 @@ class ReservationAddOnServiceTest {
                 reservationRepository,
                 accessPolicy,
                 auditService,
-                eventPublisher);
+                eventPublisher,
+                pricingV2LifecycleService);
         reservation = Reservation.builder()
                 .reservationCode("RES-ADDON-1")
                 .status(ReservationStatus.CHECKED_IN)
@@ -77,7 +80,10 @@ class ReservationAddOnServiceTest {
     @Test
     void bookingQuoteUsesQuantityTimesChargeableNights() {
         AddOnService rollaway = catalog(
-                3L, "EXTRA_ROLLAWAY_BED", AddOnPricingUnit.PER_NIGHT, "200000.00");
+                3L,
+                "EXTRA_ROLLAWAY_BED",
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
+                "200000.00");
         when(catalogRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(rollaway));
 
         ReservationAddOnService.BookingQuote quote = service.quoteBookingTime(
@@ -92,6 +98,84 @@ class ReservationAddOnServiceTest {
             assertThat(line.multiplier()).isEqualTo(2);
             assertThat(line.billableQuantity()).isEqualTo(4);
         });
+    }
+
+    @Test
+    void pricingV2BookingQuoteUsesAuthoritativePackageCycles() {
+        AddOnService rollaway = catalog(
+                3L,
+                "EXTRA_ROLLAWAY_BED",
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
+                "200000.00");
+        when(catalogRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(rollaway));
+
+        ReservationAddOnService.BookingQuote quote =
+                service.quoteBookingTimeForPackageCycles(
+                        List.of(ServiceOrderRequest.builder()
+                                .serviceId(3L)
+                                .quantity(2)
+                                .build()),
+                        4,
+                        1);
+
+        assertThat(quote.totalAmount()).isEqualByComparingTo("400000.00");
+        assertThat(quote.lines()).singleElement().satisfies(line -> {
+            assertThat(line.quantity()).isEqualTo(2);
+            assertThat(line.multiplier()).isEqualTo(1);
+            assertThat(line.billableQuantity()).isEqualTo(2);
+        });
+    }
+
+    @Test
+    void legacyPerNightAliasRetainsPackageCycleBehavior() {
+        AddOnService legacy = catalog(
+                3L,
+                "LEGACY_ROLLAWAY_BED",
+                AddOnPricingUnit.PER_NIGHT,
+                "200000.00");
+        when(catalogRepository.findByIdForUpdate(3L))
+                .thenReturn(Optional.of(legacy));
+
+        ReservationAddOnService.BookingQuote quote =
+                service.quoteBookingTimeForPackageCycles(
+                        List.of(ServiceOrderRequest.builder()
+                                .serviceId(3L)
+                                .quantity(1)
+                                .build()),
+                        2,
+                        3);
+
+        assertThat(quote.totalAmount()).isEqualByComparingTo("600000.00");
+        assertThat(quote.lines()).singleElement().satisfies(line -> {
+            assertThat(line.multiplier()).isEqualTo(3);
+            assertThat(line.billableQuantity()).isEqualTo(3);
+        });
+    }
+
+    @Test
+    void legacyDurationRoundsSubMinuteRemainderUpBeforeCountingCycles() {
+        AddOnService rollaway = catalog(
+                3L,
+                "EXTRA_ROLLAWAY_BED",
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
+                "200000.00");
+        when(catalogRepository.findByIdForUpdate(3L))
+                .thenReturn(Optional.of(rollaway));
+        LocalDateTime checkIn = LocalDateTime.of(2026, 7, 20, 14, 0);
+
+        ReservationAddOnService.BookingQuote quote = service.quoteBookingTime(
+                List.of(ServiceOrderRequest.builder()
+                        .serviceId(3L)
+                        .quantity(1)
+                        .build()),
+                2,
+                checkIn,
+                checkIn.plusHours(24).plusNanos(1));
+
+        assertThat(quote.totalAmount()).isEqualByComparingTo("400000.00");
+        assertThat(quote.lines()).singleElement()
+                .extracting(ReservationAddOnService.PricedService::multiplier)
+                .isEqualTo(2);
     }
 
     @Test
@@ -132,6 +216,74 @@ class ReservationAddOnServiceTest {
         assertThat(response.getStatus()).isEqualTo(ReservationServiceStatus.REQUESTED);
         assertThat(reservation.getTotalAmount()).isEqualByComparingTo("1000000.00");
         verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void inStayPackageCycleUsesPricingV2AuthoritativeCycleCount() {
+        reservation.setPricingVersion(PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
+        AddOnService rollaway = catalog(
+                3L,
+                "EXTRA_ROLLAWAY_BED",
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
+                "200000.00");
+        when(reservationRepository.findByIdForUpdate(41L))
+                .thenReturn(Optional.of(reservation));
+        when(catalogRepository.findById(3L)).thenReturn(Optional.of(rollaway));
+        when(pricingV2LifecycleService.supports(reservation)).thenReturn(true);
+        when(pricingV2LifecycleService.packageCycles(
+                reservation, reservation.getCheckOut())).thenReturn(1);
+        when(orderRepository.save(any(ReservationServiceOrder.class)))
+                .thenAnswer(invocation -> {
+                    ReservationServiceOrder order = invocation.getArgument(0);
+                    order.setId(92L);
+                    return order;
+                });
+
+        var response = service.requestInStay(
+                41L,
+                ServiceOrderRequest.builder()
+                        .serviceId(3L)
+                        .quantity(1)
+                        .build(),
+                staff,
+                null);
+
+        assertThat(response.getPricingMultiplier()).isEqualTo(1);
+        assertThat(response.getTotalPrice()).isEqualByComparingTo("200000.00");
+        verify(pricingV2LifecycleService).packageCycles(
+                reservation, reservation.getCheckOut());
+    }
+
+    @Test
+    void extensionRepricesRequestedAndConfirmedCycleServicesButAddsOnlyCommittedDebt() {
+        ReservationServiceOrder confirmed = cycleOrder(
+                101L,
+                ReservationServiceOrigin.BOOKING_TIME,
+                ReservationServiceStatus.CONFIRMED);
+        ReservationServiceOrder requested = cycleOrder(
+                102L,
+                ReservationServiceOrigin.IN_STAY,
+                ReservationServiceStatus.REQUESTED);
+        when(orderRepository.findByReservationIdForUpdate(41L))
+                .thenReturn(List.of(confirmed, requested));
+
+        ReservationAddOnService.ExtensionAdjustment adjustment =
+                service.repriceBookingTimeForExtension(
+                        reservation,
+                        reservation.getCheckOut().plusDays(2),
+                        3);
+
+        assertThat(adjustment.updatedOrders()).isEqualTo(2);
+        assertThat(adjustment.additionalCharge())
+                .isEqualByComparingTo("400000.00");
+        assertThat(confirmed.getPricingMultiplier()).isEqualTo(3);
+        assertThat(confirmed.getTotalPrice())
+                .isEqualByComparingTo("600000.00");
+        assertThat(requested.getPricingMultiplier()).isEqualTo(3);
+        assertThat(requested.getTotalPrice())
+                .isEqualByComparingTo("600000.00");
+        verify(orderRepository).save(confirmed);
+        verify(orderRepository).save(requested);
     }
 
     @Test
@@ -250,6 +402,34 @@ class ReservationAddOnServiceTest {
                 .requestedAtUtc(java.time.Instant.now())
                 .build();
         order.setId(91L);
+        return order;
+    }
+
+    private ReservationServiceOrder cycleOrder(
+            Long id,
+            ReservationServiceOrigin origin,
+            ReservationServiceStatus status) {
+        AddOnService item = catalog(
+                3L,
+                "EXTRA_ROLLAWAY_BED",
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
+                "200000.00");
+        ReservationServiceOrder order = ReservationServiceOrder.builder()
+                .reservation(reservation)
+                .service(item)
+                .origin(origin)
+                .serviceCodeSnapshot(item.getCode())
+                .serviceNameSnapshot(item.getName())
+                .unitPriceSnapshot(new BigDecimal("200000.00"))
+                .pricingUnitSnapshot(AddOnPricingUnit.PER_PACKAGE_CYCLE)
+                .quantity(1)
+                .pricingMultiplier(1)
+                .billableQuantity(1)
+                .totalPrice(new BigDecimal("200000.00"))
+                .status(status)
+                .requestedAtUtc(java.time.Instant.now())
+                .build();
+        order.setId(id);
         return order;
     }
 }

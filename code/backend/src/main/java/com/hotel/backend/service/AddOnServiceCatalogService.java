@@ -1,5 +1,6 @@
 package com.hotel.backend.service;
 
+import com.hotel.backend.constant.AddOnPricingUnit;
 import com.hotel.backend.constant.MediaAssetOwnerType;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.ReservationServiceOrigin;
@@ -67,7 +68,7 @@ public class AddOnServiceCatalogService {
                 .descriptionEn(normalizeOptional(request.getDescriptionEn()))
                 .category(request.getCategory())
                 .price(normalizePrice(request.getPrice()))
-                .pricingUnit(request.getPricingUnit())
+                .pricingUnit(normalizePricingUnit(request.getPricingUnit()))
                 .bookingEnabled(defaultTrue(request.getBookingEnabled()))
                 .inStayEnabled(defaultTrue(request.getInStayEnabled()))
                 .active(true)
@@ -103,7 +104,7 @@ public class AddOnServiceCatalogService {
         service.setDescriptionEn(normalizeOptional(request.getDescriptionEn()));
         service.setCategory(request.getCategory());
         service.setPrice(normalizePrice(request.getPrice()));
-        service.setPricingUnit(request.getPricingUnit());
+        service.setPricingUnit(normalizePricingUnit(request.getPricingUnit()));
         service.setBookingEnabled(defaultTrue(request.getBookingEnabled()));
         service.setInStayEnabled(defaultTrue(request.getInStayEnabled()));
         service.setSortOrder(normalizeSortOrder(request.getSortOrder()));
@@ -204,12 +205,23 @@ public class AddOnServiceCatalogService {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Giá dịch vụ không hợp lệ");
         }
         try {
-            return price.setScale(2, RoundingMode.UNNECESSARY);
+            return price.setScale(0, RoundingMode.UNNECESSARY);
         } catch (ArithmeticException exception) {
             throw new AppException(
                     ErrorCode.INVALID_REQUEST,
-                    "Giá dịch vụ chỉ được có tối đa 2 chữ số thập phân");
+                    "Giá dịch vụ phải là số VND nguyên");
         }
+    }
+
+    private AddOnPricingUnit normalizePricingUnit(AddOnPricingUnit unit) {
+        if (unit == null || unit == AddOnPricingUnit.PER_NIGHT) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    unit == null
+                            ? "Đơn vị tính dịch vụ không hợp lệ"
+                            : "PER_NIGHT là đơn vị cũ; hãy dùng PER_PACKAGE_CYCLE");
+        }
+        return unit;
     }
 
     private int normalizeSortOrder(Integer sortOrder) {

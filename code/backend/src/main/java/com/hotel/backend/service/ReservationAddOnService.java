@@ -23,6 +23,7 @@ import com.hotel.backend.repository.ReservationServiceOrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -37,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +48,8 @@ public class ReservationAddOnService {
             Set.of(ReservationServiceStatus.CONFIRMED, ReservationServiceStatus.FULFILLED);
     private static final Set<ReservationServiceStatus> CHECKOUT_BLOCKING_STATUSES =
             Set.of(ReservationServiceStatus.REQUESTED, ReservationServiceStatus.CONFIRMED);
+    private static final Set<ReservationServiceStatus> EXTENSION_REPRICEABLE_STATUSES =
+            Set.of(ReservationServiceStatus.REQUESTED, ReservationServiceStatus.CONFIRMED);
 
     private final AddOnServiceRepository catalogRepository;
     private final ReservationServiceOrderRepository orderRepository;
@@ -53,6 +57,7 @@ public class ReservationAddOnService {
     private final PaymentReservationAccessPolicy accessPolicy;
     private final ReservationAuditService auditService;
     private final ApplicationEventPublisher eventPublisher;
+    private final PricingV2LifecycleService pricingV2LifecycleService;
 
     @Transactional
     public BookingQuote quoteBookingTime(
@@ -66,7 +71,70 @@ public class ReservationAddOnService {
                 checkIn,
                 checkOut,
                 ReservationServiceOrigin.BOOKING_TIME,
-                true);
+                true,
+                null);
+    }
+
+    /**
+     * Pricing V2 entry point. Package-cycle services use the count already
+     * decided by the room-pricing engine instead of independently classifying
+     * the stay. Historical PER_NIGHT snapshots remain a compatibility alias.
+     */
+    @Transactional
+    public BookingQuote quoteBookingTimeForPackageCycles(
+            List<ServiceOrderRequest> requests,
+            int guestCount,
+            int packageCycles) {
+        return quote(
+                requests,
+                guestCount,
+                null,
+                null,
+                ReservationServiceOrigin.BOOKING_TIME,
+                true,
+                packageCycles);
+    }
+
+    /**
+     * Read-only preview used by the public pricing quote.
+     *
+     * <p>The catalog is deliberately not locked here. Reservation creation
+     * calls {@link #quoteBookingTime(List, int, LocalDateTime, LocalDateTime)}
+     * again with row locks before committing any amount.</p>
+     */
+    @Transactional(readOnly = true)
+    public BookingQuote previewBookingTime(
+            List<ServiceOrderRequest> requests,
+            int guestCount,
+            LocalDateTime checkIn,
+            LocalDateTime checkOut) {
+        return quote(
+                requests,
+                guestCount,
+                checkIn,
+                checkOut,
+                ReservationServiceOrigin.BOOKING_TIME,
+                false,
+                null);
+    }
+
+    /**
+     * Read-only Pricing V2 preview using the engine's authoritative package
+     * cycles.
+     */
+    @Transactional(readOnly = true)
+    public BookingQuote previewBookingTimeForPackageCycles(
+            List<ServiceOrderRequest> requests,
+            int guestCount,
+            int packageCycles) {
+        return quote(
+                requests,
+                guestCount,
+                null,
+                null,
+                ReservationServiceOrigin.BOOKING_TIME,
+                false,
+                packageCycles);
     }
 
     @Transactional
@@ -124,13 +192,18 @@ public class ReservationAddOnService {
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
         accessPolicy.ensureCanAccessReservation(currentUser, reservation, guestToken);
         validateCanRequestInStay(reservation, currentUser);
+        Integer packageCycles = pricingV2LifecycleService.supports(reservation)
+                ? pricingV2LifecycleService.packageCycles(
+                        reservation, reservation.getCheckOut())
+                : null;
         BookingQuote quote = quote(
                 List.of(request),
                 requireGuestCount(reservation),
                 effectiveInStayStart(reservation),
                 reservation.getCheckOut(),
                 ReservationServiceOrigin.IN_STAY,
-                false);
+                false,
+                packageCycles);
         PricedService line = quote.lines().get(0);
         Instant now = Instant.now();
         ReservationServiceOrder saved = orderRepository.save(toEntity(
@@ -206,6 +279,92 @@ public class ReservationAddOnService {
                 reservationId, COMMITTED_STATUSES));
     }
 
+    /**
+     * Extends requested or confirmed services charged per package cycle,
+     * regardless of whether they were selected at booking time or requested
+     * during the stay.
+     * The original unit-price snapshot remains authoritative; catalog changes
+     * are deliberately ignored. Requested orders are repriced without changing
+     * reservation debt; confirmed orders add only their delta. Fulfilled
+     * services are not reopened automatically.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public ExtensionAdjustment repriceBookingTimeForExtension(
+            Reservation reservation,
+            LocalDateTime newCheckOut,
+            int newMultiplier) {
+        if (newMultiplier < 1) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Số chu kỳ tính giá dịch vụ phải lớn hơn 0");
+        }
+        BigDecimal additionalCharge = BigDecimal.ZERO;
+        int updatedOrders = 0;
+        String correlationId = UUID.randomUUID().toString();
+
+        for (ReservationServiceOrder order :
+                orderRepository.findByReservationIdForUpdate(
+                        reservation.getId())) {
+            if (!isPackageCycleUnit(order.getPricingUnitSnapshot())
+                    || !EXTENSION_REPRICEABLE_STATUSES.contains(order.getStatus())
+                    || newMultiplier
+                    <= order.getPricingMultiplier()) {
+                continue;
+            }
+
+            int oldMultiplier = order.getPricingMultiplier();
+            int oldBillableQuantity = order.getBillableQuantity();
+            BigDecimal oldTotal = order.getTotalPrice();
+            int newBillableQuantity = Math.multiplyExact(
+                    order.getQuantity(), newMultiplier);
+            BigDecimal newTotal = order.getUnitPriceSnapshot()
+                    .multiply(BigDecimal.valueOf(newBillableQuantity))
+                    .setScale(2);
+            BigDecimal delta = newTotal.subtract(oldTotal);
+
+            order.setPricingMultiplier(newMultiplier);
+            order.setBillableQuantity(newBillableQuantity);
+            order.setTotalPrice(newTotal);
+            orderRepository.save(order);
+            if (order.getStatus() == ReservationServiceStatus.CONFIRMED) {
+                additionalCharge = additionalCharge.add(delta);
+            }
+            updatedOrders++;
+
+            auditService.record(
+                    reservation,
+                    "RESERVATION_SERVICE",
+                    String.valueOf(order.getId()),
+                    ReservationAuditAction
+                            .RESERVATION_SERVICE_REPRICED,
+                    "Điều chỉnh dịch vụ theo số chu kỳ lưu trú sau gia hạn",
+                    Map.of(
+                            "pricingMultiplier", oldMultiplier,
+                            "billableQuantity", oldBillableQuantity,
+                            "totalPrice", oldTotal),
+                    Map.of(
+                            "pricingMultiplier", newMultiplier,
+                            "billableQuantity", newBillableQuantity,
+                            "totalPrice", newTotal),
+                    Map.of(
+                            "serviceCode",
+                            order.getServiceCodeSnapshot(),
+                            "pricingUnit",
+                            order.getPricingUnitSnapshot(),
+                            "newCheckOut",
+                            newCheckOut),
+                    correlationId,
+                    "RESERVATION_SERVICE_REPRICED:"
+                            + reservation.getId()
+                            + ":"
+                            + order.getId()
+                            + ":"
+                            + newMultiplier);
+        }
+        return new ExtensionAdjustment(
+                additionalCharge.setScale(2), updatedOrders);
+    }
+
     @Transactional(readOnly = true)
     public boolean hasCheckoutBlockers(Long reservationId) {
         return orderRepository.existsByReservationIdAndStatusIn(
@@ -244,20 +403,37 @@ public class ReservationAddOnService {
             LocalDateTime checkIn,
             LocalDateTime checkOut,
             ReservationServiceOrigin origin,
-            boolean lockCatalog) {
+            boolean lockCatalog,
+            Integer packageCyclesOverride) {
         if (requests == null || requests.isEmpty()) {
             return new BookingQuote(List.of(), BigDecimal.ZERO);
         }
-        if (guestCount < 1 || checkIn == null || checkOut == null || !checkOut.isAfter(checkIn)) {
+        boolean invalidStayWindow = packageCyclesOverride == null
+                && (checkIn == null
+                        || checkOut == null
+                        || !checkOut.isAfter(checkIn));
+        if (guestCount < 1
+                || invalidStayWindow
+                || (packageCyclesOverride != null
+                        && packageCyclesOverride < 1)) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Thông tin tính giá dịch vụ không hợp lệ");
         }
         Set<Long> uniqueIds = new HashSet<>();
+        for (ServiceOrderRequest request : requests) {
+            if (request == null || request.getServiceId() == null) {
+                throw new AppException(
+                        ErrorCode.INVALID_REQUEST,
+                        "Danh sách dịch vụ có mục trùng hoặc thiếu mã");
+            }
+        }
         List<ServiceOrderRequest> sorted = requests.stream()
                 .sorted(Comparator.comparing(ServiceOrderRequest::getServiceId))
                 .toList();
         List<PricedService> lines = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
-        int nights = chargeableNights(checkIn, checkOut);
+        int nights = packageCyclesOverride != null
+                ? packageCyclesOverride
+                : chargeableNights(checkIn, checkOut);
         for (ServiceOrderRequest request : sorted) {
             if (request == null || request.getServiceId() == null
                     || !uniqueIds.add(request.getServiceId())) {
@@ -271,7 +447,9 @@ public class ReservationAddOnService {
                             .orElseThrow(() -> serviceNotFound());
             validateAvailable(service, origin);
             int quantity = normalizeQuantity(service.getPricingUnit(), request.getQuantity(), guestCount);
-            int multiplier = service.getPricingUnit() == AddOnPricingUnit.PER_NIGHT ? nights : 1;
+            int multiplier = isPackageCycleUnit(service.getPricingUnit())
+                    ? nights
+                    : 1;
             int billableQuantity = Math.multiplyExact(quantity, multiplier);
             BigDecimal lineTotal = service.getPrice()
                     .multiply(BigDecimal.valueOf(billableQuantity))
@@ -397,8 +575,17 @@ public class ReservationAddOnService {
     }
 
     private int chargeableNights(LocalDateTime checkIn, LocalDateTime checkOut) {
-        long minutes = Duration.between(checkIn, checkOut).toMinutes();
+        Duration duration = Duration.between(checkIn, checkOut);
+        long minutes = duration.toMinutes();
+        if (!duration.equals(Duration.ofMinutes(minutes))) {
+            minutes++;
+        }
         return Math.max(1, Math.toIntExact((minutes + 1439L) / 1440L));
+    }
+
+    private boolean isPackageCycleUnit(AddOnPricingUnit unit) {
+        return unit == AddOnPricingUnit.PER_PACKAGE_CYCLE
+                || unit == AddOnPricingUnit.PER_NIGHT;
     }
 
     private LocalDateTime effectiveInStayStart(Reservation reservation) {
@@ -481,6 +668,10 @@ public class ReservationAddOnService {
     }
 
     public record BookingQuote(List<PricedService> lines, BigDecimal totalAmount) {}
+
+    public record ExtensionAdjustment(
+            BigDecimal additionalCharge,
+            int updatedOrders) {}
 
     public record PricedService(
             AddOnService service,

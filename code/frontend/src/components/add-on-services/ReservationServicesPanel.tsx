@@ -213,7 +213,7 @@ export default function ReservationServicesPanel({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div><p className="font-bold text-[#0F2A43]">{localize(order.serviceName, order.serviceNameEn)}</p><p className="mt-0.5 text-xs text-[#66727C]">{order.quantity} × {money(order.unitPrice)} {pricingUnitLabel(order.pricingUnit, localize)}{order.pricingMultiplier > 1 ? ` · ${order.pricingMultiplier} ${localize("đêm", "nights")}` : ""}</p></div>
+                      <div><p className="font-bold text-[#0F2A43]">{localize(order.serviceName, order.serviceNameEn)}</p><p className="mt-0.5 text-xs text-[#66727C]">{order.quantity} × {money(order.unitPrice)} {pricingUnitLabel(order.pricingUnit, localize)}{order.pricingMultiplier > 1 ? ` · ${order.pricingMultiplier} ${localize("chu kỳ", "cycles")}` : ""}</p></div>
                       <div className="text-right"><span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold ${statusTone(order.status)}`}>{serviceStatusLabel(order.status, localize)}</span><p className="mt-1 text-sm font-black tabular-nums text-[#80632F]">{money(order.totalPrice)}</p></div>
                     </div>
                     {order.notes && <p className="mt-2 text-xs leading-5 text-[#66727C]">{localize("Ghi chú", "Note")}: {order.notes}</p>}

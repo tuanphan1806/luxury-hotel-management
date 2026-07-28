@@ -1,6 +1,7 @@
 package com.hotel.backend.dto.response;
 
 import com.hotel.backend.constant.CheckoutReconciliationStatus;
+import com.hotel.backend.constant.PricingAlgorithmVersion;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,6 +22,11 @@ public class CheckoutReconciliationResponse {
     private Long uncoveredRefundAmount;
     private Long outstandingAmount;
     private Long deltaAmount;
+    private PricingAlgorithmVersion pricingVersion;
+    private Long plannedRoomCharge;
+    private Long actualRoomCharge;
+    private Long extraGuestCharge;
+    private Long postCommitmentRoomIncrease;
     private Long lateCheckoutFee;
     private Long earlyCheckoutAdjustment;
     private Long checkoutAdditionalFee;

@@ -10,17 +10,18 @@ import DateTimeField from "@/components/forms/DateTimeField";
 import { getPublicFacilities, getPublicGalleries, getPublicRoomTypes } from "@/lib/public-catalog";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import FacilityDetailModal, { type FacilityDetailItem } from "@/components/guest/FacilityDetailModal";
+import { RoomRateCompact, type PublicRoomRate } from "@/components/guest/RoomRateDisplay";
+import { isStayWithinMaximum, MAX_STAY_DAYS } from "@/lib/stay-window";
 
 type FacilityItem = FacilityDetailItem;
 
-interface RoomTypeItem {
+interface RoomTypeItem extends PublicRoomRate {
   id?: number;
   typeName?: string;
   typeNameEn?: string;
   title?: string;
   description?: string;
   descriptionEn?: string;
-  price?: number | string;
   imageUrl?: string;
   imageUrls?: string[];
   image?: string;
@@ -60,7 +61,7 @@ function CarouselControls({
 
 export default function HomePage() {
   const router = useRouter();
-  const { locale, localeTag, localize } = useLanguage();
+  const { locale, localize } = useLanguage();
   const [facilities, setFacilities] = useState<FacilityItem[]>([]);
   const [rooms, setRooms] = useState<RoomTypeItem[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
@@ -189,6 +190,17 @@ export default function HomePage() {
 
     if (checkOutDate <= checkInDate) {
       setToast({ message: localize("Thời gian trả phòng phải sau thời gian nhận phòng.", "Check-out must be after check-in."), type: "error" });
+      return;
+    }
+
+    if (!isStayWithinMaximum(checkInDate, checkOutDate)) {
+      setToast({
+        message: localize(
+          `Một đơn chỉ hỗ trợ tối đa ${MAX_STAY_DAYS} ngày. Vui lòng chia kỳ lưu trú hoặc liên hệ khách sạn.`,
+          `A booking supports up to ${MAX_STAY_DAYS} days. Split the stay or contact the hotel.`,
+        ),
+        type: "error",
+      });
       return;
     }
 
@@ -538,7 +550,7 @@ export default function HomePage() {
                   )}
                 </Link>
                 <div className="space-y-4">
-                  <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#66727C]">{typeof room.price === "number" ? room.price.toLocaleString(localeTag, { style: "currency", currency: "VND", maximumFractionDigits: 0 }) : room.price || localize("Liên hệ", "Contact us")} / {localize("giờ", "hour")}</p>
+                  <RoomRateCompact rate={room} className="inline-block shadow-none" />
                   <h3 className="font-serif text-3xl font-bold text-[#0F2A43] md:text-5xl">{title}</h3>
                   <p className="max-w-2xl leading-7 text-[#66727C]">
                     {localize(room.description, room.descriptionEn) || localize("Không gian nghỉ dưỡng yên tĩnh, tiện nghi và sẵn sàng phục vụ từ khi nhận đến lúc trả phòng.", "A quiet stay with generous space, essential amenities, and service ready from arrival to checkout.")}

@@ -1,7 +1,13 @@
 import { publicApiClient } from "@/lib/api";
 
 export type AddOnServiceFlow = "BOOKING_TIME" | "IN_STAY";
-export type AddOnPricingUnit = "PER_GUEST" | "PER_NIGHT" | "PER_ITEM" | "PER_ORDER" | "PER_USE";
+export type AddOnPricingUnit =
+  | "PER_GUEST"
+  | "PER_PACKAGE_CYCLE"
+  | "PER_NIGHT"
+  | "PER_ITEM"
+  | "PER_ORDER"
+  | "PER_USE";
 export type AddOnServiceCategory = "FOOD_BEVERAGE" | "AMENITY" | "EQUIPMENT" | "DECORATION" | "OTHER";
 export type ReservationServiceOrigin = "BOOKING_TIME" | "IN_STAY";
 export type ReservationServiceStatus = "REQUESTED" | "CONFIRMED" | "FULFILLED" | "CANCELLED";
@@ -64,12 +70,40 @@ export const getAddOnCatalog = async (flow: AddOnServiceFlow): Promise<AddOnServ
     : [];
 };
 
+const wallClockMilliseconds = (value: string) => {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/,
+  );
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute, second = "0"] = match;
+  return Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  );
+};
+
+/**
+ * Display estimator for Pricing V2 package cycles.
+ *
+ * The backend quote remains authoritative. This mirrors its rolling 24-hour
+ * boundary and 15-minute grace so package-cycle service previews do not charge
+ * a second cycle at 24h15. Local date-times are parsed as hotel wall-clock
+ * values, avoiding browser timezone and DST shifts.
+ */
 export const chargeableNights = (checkIn?: string, checkOut?: string) => {
   if (!checkIn || !checkOut) return 1;
-  const start = new Date(checkIn);
-  const end = new Date(checkOut);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return 1;
-  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
+  const start = wallClockMilliseconds(checkIn);
+  const end = wallClockMilliseconds(checkOut);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 1;
+  const minutes = Math.ceil((end - start) / 60_000);
+  const fullDays = Math.floor(minutes / 1_440);
+  if (fullDays === 0) return 1;
+  const remainderMinutes = minutes % 1_440;
+  return fullDays + (remainderMinutes > 15 ? 1 : 0);
 };
 
 export const normalizeSelectionQuantity = (
@@ -91,7 +125,9 @@ export const calculateAddOnLineTotal = (
   nights: number,
 ) => {
   const quantity = normalizeSelectionQuantity(service, selection.quantity, guestCount);
-  const multiplier = service.pricingUnit === "PER_NIGHT" ? Math.max(1, nights) : 1;
+  const packageCycleUnit =
+    service.pricingUnit === "PER_PACKAGE_CYCLE" || service.pricingUnit === "PER_NIGHT";
+  const multiplier = packageCycleUnit ? Math.max(1, nights) : 1;
   return service.price * quantity * multiplier;
 };
 
@@ -100,7 +136,8 @@ export const pricingUnitLabel = (
   localize: (vi?: string | null, en?: string | null) => string,
 ) => ({
   PER_GUEST: localize("/ người", "/ guest"),
-  PER_NIGHT: localize("/ món / đêm", "/ item / night"),
+  PER_PACKAGE_CYCLE: localize("/ mục / chu kỳ lưu trú", "/ item / stay cycle"),
+  PER_NIGHT: localize("/ mục / chu kỳ lưu trú", "/ item / stay cycle"),
   PER_ITEM: localize("/ món", "/ item"),
   PER_ORDER: localize("/ đơn", "/ order"),
   PER_USE: localize("/ lần", "/ use"),
