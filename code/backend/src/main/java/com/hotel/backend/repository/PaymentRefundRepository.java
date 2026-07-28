@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, String> {
 
@@ -82,4 +83,33 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, St
         WHERE reservation.id = :reservationId OR p.reservation.id = :reservationId
     """)
     List<PaymentRefund> findByReservationId(@Param("reservationId") Long reservationId);
+
+    List<PaymentRefund> findByStatusAndCompletedAtUtcGreaterThanEqualAndCompletedAtUtcLessThan(
+            RefundStatus status,
+            Instant from,
+            Instant to);
+
+    @Query("""
+        SELECT COUNT(refund)
+        FROM PaymentRefund refund
+        WHERE refund.status = :status
+          AND refund.completedAtUtc >= :from
+          AND refund.completedAtUtc < :to
+          AND NOT EXISTS (
+              SELECT journal.id
+              FROM FinancialJournalEntry journal
+              WHERE journal.refund.id = refund.id
+          )
+    """)
+    long countUnpostedCompletedRefunds(
+            @Param("status") RefundStatus status,
+            @Param("from") Instant from,
+            @Param("to") Instant to);
+
+    @Query("""
+        SELECT COALESCE(SUM(COALESCE(refund.requestedAmount, refund.amount)), 0)
+        FROM PaymentRefund refund
+        WHERE refund.status IN :statuses
+    """)
+    Long sumOutstandingRequestedAmount(@Param("statuses") Collection<RefundStatus> statuses);
 }

@@ -20,6 +20,7 @@ import com.hotel.backend.repository.ReservationRateSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -47,6 +48,7 @@ public class ReservationInvoiceSnapshotService {
     private final ReservationAddOnService reservationAddOnService;
     private final ReservationRateSnapshotRepository rateSnapshotRepository;
     private final ObjectMapper objectMapper;
+    private final FinancialJournalService financialJournalService;
 
     @Value("${app.hotel-name:Luxury Hotel}")
     private String hotelName;
@@ -64,6 +66,7 @@ public class ReservationInvoiceSnapshotService {
                 .map(snapshot -> readSnapshot(snapshot.getSnapshotJson()));
     }
 
+    @Transactional
     public ReservationInvoiceResponse createSnapshot(Reservation reservation) {
         var existing = reservationInvoiceRepository.findByReservationId(reservation.getId());
         if (existing.isPresent()) {
@@ -189,7 +192,7 @@ public class ReservationInvoiceSnapshotService {
 
         try {
             String snapshot = objectMapper.writeValueAsString(response);
-            reservationInvoiceRepository.save(ReservationInvoice.builder()
+            ReservationInvoice invoice = reservationInvoiceRepository.saveAndFlush(ReservationInvoice.builder()
                     .reservation(reservation)
                     .invoiceNumber(response.getInvoiceNumber())
                     .issuedAt(response.getIssuedAt())
@@ -219,6 +222,7 @@ public class ReservationInvoiceSnapshotService {
                     .issuedAtUtc(issuedAtUtc)
                     .createdAtUtc(Instant.now())
                     .build());
+            financialJournalService.postInvoice(invoice);
             return response;
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Không thể tạo snapshot hóa đơn", exception);

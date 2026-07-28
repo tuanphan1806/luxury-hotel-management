@@ -135,6 +135,56 @@ class AuthorizationMatrixIntegrationTest {
     }
 
     @Test
+    void financialStatisticsAreAdminOnly() throws Exception {
+        for (String token : List.of(staffToken, customerToken)) {
+            mockMvc.perform(get("/api/admin/statistics/overview")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/statistics/ledger")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/statistics/cash-flow")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/statistics/reservations")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    /** Khóa ngày và journal kế toán chứa dữ liệu tài chính, chỉ ADMIN được đọc. */
+    @Test
+    void businessDayAccountingIsAdminOnly() throws Exception {
+        String previewUrl = "/api/admin/accounting/business-days/2026-07-27/preview";
+        for (String token : List.of(staffToken, customerToken)) {
+            mockMvc.perform(get(previewUrl)
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/accounting/journal")
+                            .param("businessDate", "2026-07-27")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+        }
+        mockMvc.perform(get(previewUrl)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+    }
+
+    /** Ca thu ngân là vận hành: ADMIN/STAFF được dùng, CUSTOMER bị chặn. */
+    @Test
+    void cashierShiftEndpointsAreOperatorOnly() throws Exception {
+        mockMvc.perform(get("/api/accounting/cashier-shifts/current")
+                        .header("Authorization", bearer(staffToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/accounting/cashier-shifts/current")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/accounting/cashier-shifts/current")
+                        .header("Authorization", bearer(customerToken)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void sePayManualRecoveryCandidatesAreAdminOnly() throws Exception {
         mockMvc.perform(get("/api/payments/sepay/recovery-candidates")
                         .header("Authorization", bearer(staffToken)))

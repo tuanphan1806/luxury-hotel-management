@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "22";
+    private static final String LATEST_VERSION = "28";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -67,6 +67,12 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "pricing_quotes");
             assertTableExists(connection, "pricing_quote_lines");
             assertTableExists(connection, "pricing_quote_commitments");
+            assertTableExists(connection, "cashier_shifts");
+            assertTableExists(connection, "cash_movements");
+            assertTableExists(connection, "financial_journal_entries");
+            assertTableExists(connection, "financial_journal_lines");
+            assertTableExists(connection, "business_day_closes");
+            assertTableExists(connection, "business_day_close_locks");
             assertColumn(connection, "room_types", "code");
             assertColumn(connection, "reservations", "pricing_version");
             assertColumn(connection, "reservations", "display_package_summary");
@@ -102,6 +108,10 @@ class FlywayPostgresMigrationIT {
             assertColumn(connection, "reservation_invoices", "pricing_version");
             assertColumnType(connection, "idempotency_requests", "request_hash", "character", 64);
             assertColumnType(connection, "reservation_invoices", "currency", "character", 3);
+            assertColumnType(connection, "financial_journal_entries", "currency",
+                    "character varying", 3);
+            assertColumnType(connection, "business_day_closes", "summary_hash",
+                    "character varying", 64);
             assertColumnType(connection, "payment_provider_events", "provider_occurred_at_utc",
                     "timestamp with time zone", null);
             assertColumnType(connection, "reservations", "check_in",
@@ -127,6 +137,19 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_rate_snapshot_line_created");
             assertIndex(connection, "idx_pricing_quotes_expiry");
             assertIndex(connection, "idx_pricing_quote_lines_quote");
+            assertIndex(connection, "idx_payment_transactions_paid_at_utc");
+            assertIndex(connection, "idx_payment_refunds_succeeded_completed_at_utc");
+            assertIndex(connection, "idx_reservation_invoices_issued_at_utc");
+            assertIndex(connection, "idx_reservations_created_at_status");
+            assertIndex(connection, "idx_reservations_stay_window_status");
+            assertIndex(connection, "idx_reservation_room_types_room_type_reservation");
+            assertIndex(connection, "idx_provider_events_unlinked_cash_occurred_at");
+            assertIndex(connection, "uk_cashier_shift_active_user");
+            assertIndex(connection, "idx_cash_movement_shift_occurred");
+            assertIndex(connection, "idx_financial_journal_payment_transaction");
+            assertIndex(connection, "idx_financial_journal_refund");
+            assertIndex(connection, "idx_financial_journal_invoice");
+            assertIndex(connection, "idx_financial_journal_provider_event");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
             assertConstraint(connection, "chk_payment_transactions_provider");
@@ -164,6 +187,8 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "uk_pricing_quote_room_type");
             assertConstraint(connection, "uk_pricing_quote_commitment_quote");
             assertConstraint(connection, "uk_pricing_quote_commitment_reservation");
+            assertConstraint(connection, "uk_cash_movement_source");
+            assertConstraint(connection, "chk_cash_movement_direction_type");
             assertConstraintAbsent(connection, "uk_media_assets_owner");
             assertColumnDefault(connection, "rooms", "sellable", "true");
             assertColumnDefault(connection, "stay_policy_versions",
@@ -174,6 +199,62 @@ class FlywayPostgresMigrationIT {
 
         assertCanonicalFixedWidthMappings();
         assertHibernateSchemaValidation();
+    }
+
+    @Test
+    void earlyDevelopmentV26SchemaConvergesThroughCurrentMigrations() throws Exception {
+        Flyway v26 = flyway("26");
+        v26.clean();
+        v26.migrate();
+
+        try (Connection connection = POSTGRES.createConnection("");
+             var statement = connection.createStatement()) {
+            statement.execute("""
+                    ALTER TABLE financial_journal_entries
+                        DROP CONSTRAINT chk_financial_journal_currency
+                    """);
+            statement.execute("""
+                    ALTER TABLE financial_journal_entries
+                        ALTER COLUMN currency TYPE CHAR(3) USING currency::CHAR(3)
+                    """);
+            statement.execute("""
+                    ALTER TABLE financial_journal_entries
+                        ADD CONSTRAINT chk_financial_journal_currency
+                        CHECK (currency = 'VND')
+                    """);
+            statement.execute("""
+                    ALTER TABLE business_day_closes
+                        ALTER COLUMN summary_hash TYPE CHAR(64) USING summary_hash::CHAR(64)
+                    """);
+            statement.execute("""
+                    DROP TRIGGER trg_financial_journal_entry_open_day
+                        ON financial_journal_entries
+                    """);
+            statement.execute("""
+                    DROP TRIGGER trg_financial_journal_line_open_day
+                        ON financial_journal_lines
+                    """);
+            statement.execute("DROP FUNCTION prevent_posting_to_closed_business_day() ");
+        }
+
+        Flyway latest = flyway();
+        latest.migrate();
+
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("28");
+        try (Connection connection = POSTGRES.createConnection("")) {
+            assertColumnType(connection, "financial_journal_entries", "currency",
+                    "character varying", 3);
+            assertColumnType(connection, "business_day_closes", "summary_hash",
+                    "character varying", 64);
+            assertScalar(connection, """
+                    SELECT COUNT(*)::text
+                    FROM pg_trigger
+                    WHERE NOT tgisinternal
+                      AND tgname IN (
+                          'trg_financial_journal_entry_open_day',
+                          'trg_financial_journal_line_open_day')
+                    """, "2");
+        }
     }
 
     @Test

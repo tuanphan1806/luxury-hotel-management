@@ -12,6 +12,7 @@ import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.PaymentService;
 import com.hotel.backend.service.RefundRecipientService;
 import com.hotel.backend.service.ReservationService;
+import com.hotel.backend.service.CashierShiftService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,7 @@ class ReservationScenarioIntegrationTest {
     @Autowired PaymentService paymentService;
     @Autowired RefundRecipientService refundRecipientService;
     @Autowired EntityManager entityManager;
+    @Autowired CashierShiftService cashierShiftService;
 
     @Test
     void onlineReservationRejectsPastCheckIn() {
@@ -394,6 +396,7 @@ class ReservationScenarioIntegrationTest {
         assertNull(cashRefund.getProviderRefundTxnId());
 
         User operator = userRepository.save(staff());
+        openCashierShift(operator);
         CashRefundCompleteRequest completion = new CashRefundCompleteRequest();
         completion.setConfirmed(true);
         paymentRefundService.completeCashAtCounter(cashRefund.getId(), completion, operator);
@@ -582,6 +585,7 @@ class ReservationScenarioIntegrationTest {
         RoomType roomType = roomType(2);
         Room room = room(roomType);
         User staff = userRepository.save(staff());
+        openCashierShift(staff);
         long collected = 50_000L;
         CreateWalkInCheckedInRequest request = CreateWalkInCheckedInRequest.builder()
                 .customer(CustomerProfileRequest.builder()
@@ -756,7 +760,8 @@ class ReservationScenarioIntegrationTest {
             successfulPayment(reservation, scheduledTotal - alreadyPaid, PaymentPurpose.FINAL_PAYMENT);
         }
 
-        User staff = staff();
+        User staff = userRepository.save(staff());
+        openCashierShift(staff);
         FinalPaymentResponse settlement = reservationService.calculateFinalPayment(reservation.getId(), staff);
         assertTrue(settlement.getRefundableAmount() > 0,
                 () -> "Early checkout should produce an overpayment: " + settlement);
@@ -1235,6 +1240,13 @@ class ReservationScenarioIntegrationTest {
                 .type(UserType.ADMIN)
                 .status(UserStatus.ACTIVE)
                 .build();
+    }
+
+    private void openCashierShift(User staff) {
+        OpenCashierShiftRequest request = new OpenCashierShiftRequest();
+        request.setOpeningCashAmount(BigDecimal.valueOf(500_000L));
+        request.setNote("Ca kiểm thử scenario");
+        cashierShiftService.open(request, staff);
     }
 
     private AssignRoomRequest assignment(Long roomId, String guestName) {

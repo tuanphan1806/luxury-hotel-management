@@ -42,6 +42,8 @@ services:
         value: "false"
       - key: APP_BOOTSTRAP_ADMIN_ENABLED
         value: "false"
+      - key: APP_ACCOUNTING_GO_LIVE_DATE
+        sync: false
       - key: SEPAY_RECONCILIATION_ENABLED
         value: "true"
       - key: PRICING_ENGINE_V2_ENABLED

@@ -12,6 +12,7 @@ import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import java.util.List;
 import java.time.Instant;
+import java.util.Collection;
 
 public interface PaymentProviderEventRepository extends JpaRepository<PaymentProviderEvent, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -53,4 +54,16 @@ public interface PaymentProviderEventRepository extends JpaRepository<PaymentPro
             @Param("provider") PaymentProvider provider,
             @Param("status") com.hotel.backend.constant.PaymentProviderEventStatus status,
             @Param("now") Instant now);
+
+    @Query("""
+        SELECT COUNT(event)
+        FROM PaymentProviderEvent event
+        WHERE event.status IN :statuses
+          AND COALESCE(event.providerOccurredAtUtc, event.receivedAtUtc) >= :from
+          AND COALESCE(event.providerOccurredAtUtc, event.receivedAtUtc) < :to
+    """)
+    long countUnresolvedInRange(
+            @Param("statuses") Collection<com.hotel.backend.constant.PaymentProviderEventStatus> statuses,
+            @Param("from") Instant from,
+            @Param("to") Instant to);
 }
