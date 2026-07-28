@@ -3,17 +3,17 @@
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 
 export interface PublicRoomRate {
-  price?: number | string;
+  price?: number | string | null;
   packagePricingEnabled?: boolean;
   pricingAvailable?: boolean;
   includedGuests?: number;
   firstBlockMinutes?: number;
-  firstBlockPrice?: number;
+  firstBlockPrice?: number | null;
   extraUnitMinutes?: number;
-  extraUnitPrice?: number;
-  overnightPrice?: number;
-  dailyPrice?: number;
-  extraGuestPrice?: number;
+  extraUnitPrice?: number | null;
+  overnightPrice?: number | null;
+  dailyPrice?: number | null;
+  extraGuestPrice?: number | null;
 }
 
 interface RoomRateCompactProps {
@@ -26,13 +26,14 @@ interface RoomRatePanelProps {
   className?: string;
 }
 
-const asMoney = (value?: number | string) => {
+export const publicRateAmount = (value?: number | string | null) => {
+  if (value == null || value === "") return undefined;
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : undefined;
 };
 
-const formatVND = (value?: number | string) => {
-  const amount = asMoney(value);
+const formatVND = (value?: number | string | null) => {
+  const amount = publicRateAmount(value);
   return amount == null
     ? "—"
     : amount.toLocaleString("vi-VN", {
@@ -43,11 +44,11 @@ const formatVND = (value?: number | string) => {
 };
 
 export const comparablePublicRoomPrice = (rate: PublicRoomRate) =>
-  asMoney(rate.overnightPrice) ?? 0;
+  publicRateAmount(rate.overnightPrice) ?? 0;
 
 export function RoomRateCompact({ rate, className = "" }: RoomRateCompactProps) {
   const { localize } = useLanguage();
-  const overnightPrice = asMoney(rate.overnightPrice);
+  const overnightPrice = publicRateAmount(rate.overnightPrice);
 
   if (overnightPrice == null) {
     return (
@@ -76,8 +77,8 @@ export function RoomRateCompact({ rate, className = "" }: RoomRateCompactProps) 
 export function RoomRatePanel({ rate, className = "" }: RoomRatePanelProps) {
   const { localize } = useLanguage();
   const packageRateReady = Boolean(
-    asMoney(rate.overnightPrice) != null
-      && asMoney(rate.dailyPrice) != null,
+    publicRateAmount(rate.overnightPrice) != null
+      && publicRateAmount(rate.dailyPrice) != null,
   );
 
   if (!packageRateReady) {
