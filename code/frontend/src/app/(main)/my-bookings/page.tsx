@@ -32,6 +32,19 @@ interface Booking {
   checkInDate: string;
   checkOutDate: string;
   totalAmount: number;
+  plannedTotalAmount: number;
+  actualTotalAmount: number;
+  projectedTotalAmount?: number;
+  pricingProjectedAt?: string;
+  plannedRoomCharge: number;
+  actualRoomCharge: number;
+  plannedExtraGuestCharge: number;
+  extraGuestCharge: number;
+  postCommitmentRoomIncrease: number;
+  plannedAddOnServiceAmount: number;
+  checkoutAdditionalFee: number;
+  discountAmount: number;
+  taxAmount: number;
   status: "DRAFT" | "CONFIRMED" | "CANCELLATION_PENDING" | "CANCELLED" | "CHECKED_IN" | "CHECKED_OUT" | "NO_SHOW";
   guestCount: string;
   createdAt: string;
@@ -42,7 +55,7 @@ interface Booking {
   refundDestinationStatus?: RefundDestinationStatus;
   refundBankSummary?: string;
   refunds: CustomerRefund[];
-  roomTypes: Array<{ roomTypeId: number; roomTypeName: string; roomTypeNameEn?: string }>;
+  roomTypes: BookingRoomType[];
   addOnServiceAmount: number;
   services: ReservationServiceItem[];
 }
@@ -57,6 +70,44 @@ interface ApiReservationRoomType {
   roomTypeId: number;
   roomTypeName: string;
   roomTypeNameEn?: string;
+  quantity?: number;
+  roomPrice?: number;
+  subtotal?: number;
+  plannedRoomCharge?: number;
+  actualRoomCharge?: number;
+  projectedRoomCharge?: number;
+  plannedExtraGuestCharge?: number;
+  extraGuestCharge?: number;
+  projectedExtraGuestCharge?: number;
+  plannedSubtotal?: number;
+  actualSubtotal?: number;
+  projectedSubtotal?: number;
+  lineGuestCount?: number;
+  appliedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
+  projectedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
+  maxPackageReached?: "HOURLY" | "OVERNIGHT" | "DAILY";
+}
+
+interface BookingRoomType {
+  roomTypeId: number;
+  roomTypeName: string;
+  roomTypeNameEn?: string;
+  quantity: number;
+  roomPrice: number;
+  subtotal: number;
+  plannedRoomCharge: number;
+  actualRoomCharge: number;
+  projectedRoomCharge?: number;
+  plannedExtraGuestCharge: number;
+  extraGuestCharge: number;
+  projectedExtraGuestCharge?: number;
+  plannedSubtotal: number;
+  actualSubtotal: number;
+  projectedSubtotal?: number;
+  lineGuestCount?: number;
+  appliedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
+  projectedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
+  maxPackageReached?: "HOURLY" | "OVERNIGHT" | "DAILY";
 }
 
 interface ApiReservation {
@@ -65,6 +116,19 @@ interface ApiReservation {
   checkIn?: string;
   checkOut?: string;
   totalAmount: number;
+  plannedTotalAmount?: number;
+  actualTotalAmount?: number;
+  projectedTotalAmount?: number;
+  pricingProjectedAt?: string;
+  plannedRoomCharge?: number;
+  actualRoomCharge?: number;
+  plannedExtraGuestCharge?: number;
+  extraGuestCharge?: number;
+  postCommitmentRoomIncrease?: number;
+  plannedAddOnServiceAmount?: number;
+  checkoutAdditionalFee?: number;
+  discountAmount?: number;
+  taxAmount?: number;
   status: Booking["status"];
   guestCount?: number;
   createdAt: string;
@@ -156,6 +220,30 @@ export default function MyBookingsPage() {
                 roomTypeId: Number(item.roomTypeId),
                 roomTypeName: localize(item.roomTypeName, item.roomTypeNameEn),
                 roomTypeNameEn: item.roomTypeNameEn,
+                quantity: Math.max(1, Number(item.quantity || 1)),
+                roomPrice: Number(item.roomPrice || 0),
+                subtotal: Number(item.subtotal || 0),
+                plannedRoomCharge: Number(item.plannedRoomCharge ?? item.subtotal ?? 0),
+                actualRoomCharge: Number(item.actualRoomCharge ?? item.subtotal ?? 0),
+                projectedRoomCharge: item.projectedRoomCharge == null
+                  ? undefined
+                  : Number(item.projectedRoomCharge),
+                plannedExtraGuestCharge: Number(item.plannedExtraGuestCharge || 0),
+                extraGuestCharge: Number(item.extraGuestCharge || 0),
+                projectedExtraGuestCharge: item.projectedExtraGuestCharge == null
+                  ? undefined
+                  : Number(item.projectedExtraGuestCharge),
+                plannedSubtotal: Number(item.plannedSubtotal ?? item.subtotal ?? 0),
+                actualSubtotal: Number(item.actualSubtotal ?? item.subtotal ?? 0),
+                projectedSubtotal: item.projectedSubtotal == null
+                  ? undefined
+                  : Number(item.projectedSubtotal),
+                lineGuestCount: item.lineGuestCount == null
+                  ? undefined
+                  : Number(item.lineGuestCount),
+                appliedPackage: item.appliedPackage,
+                projectedPackage: item.projectedPackage,
+                maxPackageReached: item.maxPackageReached,
               },
             ]),
           ).values());
@@ -168,6 +256,21 @@ export default function MyBookingsPage() {
             checkInDate: r.checkIn ? r.checkIn.substring(0, 16) : "",
             checkOutDate: r.checkOut ? r.checkOut.substring(0, 16) : "",
             totalAmount: r.totalAmount,
+            plannedTotalAmount: Number(r.plannedTotalAmount ?? r.totalAmount),
+            actualTotalAmount: Number(r.actualTotalAmount ?? r.totalAmount),
+            projectedTotalAmount: r.projectedTotalAmount == null
+              ? undefined
+              : Number(r.projectedTotalAmount),
+            pricingProjectedAt: r.pricingProjectedAt,
+            plannedRoomCharge: Number(r.plannedRoomCharge || 0),
+            actualRoomCharge: Number(r.actualRoomCharge || 0),
+            plannedExtraGuestCharge: Number(r.plannedExtraGuestCharge || 0),
+            extraGuestCharge: Number(r.extraGuestCharge || 0),
+            postCommitmentRoomIncrease: Number(r.postCommitmentRoomIncrease || 0),
+            plannedAddOnServiceAmount: Number(r.plannedAddOnServiceAmount || 0),
+            checkoutAdditionalFee: Number(r.checkoutAdditionalFee || 0),
+            discountAmount: Number(r.discountAmount || 0),
+            taxAmount: Number(r.taxAmount || 0),
             status: r.status,
             guestCount: r.guestCount ? localize(`${r.guestCount} khách`, `${r.guestCount} guests`) : "-",
             createdAt: r.createdAt,
@@ -645,8 +748,16 @@ export default function MyBookingsPage() {
                         <p className="font-semibold text-text-dark">{booking.guestCount}</p>
                       </div>
                       <div className="rounded-[1rem] bg-[#EAE2D2] p-3">
-                        <p className="text-[10px] text-text-light font-bold uppercase tracking-wider mb-1">{localize("Tổng tiền", "Total")}</p>
-                        <p className="font-bold text-accent-gold text-sm">{formatVND(booking.totalAmount)}</p>
+                        <p className="text-[10px] text-text-light font-bold uppercase tracking-wider mb-1">
+                          {booking.status === "CHECKED_IN" && booking.projectedTotalAmount != null
+                            ? localize("Tạm tính hiện tại", "Current projection")
+                            : booking.status === "CHECKED_OUT"
+                              ? localize("Tổng đã chốt", "Final total")
+                              : localize("Tổng tiền", "Total")}
+                        </p>
+                        <p className="font-bold text-accent-gold text-sm">
+                          {formatVND(booking.projectedTotalAmount ?? booking.actualTotalAmount ?? booking.totalAmount)}
+                        </p>
                       </div>
                     </div>
 
@@ -673,6 +784,118 @@ export default function MyBookingsPage() {
                           </div>
                         )}
                         <RefundProgressCard refunds={booking.refunds} />
+                        {booking.roomTypes.length > 0 && (
+                          <section className="overflow-hidden rounded-2xl border border-[#0F2A43]/12 bg-white">
+                            <header className="flex items-center justify-between gap-3 border-b border-[#0F2A43]/10 bg-[#F1F0EA] px-4 py-3 sm:px-5">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">{localize("Chi tiết chi phí", "Charge details")}</p>
+                                <h3 className="mt-0.5 text-sm font-bold text-[#0F2A43]">{localize("Tiền theo từng hạng phòng", "Price by room type")}</h3>
+                              </div>
+                              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold tabular-nums text-[#0F2A43]">
+                                {booking.roomTypes.reduce((sum, item) => sum + item.quantity, 0)} {localize("phòng", "rooms")}
+                              </span>
+                            </header>
+                            <div className="divide-y divide-[#0F2A43]/10">
+                              {booking.roomTypes.map((roomType) => {
+                                const packageValue = roomType.projectedPackage || roomType.appliedPackage || roomType.maxPackageReached;
+                                const packageName = packageValue === "OVERNIGHT"
+                                  ? localize("Qua đêm", "Overnight")
+                                  : packageValue === "DAILY"
+                                    ? localize("Ngày đêm", "Daily")
+                                    : packageValue === "HOURLY"
+                                      ? localize("Theo giờ", "Hourly")
+                                      : "";
+                                const currentRoomCharge = roomType.projectedRoomCharge ?? roomType.actualRoomCharge;
+                                const currentExtraGuestCharge = roomType.projectedExtraGuestCharge ?? roomType.extraGuestCharge;
+                                const currentSubtotal = roomType.projectedSubtotal ?? roomType.actualSubtotal;
+                                const priceChanged = currentSubtotal !== roomType.plannedSubtotal;
+                                return (
+                                  <div key={roomType.roomTypeId} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5">
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-[#0F2A43]">{roomType.roomTypeName}</p>
+                                      <p className="mt-1 text-xs font-medium text-[#66727C]">
+                                        {roomType.quantity} {localize("phòng", "rooms")}
+                                        {packageName ? ` · ${packageName}` : ""}
+                                        {roomType.lineGuestCount ? ` · ${roomType.lineGuestCount} ${localize("khách", "guests")}` : ""}
+                                      </p>
+                                      <p className="mt-1 text-xs text-[#66727C]">
+                                        {localize("Tiền phòng", "Room charge")}: {formatVND(currentRoomCharge)}
+                                      </p>
+                                      {currentExtraGuestCharge > 0 && (
+                                        <p className="mt-1 text-xs font-semibold text-[#80632F]">
+                                          {localize("Phụ thu khách thêm", "Extra-guest charge")}: {formatVND(currentExtraGuestCharge)}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="self-center text-right">
+                                      {priceChanged && (
+                                        <p className="text-[11px] font-semibold tabular-nums text-[#66727C]">
+                                          {localize("Dự kiến", "Planned")}: {formatVND(roomType.plannedSubtotal)}
+                                        </p>
+                                      )}
+                                      <p className="font-serif text-lg font-bold tabular-nums text-[#80632F]">
+                                        {formatVND(currentSubtotal)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <footer className="space-y-2 border-t border-[#0F2A43]/10 bg-[#FBFAF6] px-4 py-3 text-sm sm:px-5">
+                              {booking.addOnServiceAmount > 0 && (
+                                <div className="flex items-center justify-between gap-4 text-[#66727C]">
+                                  <span>{localize("Dịch vụ thêm", "Add-on services")}</span>
+                                  <span className="font-semibold tabular-nums text-[#0F2A43]">{formatVND(booking.addOnServiceAmount)}</span>
+                                </div>
+                              )}
+                              {booking.addOnServiceAmount !== booking.plannedAddOnServiceAmount && (
+                                <div className="flex items-center justify-between gap-4 text-xs text-[#66727C]">
+                                  <span>{localize("Dịch vụ trong cam kết ban đầu", "Services in original commitment")}</span>
+                                  <span className="font-semibold tabular-nums">{formatVND(booking.plannedAddOnServiceAmount)}</span>
+                                </div>
+                              )}
+                              {booking.checkoutAdditionalFee > 0 && (
+                                <div className="flex items-center justify-between gap-4 text-[#66727C]">
+                                  <span>{localize("Phụ phí vận hành đã xác nhận", "Confirmed operational charge")}</span>
+                                  <span className="font-semibold tabular-nums text-[#0F2A43]">+ {formatVND(booking.checkoutAdditionalFee)}</span>
+                                </div>
+                              )}
+                              {booking.discountAmount > 0 && (
+                                <div className="flex items-center justify-between gap-4 text-emerald-700">
+                                  <span>{localize("Giảm giá", "Discount")}</span>
+                                  <span className="font-semibold tabular-nums">− {formatVND(booking.discountAmount)}</span>
+                                </div>
+                              )}
+                              {booking.taxAmount > 0 && (
+                                <div className="flex items-center justify-between gap-4 text-[#66727C]">
+                                  <span>{localize("Thuế", "Tax")}</span>
+                                  <span className="font-semibold tabular-nums text-[#0F2A43]">+ {formatVND(booking.taxAmount)}</span>
+                                </div>
+                              )}
+                              {(booking.projectedTotalAmount ?? booking.actualTotalAmount) !== booking.plannedTotalAmount && (
+                                <div className="flex items-center justify-between gap-4 text-[#66727C]">
+                                  <span>{localize("Tổng cam kết ban đầu", "Original committed total")}</span>
+                                  <span className="font-semibold tabular-nums text-[#0F2A43]">{formatVND(booking.plannedTotalAmount)}</span>
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between gap-4 font-bold text-[#0F2A43]">
+                                <span>
+                                  {booking.status === "CHECKED_IN" && booking.projectedTotalAmount != null
+                                    ? localize("Tạm tính theo thời điểm hiện tại", "Current projected total")
+                                    : booking.status === "CHECKED_OUT"
+                                      ? localize("Tổng thực tế đã chốt", "Final actual total")
+                                      : localize("Tổng hiện tại", "Current total")}
+                                </span>
+                                <span className="text-base tabular-nums">{formatVND(booking.projectedTotalAmount ?? booking.actualTotalAmount)}</span>
+                              </div>
+                              {booking.status === "CHECKED_IN" && booking.pricingProjectedAt && (
+                                <p className="text-right text-[11px] text-[#66727C]">
+                                  {localize("Sẽ được tính lại trong transaction khi đối soát/checkout.", "Recalculated transactionally during reconciliation/checkout.")}
+                                </p>
+                              )}
+                            </footer>
+                          </section>
+                        )}
                         {(booking.status === "CHECKED_IN" || booking.services.length > 0) && (
                           <ReservationServicesPanel
                             reservationId={booking.id}

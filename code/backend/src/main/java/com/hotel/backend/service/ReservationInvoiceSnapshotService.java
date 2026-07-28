@@ -3,6 +3,8 @@ package com.hotel.backend.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotel.backend.constant.PaymentStatus;
+import com.hotel.backend.constant.PricingAlgorithmVersion;
+import com.hotel.backend.constant.RateSnapshotStage;
 import com.hotel.backend.constant.ReservationServiceStatus;
 import com.hotel.backend.dto.response.ReservationInvoiceResponse;
 import com.hotel.backend.dto.response.ReservationServiceResponse;
@@ -10,18 +12,23 @@ import com.hotel.backend.entity.CustomerProfile;
 import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.ReservationInvoice;
+import com.hotel.backend.entity.ReservationRateSnapshot;
+import com.hotel.backend.entity.ReservationRoomType;
 import com.hotel.backend.repository.PaymentTransactionRepository;
 import com.hotel.backend.repository.ReservationInvoiceRepository;
+import com.hotel.backend.repository.ReservationRateSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +45,7 @@ public class ReservationInvoiceSnapshotService {
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final PaymentRefundService paymentRefundService;
     private final ReservationAddOnService reservationAddOnService;
+    private final ReservationRateSnapshotRepository rateSnapshotRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${app.hotel-name:Luxury Hotel}")
@@ -62,9 +70,7 @@ public class ReservationInvoiceSnapshotService {
             return readSnapshot(existing.get().getSnapshotJson());
         }
 
-        BigDecimal lateFee = amountOrZero(reservation.getLateCheckoutFee());
         BigDecimal additionalFee = amountOrZero(reservation.getCheckoutAdditionalFee());
-        BigDecimal earlyAdjustment = amountOrZero(reservation.getEarlyCheckoutAdjustment());
         BigDecimal discount = amountOrZero(reservation.getDiscountAmount());
         BigDecimal tax = amountOrZero(reservation.getTaxAmount());
         BigDecimal total = amountOrZero(reservation.getTotalAmount());
@@ -75,12 +81,16 @@ public class ReservationInvoiceSnapshotService {
                         || item.getStatus() == ReservationServiceStatus.FULFILLED)
                 .map(ReservationServiceResponse::getTotalPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal roomCharge = total
-                .subtract(lateFee)
-                .subtract(additionalFee)
-                .subtract(addOnServiceAmount)
-                .max(BigDecimal.ZERO);
-        BigDecimal plannedRoomCharge = roomCharge.add(earlyAdjustment);
+        InvoicePricing pricing = resolveInvoicePricing(
+                reservation,
+                total,
+                additionalFee,
+                addOnServiceAmount);
+        BigDecimal roomCharge = pricing.actualRoomCharge();
+        BigDecimal plannedRoomCharge = pricing.plannedRoomCharge();
+        BigDecimal extraGuestCharge = pricing.extraGuestCharge();
+        BigDecimal earlyAdjustment = pricing.earlyCheckoutAdjustment();
+        BigDecimal lateFee = pricing.lateCheckoutFee();
 
         List<PaymentTransaction> transactions = paymentTransactionRepository
                 .findByReservationId(reservation.getId()).stream()
@@ -133,14 +143,8 @@ public class ReservationInvoiceSnapshotService {
                 .actualCheckOut(reservation.getActualCheckOut())
                 .guestCount(reservation.getGuestCount())
                 .note(reservation.getNote())
-                .roomTypes(reservation.getRoomTypes().stream()
-                        .map(item -> ReservationInvoiceResponse.RoomTypeLine.builder()
-                                .roomTypeName(item.getRoomType().getTypeName())
-                                .quantity(item.getQuantity())
-                                .pricePerRoomForStay(item.getRoomPrice())
-                                .plannedSubtotal(item.getSubtotal())
-                                .build())
-                        .toList())
+                .pricingVersion(reservation.getPricingVersion())
+                .roomTypes(pricing.roomTypeLines())
                 .services(services)
                 .payments(transactions.stream()
                         .map(transaction -> ReservationInvoiceResponse.PaymentLine.builder()
@@ -162,6 +166,9 @@ public class ReservationInvoiceSnapshotService {
                 .plannedRoomCharge(plannedRoomCharge)
                 .roomCharge(roomCharge)
                 .actualRoomCharge(roomCharge)
+                .extraGuestCharge(extraGuestCharge)
+                .postCommitmentRoomIncrease(
+                        pricing.postCommitmentRoomIncrease())
                 .earlyCheckoutAdjustment(earlyAdjustment)
                 .lateCheckoutFee(lateFee)
                 .checkoutAdditionalFee(additionalFee)
@@ -191,6 +198,8 @@ public class ReservationInvoiceSnapshotService {
                     .roomCharge(roomCharge)
                     .actualRoomCharge(roomCharge)
                     .plannedRoomCharge(plannedRoomCharge)
+                    .pricingVersion(reservation.getPricingVersion())
+                    .extraGuestCharge(extraGuestCharge)
                     .earlyCheckoutAdjustment(earlyAdjustment)
                     .lateCheckoutFee(lateFee)
                     .additionalFee(additionalFee)
@@ -236,5 +245,142 @@ public class ReservationInvoiceSnapshotService {
 
     private BigDecimal amountOrZero(BigDecimal amount) {
         return amount != null ? amount : BigDecimal.ZERO;
+    }
+
+    private InvoicePricing resolveInvoicePricing(
+            Reservation reservation,
+            BigDecimal total,
+            BigDecimal additionalFee,
+            BigDecimal addOnServiceAmount) {
+        if (reservation.getPricingVersion()
+                != PricingAlgorithmVersion.MOTEL_PACKAGE_V2) {
+            BigDecimal earlyAdjustment =
+                    amountOrZero(reservation.getEarlyCheckoutAdjustment());
+            BigDecimal lateFee =
+                    amountOrZero(reservation.getLateCheckoutFee());
+            BigDecimal roomCharge = total
+                    .subtract(lateFee)
+                    .subtract(additionalFee)
+                    .subtract(addOnServiceAmount)
+                    .max(BigDecimal.ZERO);
+            List<ReservationInvoiceResponse.RoomTypeLine> lines =
+                    reservation.getRoomTypes().stream()
+                            .map(item -> ReservationInvoiceResponse
+                                    .RoomTypeLine.builder()
+                                    .roomTypeCode(
+                                            item.getRoomType().getCode())
+                                    .roomTypeName(
+                                            item.getRoomType()
+                                                    .getTypeName())
+                                    .quantity(item.getQuantity())
+                                    .pricePerRoomForStay(
+                                            item.getRoomPrice())
+                                    .plannedRoomCharge(
+                                            item.getSubtotal())
+                                    .actualRoomCharge(
+                                            item.getSubtotal())
+                                    .plannedExtraGuestCharge(
+                                            BigDecimal.ZERO)
+                                    .extraGuestCharge(
+                                            BigDecimal.ZERO)
+                                    .plannedSubtotal(
+                                            item.getSubtotal())
+                                    .actualSubtotal(
+                                            item.getSubtotal())
+                                    .build())
+                            .toList();
+            return new InvoicePricing(
+                    roomCharge.add(earlyAdjustment),
+                    roomCharge,
+                    BigDecimal.ZERO,
+                    lateFee,
+                    earlyAdjustment,
+                    lateFee,
+                    lines);
+        }
+
+        BigDecimal plannedRoomCharge = BigDecimal.ZERO;
+        BigDecimal actualRoomCharge = BigDecimal.ZERO;
+        BigDecimal extraGuestCharge = BigDecimal.ZERO;
+        List<ReservationInvoiceResponse.RoomTypeLine> lines =
+                new ArrayList<>();
+        List<ReservationRoomType> orderedLines = reservation
+                .getRoomTypes().stream()
+                .sorted(Comparator.comparing(
+                        item -> item.getRoomType().getId()))
+                .toList();
+        for (ReservationRoomType item : orderedLines) {
+            List<ReservationRateSnapshot> snapshots =
+                    rateSnapshotRepository
+                            .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
+                                    item.getId());
+            if (snapshots.isEmpty()
+                    || snapshots.get(0).getSnapshotStage()
+                            != RateSnapshotStage.COMMITMENT) {
+                throw new IllegalStateException(
+                        "Reservation Pricing V2 thiếu snapshot cam kết cho dòng "
+                                + item.getId());
+            }
+            ReservationRateSnapshot commitment = snapshots.get(0);
+            ReservationRateSnapshot latest =
+                    snapshots.get(snapshots.size() - 1);
+            BigDecimal plannedLineRoom =
+                    amountOrZero(commitment.getFinalRoomCharge());
+            BigDecimal actualLineRoom =
+                    amountOrZero(latest.getFinalRoomCharge());
+            BigDecimal plannedLineExtraGuest =
+                    amountOrZero(commitment.getExtraGuestCharge());
+            BigDecimal lineExtraGuest =
+                    amountOrZero(latest.getExtraGuestCharge());
+            plannedRoomCharge =
+                    plannedRoomCharge.add(plannedLineRoom);
+            actualRoomCharge =
+                    actualRoomCharge.add(actualLineRoom);
+            extraGuestCharge =
+                    extraGuestCharge.add(lineExtraGuest);
+            lines.add(ReservationInvoiceResponse.RoomTypeLine.builder()
+                    .roomTypeCode(item.getRoomType().getCode())
+                    .roomTypeName(item.getRoomType().getTypeName())
+                    .quantity(item.getQuantity())
+                    .pricePerRoomForStay(actualLineRoom.divide(
+                            BigDecimal.valueOf(item.getQuantity()),
+                            2,
+                            RoundingMode.HALF_UP))
+                    .plannedRoomCharge(plannedLineRoom)
+                    .actualRoomCharge(actualLineRoom)
+                    .plannedExtraGuestCharge(
+                            plannedLineExtraGuest)
+                    .extraGuestCharge(lineExtraGuest)
+                    .plannedSubtotal(plannedLineRoom.add(
+                            plannedLineExtraGuest))
+                    .actualSubtotal(actualLineRoom.add(
+                            lineExtraGuest))
+                    .appliedPackage(
+                            latest.getAppliedPackage().name())
+                    .pricingSnapshotHash(
+                            latest.getSnapshotHash())
+                    .build());
+        }
+        BigDecimal lateRoomIncrease = actualRoomCharge
+                .subtract(plannedRoomCharge)
+                .max(BigDecimal.ZERO);
+        return new InvoicePricing(
+                plannedRoomCharge,
+                actualRoomCharge,
+                extraGuestCharge,
+                lateRoomIncrease,
+                BigDecimal.ZERO,
+                lateRoomIncrease,
+                List.copyOf(lines));
+    }
+
+    private record InvoicePricing(
+            BigDecimal plannedRoomCharge,
+            BigDecimal actualRoomCharge,
+            BigDecimal extraGuestCharge,
+            BigDecimal postCommitmentRoomIncrease,
+            BigDecimal earlyCheckoutAdjustment,
+            BigDecimal lateCheckoutFee,
+            List<ReservationInvoiceResponse.RoomTypeLine> roomTypeLines) {
     }
 }

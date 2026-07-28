@@ -188,7 +188,8 @@ public class CustomizeRequestFilter extends OncePerRequestFilter {
                    uri.startsWith("/api/reviews/room-type/") ||
                    uri.equals("/api/rooms/available") ||
                    uri.equals("/api/reservations/availability") ||
-                   uri.equals("/api/reservations/lookup");
+                   uri.equals("/api/reservations/lookup") ||
+                   uri.equals("/api/pricing/quote");
         }
 
         return false;

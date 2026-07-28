@@ -60,7 +60,7 @@ public interface ReservationRoomRepository extends JpaRepository<ReservationRoom
               com.hotel.backend.constant.ReservationStatus.CHECKED_OUT
           )
           AND r.checkIn < :checkOut
-          AND r.checkOut > :checkIn
+          AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
     """)
     boolean existsOverlappingRoomAssignment(
             @Param("roomId") Long roomId,

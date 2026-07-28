@@ -9,8 +9,13 @@ import { useFavorites } from "@/components/favorites/FavoritesProvider";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import GuestPageHero from "@/components/guest/GuestPageHero";
+import {
+  RoomRateCompact,
+  comparablePublicRoomPrice,
+  type PublicRoomRate,
+} from "@/components/guest/RoomRateDisplay";
 
-interface RoomType {
+interface RoomType extends PublicRoomRate {
   id: number;
   typeName: string;
   typeNameEn?: string;
@@ -26,7 +31,7 @@ interface RoomType {
 }
 
 function RoomsPageContent() {
-  const { localeTag, localize } = useLanguage();
+  const { localize } = useLanguage();
   const searchParams = useSearchParams();
   const { favoriteRoomIds, favoriteCount, isReady: favoritesReady, isFavorite, toggleFavorite } = useFavorites();
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
@@ -67,8 +72,8 @@ function RoomsPageContent() {
     });
 
     return [...filtered].sort((left, right) => {
-      if (sortBy === "price-asc") return Number(left.price || 0) - Number(right.price || 0);
-      if (sortBy === "price-desc") return Number(right.price || 0) - Number(left.price || 0);
+      if (sortBy === "price-asc") return comparablePublicRoomPrice(left) - comparablePublicRoomPrice(right);
+      if (sortBy === "price-desc") return comparablePublicRoomPrice(right) - comparablePublicRoomPrice(left);
       if (sortBy === "rating") return Number(right.averageRating || 0) - Number(left.averageRating || 0);
       return 0;
     });
@@ -187,7 +192,6 @@ function RoomsPageContent() {
           {filteredRoomTypes.map((room, index) => {
             const title = localize(room.typeName, room.typeNameEn);
             const image = room.imageUrls?.[0] || room.imageUrl;
-            const price = room.price;
             const detailHref = room.id ? `/rooms/${room.id}` : "/rooms";
             const roomRating = {
               averageRating: Number(room.averageRating || 0),
@@ -211,9 +215,10 @@ function RoomsPageContent() {
                       <div className="absolute inset-0 flex items-center justify-center text-sm font-semibold text-[#66727C]">{localize("Chưa có hình ảnh", "No image")}</div>
                     )}
                     <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-[#0F2A43]/80 to-transparent" />
-                    <div className="absolute bottom-4 left-4 rounded-lg bg-[#FBFAF6] px-3 py-2 text-sm font-bold tabular-nums text-[#0F2A43] shadow-sm">
-                      {Number(price || 0).toLocaleString(localeTag)} đ <span className="text-xs font-medium text-[#66727C]">/ {localize("giờ đầu", "first hour")}</span>
-                    </div>
+                    <RoomRateCompact
+                      rate={room}
+                      className="absolute bottom-4 left-4 right-4 sm:right-auto"
+                    />
                   </Link>
                   <button
                     type="button"

@@ -4,6 +4,8 @@ import com.hotel.backend.constant.AddOnPricingUnit;
 import com.hotel.backend.constant.AddOnServiceCategory;
 import com.hotel.backend.constant.CleaningStatus;
 import com.hotel.backend.constant.CustomerProfileSource;
+import com.hotel.backend.constant.ExtraGuestBillingMode;
+import com.hotel.backend.constant.InventoryProtectionMode;
 import com.hotel.backend.constant.RoomStatus;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
@@ -12,14 +14,18 @@ import com.hotel.backend.entity.CustomerProfile;
 import com.hotel.backend.entity.Facility;
 import com.hotel.backend.entity.Gallery;
 import com.hotel.backend.entity.Room;
+import com.hotel.backend.entity.RoomRateProfile;
 import com.hotel.backend.entity.RoomType;
+import com.hotel.backend.entity.StayPolicyVersion;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.repository.AddOnServiceRepository;
 import com.hotel.backend.repository.CustomerProfileRepository;
 import com.hotel.backend.repository.FacilityRepository;
 import com.hotel.backend.repository.GalleryRepository;
 import com.hotel.backend.repository.RoomRepository;
+import com.hotel.backend.repository.RoomRateProfileRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
+import com.hotel.backend.repository.StayPolicyVersionRepository;
 import com.hotel.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
@@ -29,6 +35,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -69,6 +77,8 @@ public class DataSeeder implements CommandLineRunner {
     private final AddOnServiceRepository addOnServiceRepository;
     private final RoomTypeRepository roomTypeRepository;
     private final RoomRepository roomRepository;
+    private final StayPolicyVersionRepository stayPolicyVersionRepository;
+    private final RoomRateProfileRepository roomRateProfileRepository;
     private final GalleryRepository galleryRepository;
     private final UserRepository userRepository;
     private final CustomerProfileRepository customerProfileRepository;
@@ -84,6 +94,7 @@ public class DataSeeder implements CommandLineRunner {
         }
         Map<String, Facility> facilities = seedFacilities();
         Map<String, RoomType> roomTypes = seedRoomTypes(facilities);
+        seedRoomRateProfiles(roomTypes);
         seedRooms(roomTypes);
         seedGalleries();
         if (demoUsersEnabled) {
@@ -192,12 +203,12 @@ public class DataSeeder implements CommandLineRunner {
                 "EXTRA_ROLLAWAY_BED",
                 "Giường phụ",
                 "Rollaway bed",
-                "Giường xếp khách sạn kèm chăn, ga và gối cho mỗi đêm lưu trú.",
-                "Hotel rollaway bed with linens and pillow for each night of the stay.",
+                "Giường xếp khách sạn kèm chăn, ga và gối; phí tính theo từng chu kỳ giá của kỳ lưu trú.",
+                "Hotel rollaway bed with linens and pillow, charged for each stay-pricing cycle.",
                 "/add_on_services/extra-rollaway-bed.webp",
                 AddOnServiceCategory.AMENITY,
                 new BigDecimal("200000"),
-                AddOnPricingUnit.PER_NIGHT,
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
                 true,
                 true,
                 20);
@@ -205,12 +216,12 @@ public class DataSeeder implements CommandLineRunner {
                 "MINI_PROJECTOR",
                 "Máy chiếu mini",
                 "Mini projector",
-                "Máy chiếu nhỏ gọn dùng trong phòng, tính phí theo thiết bị và đêm sử dụng.",
-                "Compact in-room projector, charged per device and night of use.",
+                "Máy chiếu nhỏ gọn dùng trong phòng, tính phí theo thiết bị và từng chu kỳ giá của kỳ lưu trú.",
+                "Compact in-room projector, charged per device and stay-pricing cycle.",
                 "/add_on_services/mini-projector.webp",
                 AddOnServiceCategory.EQUIPMENT,
                 new BigDecimal("100000"),
-                AddOnPricingUnit.PER_NIGHT,
+                AddOnPricingUnit.PER_PACKAGE_CYCLE,
                 true,
                 true,
                 30);
@@ -285,6 +296,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Standard: tiện nghi cơ bản + không gian chung để ảnh facility phong phú hơn
         result.put("Standard", seedRoomType(
+                "STANDARD", 2,
                 "Phòng tiêu chuẩn", "Standard",
                 "Phòng Standard tiện nghi đầy đủ, phù hợp cho cặp đôi hoặc du khách đơn lẻ.",
                 "A well-equipped standard room, ideal for couples or solo travellers.",
@@ -303,6 +315,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Deluxe: mở rộng thêm bếp, hồ bơi và cafe
         result.put("Deluxe", seedRoomType(
+                "DELUXE", 3,
                 "Phòng Deluxe", "Deluxe",
                 "Phòng Deluxe rộng rãi với ban công view thành phố, nội thất sang trọng.",
                 "A spacious deluxe room with a city-view balcony and refined interiors.",
@@ -322,6 +335,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Executive: nằm giữa Deluxe và Suite, ưu tiên khách công tác/lưu trú ngắn ngày
         result.put("Executive", seedRoomType(
+                "EXECUTIVE", 3,
                 "Phòng Executive", "Executive Room",
                 "Phòng Executive dành cho khách công tác, có khu vực làm việc riêng, cửa sổ lớn và không gian thư giãn chỉn chu.",
                 "An executive room for business travellers with a dedicated workspace, large windows and a refined relaxation area.",
@@ -341,6 +355,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Suite: gần như đầy đủ tiện nghi nghỉ dưỡng
         result.put("Suite", seedRoomType(
+                "SUITE", 4,
                 "Phòng Suite", "Suite",
                 "Phòng Suite cao cấp với phòng khách riêng, bồn tắm jacuzzi và dịch vụ butler.",
                 "A premium suite with a separate living room, jacuzzi and butler service.",
@@ -362,6 +377,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Family: ưu tiên các tiện nghi dùng chung và mua sắm thuận tiện
         result.put("Family", seedRoomType(
+                "FAMILY", 6,
                 "Phòng gia đình", "Family Room",
                 "Phòng Family rộng lớn thiết kế cho gia đình, có 2 phòng ngủ và bếp nhỏ.",
                 "A spacious family room with two bedrooms and a kitchenette.",
@@ -382,6 +398,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Presidential Suite: tất cả facilities
         result.put("Presidential Suite", seedRoomType(
+                "PRESIDENTIAL", 6,
                 "Phòng Tổng thống", "Presidential Suite",
                 "Presidential Suite sang trọng bậc nhất với tầm nhìn panoramic 360 độ.",
                 "Our most luxurious presidential suite with panoramic 360-degree views.",
@@ -406,23 +423,126 @@ public class DataSeeder implements CommandLineRunner {
         return result;
     }
 
-    private RoomType seedRoomType(String name, String nameEn, String desc, String descEn,
+    private RoomType seedRoomType(String code, int maxGuests,
+                                  String name, String nameEn, String desc, String descEn,
                                   BigDecimal price, List<String> imageUrls, Set<Facility> facilities) {
-        RoomType rt = roomTypeRepository.findByTypeName(name)
+        RoomType rt = roomTypeRepository.findByCode(code)
+                .or(() -> roomTypeRepository.findByTypeName(name))
                 .or(() -> roomTypeRepository.findByTypeName(nameEn))
                 .orElseGet(() -> RoomType.builder()
+                        .code(code)
                         .typeName(name)
                         .build());
 
+        if (rt.getCode() == null || rt.getCode().isBlank()) {
+            rt.setCode(code);
+        }
         rt.setTypeName(name);
         rt.setTypeNameEn(nameEn);
         rt.setDescription(desc);
         rt.setDescriptionEn(descEn);
         rt.setPrice(price);
+        rt.setMaxGuests(maxGuests);
         rt.setImageUrls(new ArrayList<>(imageUrls));
         rt.setImageUrl(imageUrls.isEmpty() ? null : imageUrls.get(0));
         rt.setFacilities(new HashSet<>(facilities));
         return roomTypeRepository.save(rt);
+    }
+
+    private void seedRoomRateProfiles(Map<String, RoomType> roomTypes) {
+        Instant now = Instant.now();
+        StayPolicyVersion stayPolicy = stayPolicyVersionRepository
+                .findEffectiveByPolicyCode("DEFAULT_MOTEL_POLICY", now)
+                .stream()
+                .findFirst()
+                .orElseGet(() -> {
+                    // Flyway owns production financial configuration. This
+                    // fallback only supports an empty create-drop/dev schema;
+                    // an existing but inactive policy is never re-enabled.
+                    if (stayPolicyVersionRepository.count() != 0) {
+                        return null;
+                    }
+                    return stayPolicyVersionRepository.save(
+                            StayPolicyVersion.builder()
+                                    .policyCode("DEFAULT_MOTEL_POLICY")
+                                    .policyVersion(1)
+                                    .graceMinutes(15)
+                                    .overnightStartTime(LocalTime.of(20, 0))
+                                    .overnightEarlyMorningEnd(
+                                            LocalTime.of(8, 0))
+                                    .earlyMorningOvernightMinimumMinutes(120)
+                                    .overnightHardCheckoutTime(LocalTime.NOON)
+                                    .overnightMaximumMinutes(720)
+                                    .dailyThresholdMinutes(1200)
+                                    .dailyDurationMinutes(1440)
+                                    .turnoverBufferMinutes(30)
+                                    .remainderCycleStartsAtBoundary(true)
+                                    .inventoryProtectionMode(
+                                            InventoryProtectionMode
+                                                    .PACKAGE_ENTITLEMENT)
+                                    .effectiveFromUtc(
+                                            Instant.parse(
+                                                    "2026-01-01T00:00:00Z"))
+                                    .active(true)
+                                    .createdAtUtc(now)
+                                    .build());
+                });
+        if (stayPolicy == null) {
+            return;
+        }
+
+        seedRoomRateProfile(roomTypes.get("Standard"), stayPolicy,
+                new RateSeed(1, "70000", "20000", "170000", "300000"));
+        seedRoomRateProfile(roomTypes.get("Deluxe"), stayPolicy,
+                new RateSeed(2, "100000", "25000", "220000", "400000"));
+        seedRoomRateProfile(roomTypes.get("Executive"), stayPolicy,
+                new RateSeed(2, "120000", "30000", "270000", "480000"));
+        seedRoomRateProfile(roomTypes.get("Suite"), stayPolicy,
+                new RateSeed(2, "150000", "35000", "350000", "600000"));
+        seedRoomRateProfile(roomTypes.get("Family"), stayPolicy,
+                new RateSeed(4, "130000", "30000", "330000", "550000"));
+        seedRoomRateProfile(roomTypes.get("Presidential Suite"), stayPolicy,
+                new RateSeed(4, "200000", "50000", "450000", "850000"));
+    }
+
+    /**
+     * Initial master seed only. Existing versions are never overwritten so an
+     * administrator's active financial configuration remains authoritative.
+     */
+    private void seedRoomRateProfile(
+            RoomType roomType,
+            StayPolicyVersion stayPolicy,
+            RateSeed seed) {
+        if (roomType == null
+                || roomRateProfileRepository.existsByRoomTypeId(
+                        roomType.getId())) {
+            return;
+        }
+        roomRateProfileRepository.save(RoomRateProfile.builder()
+                .roomType(roomType)
+                .stayPolicyVersion(stayPolicy)
+                .profileVersion(1)
+                .includedGuests(seed.includedGuests())
+                .firstBlockMinutes(120)
+                .firstBlockPrice(new BigDecimal(seed.firstBlockPrice()))
+                .extraUnitMinutes(60)
+                .extraUnitPrice(new BigDecimal(seed.extraUnitPrice()))
+                .overnightPrice(new BigDecimal(seed.overnightPrice()))
+                .dailyPrice(new BigDecimal(seed.dailyPrice()))
+                .extraGuestPrice(new BigDecimal("50000"))
+                .extraGuestBillingMode(ExtraGuestBillingMode.PER_PACKAGE_CYCLE)
+                .effectiveFromUtc(Instant.parse("2026-01-01T00:00:00Z"))
+                .active(true)
+                .createdAtUtc(Instant.parse("2026-07-27T00:00:00Z"))
+                .build());
+    }
+
+    private record RateSeed(
+            int includedGuests,
+            String firstBlockPrice,
+            String extraUnitPrice,
+            String overnightPrice,
+            String dailyPrice) {
     }
 
     // ==================== ROOMS ====================

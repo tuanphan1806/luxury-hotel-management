@@ -63,6 +63,13 @@ public enum ErrorCode {
     OAUTH_PROFILE_TICKET_INVALID(5073, "Phiên bổ sung email không hợp lệ hoặc đã hết hạn", HttpStatus.BAD_REQUEST),
     OAUTH_EMAIL_ALREADY_IN_USE(5074, "Email đã thuộc một tài khoản khác; hãy đăng nhập bằng phương thức đã liên kết", HttpStatus.CONFLICT),
 
+    // ── Pricing V2 ────────────────────────────────────────────
+    PRICING_ENGINE_DISABLED(5080, "Bảng giá mới chưa được mở cho hạng phòng này", HttpStatus.SERVICE_UNAVAILABLE),
+    PRICING_PROFILE_NOT_FOUND(5081, "Không tìm thấy phiên bản bảng giá đang hiệu lực", HttpStatus.CONFLICT),
+    PRICING_QUOTE_EXPIRED(5082, "Báo giá đã hết hạn, vui lòng kiểm tra giá lại", HttpStatus.GONE),
+    PRICE_CHANGED(5083, "Giá hoặc chính sách đã thay đổi, cần xác nhận báo giá mới", HttpStatus.CONFLICT),
+    PRICING_QUOTE_MISMATCH(5084, "Báo giá không khớp với thông tin đặt phòng", HttpStatus.CONFLICT),
+
 
     ;
 

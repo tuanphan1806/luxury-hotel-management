@@ -11,11 +11,27 @@ import lombok.Builder;
 @Data
 public class RoomTypeResponse {
     private Long id;
+    private String code;
     private String typeName;
     private String typeNameEn;
     private String description;
     private String descriptionEn;
     private BigDecimal price;
+    /**
+     * Read-only public tariff summary. The legacy price field remains for
+     * compatibility; package-aware clients should use these fields whenever
+     * packagePricingEnabled and pricingAvailable are both true.
+     */
+    private Boolean packagePricingEnabled;
+    private Boolean pricingAvailable;
+    private Integer includedGuests;
+    private Integer firstBlockMinutes;
+    private BigDecimal firstBlockPrice;
+    private Integer extraUnitMinutes;
+    private BigDecimal extraUnitPrice;
+    private BigDecimal overnightPrice;
+    private BigDecimal dailyPrice;
+    private BigDecimal extraGuestPrice;
     private Integer maxGuests;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

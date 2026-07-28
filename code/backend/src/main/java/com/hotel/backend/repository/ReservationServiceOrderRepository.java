@@ -27,6 +27,15 @@ public interface ReservationServiceOrderRepository
 
     @Query("""
             select orderLine from ReservationServiceOrder orderLine
+            where orderLine.reservation.id = :reservationId
+            order by orderLine.id asc
+            """)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<ReservationServiceOrder> findByReservationIdForUpdate(
+            @Param("reservationId") Long reservationId);
+
+    @Query("""
+            select orderLine from ReservationServiceOrder orderLine
             join fetch orderLine.service
             where orderLine.id = :orderId and orderLine.reservation.id = :reservationId
             """)

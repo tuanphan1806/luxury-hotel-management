@@ -17,7 +17,12 @@ export interface ReservationRoomQuickViewItem {
   gallery?: string[];
   price?: number;
   pricePerHour?: number;
+  firstBlockMinutes?: number;
+  firstBlockPrice?: number;
+  overnightPrice?: number;
+  dailyPrice?: number;
   estimatedPricePerRoom?: number;
+  estimatedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
   totalHours?: number;
   maxGuestsPerRoom?: number;
   availableRooms?: number;
@@ -111,9 +116,6 @@ export default function ReservationRoomQuickViewModal({
     room.imageUrl,
     GALLERY_HERO_IMAGES.rooms,
   ].filter((image): image is string => Boolean(image)))).slice(0, 3);
-  const estimatedPrice = room.estimatedPricePerRoom ?? room.price;
-  const hourlyPrice = room.pricePerHour;
-
   return createPortal(
     <div
       data-testid="reservation-room-modal-backdrop"
@@ -179,11 +181,16 @@ export default function ReservationRoomQuickViewModal({
 
           <dl className="mt-5 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-[#B8944F]/28 bg-[#F4ECDD] p-3.5">
-              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">{localize("Ước tính mỗi phòng", "Estimate per room")}</dt>
-              <dd className="mt-1.5 font-sans text-xl font-extrabold tabular-nums tracking-[-0.02em] text-[#0F2A43]">{formatVND(estimatedPrice)}</dd>
-              {typeof hourlyPrice === "number" && (
-                <dd className="mt-1 text-xs font-semibold text-[#66727C]">{localize(`Giờ đầu: ${formatVND(hourlyPrice)}`, `First hour: ${formatVND(hourlyPrice)}`)}</dd>
-              )}
+              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">
+                {localize("Giá qua đêm", "Overnight rate")}
+              </dt>
+              <dd className="mt-1.5 font-sans text-xl font-extrabold tabular-nums tracking-[-0.02em] text-[#0F2A43]">{formatVND(room.overnightPrice)}</dd>
+              <dd className="mt-1 text-xs font-semibold text-[#66727C]">20:00–08:00</dd>
+            </div>
+            <div className="rounded-xl border border-[#B8944F]/28 bg-[#F7F1E6] p-3.5">
+              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">{localize("Giá ngày đêm", "Daily rate")}</dt>
+              <dd className="mt-1.5 font-sans text-xl font-extrabold tabular-nums tracking-[-0.02em] text-[#0F2A43]">{formatVND(room.dailyPrice)}</dd>
+              <dd className="mt-1 text-xs font-semibold text-[#66727C]">24 {localize("giờ", "hours")}</dd>
             </div>
             <div className="rounded-xl border border-[#527060]/16 bg-[#E5EEE9] p-3.5">
               <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#527060]">{localize("Còn trống", "Available")}</dt>
@@ -192,10 +199,6 @@ export default function ReservationRoomQuickViewModal({
             <div className="rounded-xl border border-[#0F2A43]/10 bg-[#F1F0EA] p-3.5">
               <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#66727C]">{localize("Sức chứa", "Capacity")}</dt>
               <dd className="mt-1.5 text-sm font-extrabold leading-5 text-[#0F2A43]">{localize(`Tối đa ${room.maxGuestsPerRoom ?? 0} khách / phòng`, `Up to ${room.maxGuestsPerRoom ?? 0} guests / room`)}</dd>
-            </div>
-            <div className="rounded-xl border border-[#0F2A43]/10 bg-[#F1F0EA] p-3.5">
-              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#66727C]">{localize("Thời lượng", "Duration")}</dt>
-              <dd className="mt-1.5 text-sm font-extrabold leading-5 text-[#0F2A43]">{localize(`${room.totalHours ?? 0} giờ lưu trú`, `${room.totalHours ?? 0} stay hours`)}</dd>
             </div>
           </dl>
 

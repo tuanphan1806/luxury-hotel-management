@@ -19,9 +19,14 @@ import { ROOMS_CONTENT } from "@/constants/content";
 import { useFavorites } from "@/components/favorites/FavoritesProvider";
 import { getRoomGalleryImages, normalizeCatalogText } from "@/lib/room-gallery";
 import { minimumRoomsForGuests, normalizeGuestCapacity } from "@/lib/guest-capacity";
+import {
+  RoomRatePanel,
+  type PublicRoomRate,
+} from "@/components/guest/RoomRateDisplay";
+import { isStayWithinMaximum, MAX_STAY_DAYS } from "@/lib/stay-window";
 
 
-interface RoomDetails {
+interface RoomDetails extends PublicRoomRate {
   id?: number;
   typeName: string;
   description: string;
@@ -65,7 +70,7 @@ interface RoomFacilityPayload {
   type?: string;
 }
 
-interface RoomTypePayload {
+interface RoomTypePayload extends PublicRoomRate {
   id: number | string;
   typeName?: string;
   typeNameEn?: string;
@@ -114,7 +119,7 @@ const getApiErrorMessage = (error: unknown, fallback: string) =>
 
 export default function RoomDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const { localeTag, localize } = useLanguage();
+  const { localize } = useLanguage();
   const { isFavorite, toggleFavorite } = useFavorites();
   const resolvedParams = use(params);
   const roomId = resolvedParams.id;
@@ -150,6 +155,16 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
 
     if (new Date(checkOut) <= new Date(checkIn)) {
       setToast({ message: localize("Thời gian trả phòng phải sau thời gian nhận phòng.", "Check-out must be after check-in."), type: "error" });
+      return;
+    }
+    if (!isStayWithinMaximum(checkIn, checkOut)) {
+      setToast({
+        message: localize(
+          `Một đơn chỉ hỗ trợ tối đa ${MAX_STAY_DAYS} ngày. Vui lòng chia kỳ lưu trú hoặc liên hệ khách sạn.`,
+          `A booking supports up to ${MAX_STAY_DAYS} days. Split the stay or contact the hotel.`,
+        ),
+        type: "error",
+      });
       return;
     }
     if (new Date(checkIn) <= new Date()) {
@@ -250,6 +265,12 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
         const facilityById = new Map(facilityCatalog.map((facility) => [Number(facility.id), facility]));
         const dbData = roomTypes.find((item) => String(item.id) === String(roomId));
         if (dbData) {
+          const roomGallery = getRoomGalleryImages(
+            dbData.typeName,
+            dbData.typeNameEn,
+            dbData.imageUrl,
+            dbData.imageUrls,
+          );
           const normalizedType = normalizeCatalogText(`${dbData.typeName || ""} ${dbData.typeNameEn || ""}`);
           const specs = normalizedType.includes("presidential") || normalizedType.includes("tong thong")
             ? { bed: localize("1 giường King + phòng khách", "1 king bed + living room"), size: "90 m²", view: localize("Toàn cảnh thành phố", "Panoramic city view") }
@@ -267,11 +288,21 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
             id: Number(dbData.id),
             typeName: localize(dbData.typeName, dbData.typeNameEn) || localize("Phòng nghỉ cao cấp", "Luxury room"),
             description: localize(dbData.description, dbData.descriptionEn) || localize("Không gian lưu trú chỉn chu, tiện nghi và sẵn sàng trước khi bạn đến.", "A calm stay with polished service, comfortable details, and everything ready before arrival."),
-            price: dbData.price || 150,
+            price: dbData.price ?? 0,
+            packagePricingEnabled: dbData.packagePricingEnabled,
+            pricingAvailable: dbData.pricingAvailable,
+            includedGuests: dbData.includedGuests,
+            firstBlockMinutes: dbData.firstBlockMinutes,
+            firstBlockPrice: dbData.firstBlockPrice,
+            extraUnitMinutes: dbData.extraUnitMinutes,
+            extraUnitPrice: dbData.extraUnitPrice,
+            overnightPrice: dbData.overnightPrice,
+            dailyPrice: dbData.dailyPrice,
+            extraGuestPrice: dbData.extraGuestPrice,
             maxGuests: dbData.maxGuests || 2,
-            imageUrl: dbData.imageUrl || "",
+            imageUrl: roomGallery[0] || dbData.imageUrl || "",
             specs,
-            gallery: getRoomGalleryImages(dbData.typeName, dbData.typeNameEn, dbData.imageUrl, dbData.imageUrls),
+            gallery: roomGallery,
             amenities: (dbData.facilities || []).map((facility) => {
               const detail = facility.id ? facilityById.get(Number(facility.id)) : undefined;
               const facilityName = facility.facilityName || detail?.facilityName || detail?.name;
@@ -355,7 +386,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
   return (
     <div className="bg-[#F1F0EA]">
       <GuestPageHero
-        imageSrc={room.imageUrl || ROOMS_CONTENT.hero.bg}
+        imageSrc={galleryImages[0] || room.imageUrl || ROOMS_CONTENT.hero.bg}
         imageAlt={localize(`Không gian hạng phòng ${room.typeName}`, `${room.typeName} room interior`)}
         eyebrow={localize("Phòng & hạng phòng", "Rooms & suites")}
         title={room.typeName}
@@ -588,7 +619,17 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
               <h3 className="mt-2 font-serif text-2xl font-bold text-primary-navy">{localize("Kiểm tra phòng trống", "Check availability")}</h3>
               <p className="mt-2 text-sm font-medium leading-6 text-text-light">{localize("Đặt nhanh loại phòng đang xem. Nếu cần nhiều loại phòng, hãy dùng trang đặt phòng chi tiết.", "Book this room type directly. Use the detailed reservation page when you need multiple room types.")}</p>
             </div>
-            <div className="space-y-3 border-y border-[#0F2A43]/10 py-4 text-sm"><div className="flex justify-between"><span className="text-[#66727C]">{localize("Loại phòng", "Room type")}</span><strong className="text-[#0F2A43]">{room.typeName}</strong></div><div className="flex justify-between"><span className="text-[#66727C]">{localize("Sức chứa", "Capacity")}</span><strong className="text-[#0F2A43]">{localize(`${room.maxGuests} khách / phòng`, `${room.maxGuests} guests / room`)}</strong></div><div className="flex justify-between"><span className="text-[#66727C]">{localize("Giá cơ bản", "Base price")}</span><strong className="text-[#80632F]">{Number(room.price || 0).toLocaleString(localeTag)} đ</strong></div></div>
+            <dl className="grid grid-cols-2 gap-3 border-y border-[#0F2A43]/10 py-4 text-sm">
+              <div className="rounded-xl bg-[#F1F0EA] p-3">
+                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#66727C]">{localize("Loại phòng", "Room type")}</dt>
+                <dd className="mt-1 font-bold text-[#0F2A43]">{room.typeName}</dd>
+              </div>
+              <div className="rounded-xl bg-[#F1F0EA] p-3">
+                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#66727C]">{localize("Sức chứa", "Capacity")}</dt>
+                <dd className="mt-1 font-bold text-[#0F2A43]">{localize(`${room.maxGuests} khách / phòng`, `${room.maxGuests} guests / room`)}</dd>
+              </div>
+            </dl>
+            <RoomRatePanel rate={room} />
             <form onSubmit={handleBookingCheck} className="space-y-4">
               <DateTimeField label={`${localize("Thời gian nhận phòng", "Check-in time")} *`} value={checkIn} onValueChange={setCheckIn} />
               <DateTimeField label={`${localize("Thời gian trả phòng", "Check-out time")} *`} value={checkOut} min={checkIn || undefined} onValueChange={setCheckOut} />

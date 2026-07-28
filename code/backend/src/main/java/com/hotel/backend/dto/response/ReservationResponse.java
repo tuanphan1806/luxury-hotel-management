@@ -4,7 +4,9 @@ import com.hotel.backend.constant.ReservationStatus;
 import com.hotel.backend.constant.RefundDestinationStatus;
 import com.hotel.backend.constant.RefundRoute;
 import com.hotel.backend.constant.PaymentPlan;
+import com.hotel.backend.constant.PricingAlgorithmVersion;
 import com.hotel.backend.constant.ReservationCancellationReasonCode;
+import com.hotel.backend.constant.StayPackage;
 import com.hotel.backend.entity.Reservation;
 import lombok.*;
  
@@ -31,8 +33,31 @@ public class ReservationResponse {
     private LocalDateTime checkOut;
     private LocalDateTime actualCheckIn;
     private LocalDateTime actualCheckOut;
+    private PricingAlgorithmVersion pricingVersion;
+    private StayPackage displayPackageSummary;
+    private LocalDateTime inventoryProtectedUntil;
     private BigDecimal totalAmount;
+    /**
+     * Current authoritative obligation. Kept as an explicit alias so clients
+     * do not confuse totalAmount with the immutable booking commitment.
+     */
+    private BigDecimal actualTotalAmount;
+    /**
+     * Read-only amount projected at pricingProjectedAt while a guest is
+     * checked in. Checkout never trusts this preview and recalculates under
+     * the reservation lock.
+     */
+    private BigDecimal projectedTotalAmount;
     private BigDecimal plannedTotalAmount;
+    private BigDecimal plannedRoomCharge;
+    private BigDecimal actualRoomCharge;
+    private BigDecimal projectedRoomCharge;
+    private BigDecimal plannedExtraGuestCharge;
+    private BigDecimal extraGuestCharge;
+    private BigDecimal projectedExtraGuestCharge;
+    private LocalDateTime pricingProjectedAt;
+    private BigDecimal postCommitmentRoomIncrease;
+    private BigDecimal plannedAddOnServiceAmount;
     private BigDecimal paidAmount;
     @Builder.Default
     private BigDecimal addOnServiceAmount = BigDecimal.ZERO;
@@ -81,7 +106,11 @@ public class ReservationResponse {
                 .checkOut(r.getCheckOut())
                 .actualCheckIn(r.getActualCheckIn())
                 .actualCheckOut(r.getActualCheckOut())
+                .pricingVersion(r.getPricingVersion())
+                .displayPackageSummary(r.getDisplayPackageSummary())
+                .inventoryProtectedUntil(r.getInventoryProtectedUntil())
                 .totalAmount(r.getTotalAmount())
+                .actualTotalAmount(r.getTotalAmount())
                 .paymentPlan(r.getPaymentPlan())
                 .requiredInitialPayment(r.getRequiredInitialPayment())
                 .plannedTotalAmount(r.getTotalAmount()

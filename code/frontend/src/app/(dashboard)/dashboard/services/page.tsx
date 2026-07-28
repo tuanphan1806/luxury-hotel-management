@@ -64,7 +64,7 @@ const categories: AddOnServiceCategory[] = [
 
 const pricingUnits: AddOnPricingUnit[] = [
   "PER_GUEST",
-  "PER_NIGHT",
+  "PER_PACKAGE_CYCLE",
   "PER_ITEM",
   "PER_ORDER",
   "PER_USE",
@@ -98,7 +98,8 @@ export default function DashboardServicesPage() {
 
   const unitLabel = (value: AddOnPricingUnit) => ({
     PER_GUEST: localize("Theo người", "Per guest"),
-    PER_NIGHT: localize("Theo món / đêm", "Per item / night"),
+    PER_PACKAGE_CYCLE: localize("Theo số lượng / chu kỳ lưu trú", "Per item / stay cycle"),
+    PER_NIGHT: localize("Theo số lượng / chu kỳ lưu trú", "Per item / stay cycle"),
     PER_ITEM: localize("Theo món", "Per item"),
     PER_ORDER: localize("Theo đơn", "Per order"),
     PER_USE: localize("Theo lần", "Per use"),
@@ -200,8 +201,8 @@ export default function DashboardServicesPage() {
     }
     if (form.nameEn.trim().length > 255) errors.nameEn = localize("Tên tiếng Anh tối đa 255 ký tự.", "English name is limited to 255 characters.");
     if (form.description.trim().length > 2000) errors.description = localize("Mô tả tối đa 2.000 ký tự.", "Description is limited to 2,000 characters.");
-    if (!Number.isFinite(price) || price < 0 || !/^\d{1,10}(\.\d{1,2})?$/.test(form.price.trim())) {
-      errors.price = localize("Giá phải là số không âm, tối đa 2 chữ số thập phân.", "Price must be non-negative with at most 2 decimals.");
+    if (!Number.isSafeInteger(price) || price < 0 || !/^\d{1,10}$/.test(form.price.trim())) {
+      errors.price = localize("Giá phải là số VND nguyên không âm.", "Price must be a non-negative whole VND amount.");
     }
     if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 100000) {
       errors.sortOrder = localize("Thứ tự phải là số nguyên từ 0 đến 100.000.", "Sort order must be an integer from 0 to 100,000.");
@@ -403,7 +404,7 @@ export default function DashboardServicesPage() {
                 <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43]">{localize("Phân loại", "Category")} *<select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value as AddOnServiceCategory })} className="min-h-11 rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#B8944F]">{categories.map((category) => <option key={category} value={category}>{categoryLabel(category)}</option>)}</select></label>
                 <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43]">{localize("Tên (VI)", "Name (VI)")} *<input value={form.name} maxLength={255} onChange={(event) => { setForm({ ...form, name: event.target.value }); setFormErrors((current) => ({ ...current, name: "" })); }} className="min-h-11 rounded-lg border px-3 text-sm outline-none focus:border-[#B8944F]" />{formErrors.name && <span className="text-xs text-rose-700">{formErrors.name}</span>}</label>
                 <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43]">{localize("Tên (EN)", "Name (EN)")}<input value={form.nameEn} maxLength={255} onChange={(event) => setForm({ ...form, nameEn: event.target.value })} className="min-h-11 rounded-lg border px-3 text-sm outline-none focus:border-[#B8944F]" />{formErrors.nameEn && <span className="text-xs text-rose-700">{formErrors.nameEn}</span>}</label>
-                <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43]">{localize("Giá (VND)", "Price (VND)")} *<input inputMode="decimal" value={form.price} onChange={(event) => { setForm({ ...form, price: event.target.value.replace(/[^0-9.]/g, "") }); setFormErrors((current) => ({ ...current, price: "" })); }} className="min-h-11 rounded-lg border px-3 text-right text-sm font-bold outline-none focus:border-[#B8944F]" />{formErrors.price && <span className="text-xs text-rose-700">{formErrors.price}</span>}</label>
+                <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43]">{localize("Giá (VND)", "Price (VND)")} *<input inputMode="numeric" value={form.price} onChange={(event) => { setForm({ ...form, price: event.target.value.replace(/\D/g, "") }); setFormErrors((current) => ({ ...current, price: "" })); }} className="min-h-11 rounded-lg border px-3 text-right text-sm font-bold outline-none focus:border-[#B8944F]" />{formErrors.price && <span className="text-xs text-rose-700">{formErrors.price}</span>}</label>
                 <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43]">{localize("Đơn vị tính", "Pricing unit")} *<select value={form.pricingUnit} onChange={(event) => setForm({ ...form, pricingUnit: event.target.value as AddOnPricingUnit })} className="min-h-11 rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#B8944F]">{pricingUnits.map((unit) => <option key={unit} value={unit}>{unitLabel(unit)}</option>)}</select></label>
                 <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43] sm:col-span-2">{localize("Mô tả (VI)", "Description (VI)")}<textarea rows={3} maxLength={2000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} className="resize-none rounded-lg border px-3 py-2 text-sm outline-none focus:border-[#B8944F]" />{formErrors.description && <span className="text-xs text-rose-700">{formErrors.description}</span>}</label>
                 <label className="grid gap-1.5 text-xs font-bold text-[#0F2A43] sm:col-span-2">{localize("Mô tả (EN)", "Description (EN)")}<textarea rows={3} maxLength={2000} value={form.descriptionEn} onChange={(event) => setForm({ ...form, descriptionEn: event.target.value })} className="resize-none rounded-lg border px-3 py-2 text-sm outline-none focus:border-[#B8944F]" /></label>
