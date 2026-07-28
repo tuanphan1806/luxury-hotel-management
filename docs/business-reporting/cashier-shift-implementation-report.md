@@ -54,7 +54,7 @@ focus-trapped/click-outside/Escape component.
 
 ## Local verification evidence (2026-07-28)
 
-- Backend regression: 455 tests, 0 failures, 0 errors, 0 skipped.
+- Backend regression: 456 tests, 0 failures, 0 errors, 0 skipped.
 - PostgreSQL 16/Flyway profile: 23 migration/integration tests passed; clean
   migration V1-V25.
 - V25 tests cover active-shift uniqueness, append-only movements and immutable

@@ -152,6 +152,20 @@ class AuthorizationMatrixIntegrationTest {
         }
     }
 
+    /** Ca thu ngân là vận hành: ADMIN/STAFF được dùng, CUSTOMER bị chặn. */
+    @Test
+    void cashierShiftEndpointsAreOperatorOnly() throws Exception {
+        mockMvc.perform(get("/api/accounting/cashier-shifts/current")
+                        .header("Authorization", bearer(staffToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/accounting/cashier-shifts/current")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/accounting/cashier-shifts/current")
+                        .header("Authorization", bearer(customerToken)))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     void sePayManualRecoveryCandidatesAreAdminOnly() throws Exception {
         mockMvc.perform(get("/api/payments/sepay/recovery-candidates")
