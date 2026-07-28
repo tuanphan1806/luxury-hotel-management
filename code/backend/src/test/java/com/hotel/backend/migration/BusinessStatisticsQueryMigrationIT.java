@@ -162,6 +162,17 @@ class BusinessStatisticsQueryMigrationIT {
                 Timestamp.from(Instant.parse("2026-07-10T18:00:00Z")));
         jdbc.update("""
                 INSERT INTO payment_refunds(
+                    id, payment_transaction_id, source_type, source_key,
+                    provider, channel, status, amount, requested_amount,
+                    request_id, refund_code, completed_at_utc, created_at)
+                VALUES ('REF-STATS-LEGACY', 'PAY-STATS-1', 'LEGACY',
+                        'STATS-LEGACY-SUCCEEDED-1', 'SEPAY',
+                        'MANUAL_BANK_TRANSFER', 'SUCCEEDED', 5000, 5000,
+                        'REQ-STATS-LEGACY', 'RF-STATS-LEGACY', ?,
+                        TIMESTAMP '2026-07-10 18:10:00')
+                """, Timestamp.from(Instant.parse("2026-07-10T18:10:00Z")));
+        jdbc.update("""
+                INSERT INTO payment_refunds(
                     id, reservation_id, payment_transaction_id,
                     source_type, source_key, provider, channel, status,
                     amount, requested_amount, request_id, refund_code,
@@ -190,6 +201,45 @@ class BusinessStatisticsQueryMigrationIT {
                 Timestamp.from(Instant.parse("2026-07-11T02:00:00Z")),
                 reservationId);
 
+        Long openReservationId = jdbc.queryForObject("""
+                INSERT INTO reservations(
+                    created_at, check_in, check_out, discount_amount,
+                    late_checkout_fee, reservation_code, status, tax_amount,
+                    total_amount, required_initial_payment, customer_profile_id,
+                    cancellation_fee, refundable_amount,
+                    early_checkout_adjustment, checkout_additional_fee,
+                    guest_count, pricing_version)
+                VALUES (TIMESTAMP '2026-06-01 09:00:00',
+                        TIMESTAMP '2026-06-02 20:00:00',
+                        TIMESTAMP '2026-06-03 08:00:00', 0, 0,
+                        'RES-STATS-OPEN', 'DRAFT', 0, 100000, 50000, ?,
+                        0, 0, 0, 0, 1, 'MOTEL_PACKAGE_V2')
+                RETURNING id
+                """, Long.class, customerId);
+        jdbc.update("""
+                INSERT INTO payment_transactions(
+                    id, amount, expected_amount, received_amount,
+                    accepted_amount, refund_required_amount, currency,
+                    provider, status, txn_ref, reservation_id, purpose,
+                    paid_at_utc, created_at)
+                VALUES ('PAY-STATS-OPEN', 60000, 60000, 60000, 60000, 0,
+                        'VND', 'SEPAY', 'SUCCESS', 'TXN-STATS-OPEN', ?,
+                        'DEPOSIT', TIMESTAMPTZ '2026-06-01 03:00:00Z',
+                        TIMESTAMP '2026-06-01 10:00:00')
+                """, openReservationId);
+        jdbc.update("""
+                INSERT INTO payment_refunds(
+                    id, payment_transaction_id, source_type, source_key,
+                    provider, channel, status, amount, requested_amount,
+                    request_id, refund_code, completed_at_utc, created_at)
+                VALUES ('REF-STATS-OPEN-LEGACY', 'PAY-STATS-OPEN', 'LEGACY',
+                        'STATS-OPEN-LEGACY-SUCCEEDED', 'SEPAY',
+                        'MANUAL_BANK_TRANSFER', 'SUCCEEDED', 10000, 10000,
+                        'REQ-STATS-OPEN', 'RF-STATS-OPEN',
+                        TIMESTAMPTZ '2026-06-01 04:00:00Z',
+                        TIMESTAMP '2026-06-01 11:00:00')
+                """);
+
         BusinessStatisticsQueryRepository repository =
                 new BusinessStatisticsQueryRepository(
                         new NamedParameterJdbcTemplate(dataSource));
@@ -214,7 +264,7 @@ class BusinessStatisticsQueryMigrationIT {
                 .isEqualByComparingTo("170000");
         assertThat(revenue.get(1).invoiceCount()).isEqualTo(1);
         assertThat(revenue.get(1).refundOutflow())
-                .isEqualByComparingTo("30000");
+                .isEqualByComparingTo("35000");
 
         List<BusinessStatisticsQueryRepository.CashFlowRow> cashFlow =
                 repository.cashFlow(
@@ -233,8 +283,8 @@ class BusinessStatisticsQueryMigrationIT {
                 .isEqualByComparingTo("45000");
         assertThat(cashFlow.get(0).unmatchedCashInCount()).isEqualTo(1);
         assertThat(cashFlow.get(1).refundOutflow())
-                .isEqualByComparingTo("30000");
-        assertThat(cashFlow.get(1).refundCount()).isEqualTo(1);
+                .isEqualByComparingTo("35000");
+        assertThat(cashFlow.get(1).refundCount()).isEqualTo(2);
         assertThat(cashFlow.get(1).unclassifiedCashOutflow())
                 .isEqualByComparingTo("5000");
         assertThat(cashFlow.get(1).unclassifiedCashOutCount()).isEqualTo(1);
@@ -271,6 +321,8 @@ class BusinessStatisticsQueryMigrationIT {
                     assertThat(row.recognizedRoomRevenue())
                             .isEqualByComparingTo("34000");
                 });
+        assertThat(repository.currentBalances().customerDeposits())
+                .isEqualByComparingTo("50000");
         assertThat(repository.currentBalances().refundPayable())
                 .isEqualByComparingTo("40000");
         assertThat(repository.reservationRevenue(
@@ -295,10 +347,11 @@ class BusinessStatisticsQueryMigrationIT {
                     assertThat(entry.acceptedCashInflow())
                             .isEqualByComparingTo("170000");
                     assertThat(entry.refundOutflow())
-                            .isEqualByComparingTo("30000");
+                            .isEqualByComparingTo("35000");
                     assertThat(entry.netCashFlow())
-                            .isEqualByComparingTo("170000");
-                    assertThat(entry.dataQuality()).isEqualTo("CANONICAL");
+                            .isEqualByComparingTo("165000");
+                    assertThat(entry.dataQuality())
+                            .isEqualTo("LEGACY_UNRECONCILED");
                 });
         assertThat(repository.reservationRevenue(
                 period,
@@ -308,7 +361,18 @@ class BusinessStatisticsQueryMigrationIT {
                 0,
                 20).content()).isEmpty();
         assertThat(repository.ledger(
-                period, null, null, null, 0, 25).content()).hasSize(5);
+                period, null, null, null, 0, 25).content()).hasSize(6);
+        assertThat(repository.ledger(
+                period, "REFUND_OUT", "SEPAY", "SUCCEEDED",
+                "rf-stats-legacy", 0, 25).content())
+                .singleElement()
+                .satisfies(entry -> {
+                    assertThat(entry.reservationCode())
+                            .isEqualTo("RES-STATS-1");
+                    assertThat(entry.amount()).isEqualByComparingTo("5000");
+                    assertThat(entry.dataQuality())
+                            .isEqualTo("LEGACY_UNRECONCILED");
+                });
         assertThat(repository.ledger(
                 period, null, null, null, "txn-stats-1", 0, 25)
                 .content()).singleElement();
