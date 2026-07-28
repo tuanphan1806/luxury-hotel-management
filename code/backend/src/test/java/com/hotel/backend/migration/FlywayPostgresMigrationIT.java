@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "25";
+    private static final String LATEST_VERSION = "26";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -69,6 +69,10 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "pricing_quote_commitments");
             assertTableExists(connection, "cashier_shifts");
             assertTableExists(connection, "cash_movements");
+            assertTableExists(connection, "financial_journal_entries");
+            assertTableExists(connection, "financial_journal_lines");
+            assertTableExists(connection, "business_day_closes");
+            assertTableExists(connection, "business_day_close_locks");
             assertColumn(connection, "room_types", "code");
             assertColumn(connection, "reservations", "pricing_version");
             assertColumn(connection, "reservations", "display_package_summary");

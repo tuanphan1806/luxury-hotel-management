@@ -80,9 +80,10 @@ local fixture data. Full operator UAT and query-plan measurement against
 production-scale data remain rollout gates and are not represented as completed
 by these local results.
 
-## Deferred accounting scope
+## Subsequent operational accounting phases
 
-A read-only operational report is complete in this phase. Double-entry journal,
-cashier shift close, expenses, period locking and manual accounting adjustment
-remain deliberately deferred because they require new financial mutation
-primitives and a separate audit/concurrency design.
+Phase 2A cashier shifts and Phase 2B compact automatic journal/business-day
+close were subsequently implemented under separate migrations and tests. They
+do not change the formulas or read-only contract of this statistics module.
+Statutory accounting scope remains explicitly deferred; see the current
+operational-accounting roadmap and the Phase 2B implementation report.

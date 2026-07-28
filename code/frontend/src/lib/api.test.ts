@@ -101,7 +101,7 @@ describe('cachedGet', () => {
       statusText: 'OK',
       headers: {},
       config: { headers: {} },
-    } as AxiosResponse<unknown[]>;
+    } as unknown as AxiosResponse<unknown[]>;
     const get = vi.spyOn(apiClient, 'get').mockResolvedValue(response);
 
     await cachedGet('/api/reservations', {

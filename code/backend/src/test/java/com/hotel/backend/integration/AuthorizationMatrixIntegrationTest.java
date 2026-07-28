@@ -152,6 +152,24 @@ class AuthorizationMatrixIntegrationTest {
         }
     }
 
+    /** Khóa ngày và journal kế toán chứa dữ liệu tài chính, chỉ ADMIN được đọc. */
+    @Test
+    void businessDayAccountingIsAdminOnly() throws Exception {
+        String previewUrl = "/api/admin/accounting/business-days/2026-07-27/preview";
+        for (String token : List.of(staffToken, customerToken)) {
+            mockMvc.perform(get(previewUrl)
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/accounting/journal")
+                            .param("businessDate", "2026-07-27")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+        }
+        mockMvc.perform(get(previewUrl)
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isOk());
+    }
+
     /** Ca thu ngân là vận hành: ADMIN/STAFF được dùng, CUSTOMER bị chặn. */
     @Test
     void cashierShiftEndpointsAreOperatorOnly() throws Exception {

@@ -1,6 +1,6 @@
 # Operational accounting roadmap
 
-## Delivery status (2026-07-28)
+## Delivery status (2026-07-29)
 
 - **Phase 2A complete locally:** cashier shifts, opening float, immutable cash
   movements, exact/over/short close, STAFF ownership, ADMIN read access,
@@ -10,10 +10,12 @@
   independent from cashier shifts.
 - PostgreSQL migration V25 is expand-only and intentionally does not infer or
   backfill historical cash movements.
-- **Still separate work:** business-day close/day lock and the small automatic
-  journal described below. These controls must not be represented as delivered
-  until their own migrations, source-by-source integration and rollout tests
-  pass.
+- **Phase 2B complete locally:** balanced automatic journal, durable SePay
+  unmatched-funds observation, late provider posting, immutable business-day
+  close, per-day locking, database enforcement, ADMIN API/UI and audit trail.
+- V26 clean-migration and schema validation pass on PostgreSQL 16. Production
+  remains deliberately undeployed until snapshot/staging reconciliation and
+  operator UAT are complete.
 
 ## Decision
 
@@ -22,10 +24,9 @@ operational reconciliation** module. It is not presented as statutory or full
 double-entry accounting.
 
 The project accepts both SePay and counter cash, including cash payments and
-cash refunds. Therefore cashier accountability and business-day close are the
-next useful financial controls. They must be delivered as a separate reviewed
-phase rather than being mixed into the reporting diff or retrofitted by
-allowing ADMIN to edit totals.
+cash refunds. Cashier accountability and business-day close are now delivered
+as separate reviewed phases. ADMIN cannot edit journal totals or create
+free-form financial postings.
 
 ## Phase 2 boundary
 

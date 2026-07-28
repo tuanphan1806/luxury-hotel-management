@@ -14,6 +14,7 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 @Repository
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, String> {
@@ -170,5 +171,10 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     List<PaymentTransaction> findStaleRefundPendingTransactions(
             @Param("status") PaymentStatus status,
             @Param("cutoff") LocalDateTime cutoff);
+
+    List<PaymentTransaction> findByStatusInAndPaidAtUtcGreaterThanEqualAndPaidAtUtcLessThan(
+            List<PaymentStatus> statuses,
+            Instant from,
+            Instant to);
 
 }

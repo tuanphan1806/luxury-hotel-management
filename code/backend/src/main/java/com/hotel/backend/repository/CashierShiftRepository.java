@@ -12,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.Optional;
+import java.time.LocalDate;
+import java.util.List;
 
 public interface CashierShiftRepository extends JpaRepository<CashierShift, Long> {
 
@@ -34,4 +36,10 @@ public interface CashierShiftRepository extends JpaRepository<CashierShift, Long
     Optional<CashierShift> findByIdForUpdate(@Param("id") Long id);
 
     Page<CashierShift> findAllByOpenedById(Long userId, Pageable pageable);
+
+    long countByBusinessDateAndStatusIn(
+            LocalDate businessDate,
+            Collection<CashierShiftStatus> statuses);
+
+    List<CashierShift> findAllByBusinessDate(LocalDate businessDate);
 }

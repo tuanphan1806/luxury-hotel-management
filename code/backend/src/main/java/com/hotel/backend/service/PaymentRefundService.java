@@ -115,6 +115,7 @@ public class PaymentRefundService {
     private final ReservationRefundSummaryEnricher refundSummaryEnricher;
     private final RefundLedgerCalculator ledgerCalculator;
     private final CashierShiftService cashierShiftService;
+    private final FinancialJournalService financialJournalService;
 
     @Value("${app.refund.cancellation-policy-code:CURRENT_CANCELLATION_POLICY}")
     private String cancellationPolicyCode;
@@ -1341,6 +1342,7 @@ public class PaymentRefundService {
         refund.setCompletedAt(LocalDateTime.ofInstant(completedAtUtc, HOTEL_ZONE));
         refund.setMessage(message);
         refund = refundRepository.save(refund);
+        financialJournalService.postRefund(refund);
         syncLegacyPaymentStateIfPresent(refund.getPaymentTransaction());
         auditRefund(refund, ReservationAuditAction.REFUND, auditDetails);
         finalizeReservationAfterCancellationRefund(refund);

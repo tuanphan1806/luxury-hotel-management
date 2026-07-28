@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, String> {
 
@@ -82,4 +83,9 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, St
         WHERE reservation.id = :reservationId OR p.reservation.id = :reservationId
     """)
     List<PaymentRefund> findByReservationId(@Param("reservationId") Long reservationId);
+
+    List<PaymentRefund> findByStatusAndCompletedAtUtcGreaterThanEqualAndCompletedAtUtcLessThan(
+            RefundStatus status,
+            Instant from,
+            Instant to);
 }

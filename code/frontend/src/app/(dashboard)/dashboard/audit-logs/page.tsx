@@ -99,6 +99,8 @@ const ACTION_LABELS: Record<string, string> = {
   CASHIER_SHIFT_CLOSED: "Đóng ca thu ngân",
   CASH_MOVEMENT_RECORDED: "Ghi nhận phát sinh tiền mặt",
   CASH_VARIANCE_RECORDED: "Ghi nhận chênh lệch cuối ca",
+  BUSINESS_DAY_CLOSED: "Khóa ngày nghiệp vụ",
+  FINANCIAL_LATE_POSTING: "Ghi nhận giao dịch ngân hàng đến muộn",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -118,6 +120,8 @@ const TARGET_LABELS: Record<string, string> = {
   CHECKOUT_RECONCILIATION_REQUEST: "Yêu cầu đối soát checkout",
   CASHIER_SHIFT: "Ca thu ngân",
   CASH_MOVEMENT: "Bút toán tiền mặt",
+  BUSINESS_DAY: "Ngày nghiệp vụ",
+  FINANCIAL_JOURNAL_ENTRY: "Bút toán journal",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {

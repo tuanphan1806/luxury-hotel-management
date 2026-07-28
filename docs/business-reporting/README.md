@@ -145,12 +145,14 @@ Deployment order:
 8. Search reservation-revenue and ledger views, check pagination and all seven
    CSV exports in Excel/Sheets.
 
-## 9. Deliberately separate future accounting phase
+## 9. Operational accounting extension
 
-This release is operational reporting, not a general ledger. A full accounting
-module still needs its own reviewed phase for chart of accounts, balanced
-double-entry journal lines, cashier shifts, cash drawer variance, business-day
-close/reopen controls, expense/AP, immutable posting/reversal and accounting
-period locks. Those features must consume canonical payment/refund/invoice
-events and must not be simulated by allowing ADMIN to type arbitrary financial
-adjustments into this dashboard.
+Phase 2A and 2B now add cashier shifts, immutable cash movements, a compact
+balanced journal and immutable business-day close on top of these reports.
+See `cashier-shift-implementation-report.md` and
+`phase-2b-journal-day-close-implementation-report.md`.
+
+This is still operational accounting, not statutory accounting. Supplier/AP,
+payroll, expenses, depreciation, free-form corrections, trial balance, P&L,
+month close, tax filing and electronic-invoice compliance remain separately
+scoped work requiring an accounting professional.

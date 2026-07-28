@@ -53,6 +53,7 @@ class PaymentServiceTest {
     @Mock PaymentReservationAccessPolicy accessPolicy;
     @Mock PaymentBalanceCalculator balanceCalculator;
     @Mock CashierShiftService cashierShiftService;
+    @Mock FinancialJournalService financialJournalService;
     @InjectMocks PaymentService paymentService;
 
     @Test
