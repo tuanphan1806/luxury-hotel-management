@@ -70,6 +70,13 @@ public enum ErrorCode {
     PRICE_CHANGED(5083, "Giá hoặc chính sách đã thay đổi, cần xác nhận báo giá mới", HttpStatus.CONFLICT),
     PRICING_QUOTE_MISMATCH(5084, "Báo giá không khớp với thông tin đặt phòng", HttpStatus.CONFLICT),
 
+    // ── Cashier shifts / cash ledger ─────────────────────────
+    CASHIER_SHIFT_REQUIRED(5090, "Cần mở ca thu ngân trước khi thao tác tiền mặt", HttpStatus.CONFLICT),
+    CASHIER_SHIFT_ALREADY_OPEN(5091, "Bạn đang có một ca thu ngân chưa đóng", HttpStatus.CONFLICT),
+    CASHIER_SHIFT_NOT_FOUND(5092, "Không tìm thấy ca thu ngân", HttpStatus.NOT_FOUND),
+    CASHIER_SHIFT_CLOSED(5093, "Ca thu ngân đã đóng, không thể ghi nhận thêm tiền", HttpStatus.CONFLICT),
+    CASHIER_SHIFT_FORBIDDEN(5094, "Bạn không có quyền thao tác ca thu ngân này", HttpStatus.FORBIDDEN),
+
 
     ;
 

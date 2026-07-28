@@ -95,6 +95,10 @@ const ACTION_LABELS: Record<string, string> = {
   RESERVATION_SERVICE_CONFIRMED: "Xác nhận dịch vụ",
   RESERVATION_SERVICE_FULFILLED: "Hoàn tất phục vụ dịch vụ",
   RESERVATION_SERVICE_CANCELLED: "Hủy dịch vụ",
+  CASHIER_SHIFT_OPENED: "Mở ca thu ngân",
+  CASHIER_SHIFT_CLOSED: "Đóng ca thu ngân",
+  CASH_MOVEMENT_RECORDED: "Ghi nhận phát sinh tiền mặt",
+  CASH_VARIANCE_RECORDED: "Ghi nhận chênh lệch cuối ca",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -112,6 +116,8 @@ const TARGET_LABELS: Record<string, string> = {
   USER: "Tài khoản vận hành",
   SEPAY_WEBHOOK: "Webhook SePay",
   CHECKOUT_RECONCILIATION_REQUEST: "Yêu cầu đối soát checkout",
+  CASHIER_SHIFT: "Ca thu ngân",
+  CASH_MOVEMENT: "Bút toán tiền mặt",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {

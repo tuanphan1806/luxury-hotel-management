@@ -114,6 +114,7 @@ public class PaymentRefundService {
     private final MediaAssetService mediaAssetService;
     private final ReservationRefundSummaryEnricher refundSummaryEnricher;
     private final RefundLedgerCalculator ledgerCalculator;
+    private final CashierShiftService cashierShiftService;
 
     @Value("${app.refund.cancellation-policy-code:CURRENT_CANCELLATION_POLICY}")
     private String cancellationPolicyCode;
@@ -903,6 +904,7 @@ public class PaymentRefundService {
                 RefundCompletionMethod.CASH_HANDOVER,
                 "Staff/Admin đã xác nhận hoàn tiền mặt tại quầy",
                 "Xác nhận đã giao tiền mặt " + refund.getAmount() + " VND trực tiếp cho khách");
+        cashierShiftService.recordCashRefund(refund, currentUser);
         return PaymentRefundResponse.from(refund);
     }
 

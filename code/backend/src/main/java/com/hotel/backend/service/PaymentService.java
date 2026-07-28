@@ -53,6 +53,7 @@ public class PaymentService {
     private final PaymentResponseMapper responseMapper;
     private final PaymentReservationAccessPolicy accessPolicy;
     private final PaymentBalanceCalculator balanceCalculator;
+    private final CashierShiftService cashierShiftService;
     // ==================== TẠO GIAO DỊCH MỚI ====================
 
     @Transactional
@@ -239,6 +240,7 @@ public class PaymentService {
                 .build();
 
         transaction = transactionRepository.save(transaction);
+        cashierShiftService.recordCashPayment(transaction, currentUser);
         reservationService.convertHoldsAfterPayment(reservation.getId());
         reservationAuditService.record(
                 reservation,

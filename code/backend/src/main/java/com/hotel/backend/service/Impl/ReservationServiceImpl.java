@@ -55,6 +55,7 @@ import com.hotel.backend.service.CustomerProfileClaimService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundRecipientService;
 import com.hotel.backend.service.StayWindowValidationService;
+import com.hotel.backend.service.CashierShiftService;
 import com.hotel.backend.util.PaymentUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -109,6 +110,7 @@ public class ReservationServiceImpl implements ReservationService {
     private final WalkInPricingService walkInPricingService;
     private final AvailabilityPricingService availabilityPricingService;
     private final StayWindowValidationService stayWindowValidationService;
+    private final CashierShiftService cashierShiftService;
 
     @Value("${app.reservation.no-show-grace-minutes:360}")
     private long noShowGraceMinutes;
@@ -1089,6 +1091,7 @@ public class ReservationServiceImpl implements ReservationService {
                             .build());
             paymentResponse = PaymentResponse.from(cashPayment);
             paymentCreationStatus = "SUCCESS";
+            cashierShiftService.recordCashPayment(cashPayment, currentUser);
             auditService.record(reservation, ReservationAuditAction.PAYMENT_RECEIVED,
                     "Thu tiền mặt walk-in " + paymentAmount + " VND");
         } else if (request.getPaymentOption() == WalkInPaymentOption.SEPAY) {

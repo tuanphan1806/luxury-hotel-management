@@ -1,5 +1,20 @@
 # Operational accounting roadmap
 
+## Delivery status (2026-07-28)
+
+- **Phase 2A complete locally:** cashier shifts, opening float, immutable cash
+  movements, exact/over/short close, STAFF ownership, ADMIN read access,
+  idempotent manual mutations, audit trail and dashboard UI.
+- CASH reservation payments, CASH walk-ins and CASH-at-counter refunds now post
+  to the operator's open shift in the same database transaction. SePay remains
+  independent from cashier shifts.
+- PostgreSQL migration V25 is expand-only and intentionally does not infer or
+  backfill historical cash movements.
+- **Still separate work:** business-day close/day lock and the small automatic
+  journal described below. These controls must not be represented as delivered
+  until their own migrations, source-by-source integration and rollout tests
+  pass.
+
 ## Decision
 
 The current release is a complete read-only **financial reporting and

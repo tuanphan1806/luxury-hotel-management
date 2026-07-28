@@ -52,6 +52,7 @@ class PaymentServiceTest {
     @Mock PaymentResponseMapper responseMapper;
     @Mock PaymentReservationAccessPolicy accessPolicy;
     @Mock PaymentBalanceCalculator balanceCalculator;
+    @Mock CashierShiftService cashierShiftService;
     @InjectMocks PaymentService paymentService;
 
     @Test
@@ -125,6 +126,7 @@ class PaymentServiceTest {
         verify(reservationRepository).findByIdForUpdate(8L);
         verify(reservationRepository, never()).findById(8L);
         verify(reservationService).convertHoldsAfterPayment(8L);
+        verify(cashierShiftService).recordCashPayment(any(PaymentTransaction.class), eq(staff));
         verify(reservationAuditService).record(
                 eq(reservation),
                 eq(com.hotel.backend.constant.ReservationAuditAction.PAYMENT_RECEIVED),

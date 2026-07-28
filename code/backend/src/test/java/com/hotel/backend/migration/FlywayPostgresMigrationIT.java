@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "24";
+    private static final String LATEST_VERSION = "25";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -67,6 +67,8 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "pricing_quotes");
             assertTableExists(connection, "pricing_quote_lines");
             assertTableExists(connection, "pricing_quote_commitments");
+            assertTableExists(connection, "cashier_shifts");
+            assertTableExists(connection, "cash_movements");
             assertColumn(connection, "room_types", "code");
             assertColumn(connection, "reservations", "pricing_version");
             assertColumn(connection, "reservations", "display_package_summary");
@@ -134,6 +136,8 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_reservations_stay_window_status");
             assertIndex(connection, "idx_reservation_room_types_room_type_reservation");
             assertIndex(connection, "idx_provider_events_unlinked_cash_occurred_at");
+            assertIndex(connection, "uk_cashier_shift_active_user");
+            assertIndex(connection, "idx_cash_movement_shift_occurred");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
             assertConstraint(connection, "chk_payment_transactions_provider");
@@ -171,6 +175,8 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "uk_pricing_quote_room_type");
             assertConstraint(connection, "uk_pricing_quote_commitment_quote");
             assertConstraint(connection, "uk_pricing_quote_commitment_reservation");
+            assertConstraint(connection, "uk_cash_movement_source");
+            assertConstraint(connection, "chk_cash_movement_direction_type");
             assertConstraintAbsent(connection, "uk_media_assets_owner");
             assertColumnDefault(connection, "rooms", "sellable", "true");
             assertColumnDefault(connection, "stay_policy_versions",
