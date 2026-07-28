@@ -47,6 +47,7 @@ class PaymentRefundServiceTest {
     @Mock ReservationAuditService reservationAuditService;
     @Mock MediaAssetService mediaAssetService;
     @Mock ReservationRefundSummaryEnricher refundSummaryEnricher;
+    @Mock FinancialJournalService financialJournalService;
     @Spy RefundLedgerCalculator ledgerCalculator = new RefundLedgerCalculator();
     @InjectMocks PaymentRefundService refundService;
 

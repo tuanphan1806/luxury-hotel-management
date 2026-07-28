@@ -15,6 +15,7 @@ import com.hotel.backend.repository.*;
 import com.hotel.backend.service.PaymentService;
 import com.hotel.backend.service.PaymentSessionExpiryService;
 import com.hotel.backend.service.ReservationService;
+import com.hotel.backend.service.CashierShiftService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,7 @@ class ReservationOperationalFlowIntegrationTest {
     @Autowired ReservationAuditLogRepository auditLogRepository;
     @Autowired UserRepository userRepository;
     @Autowired EntityManager entityManager;
+    @Autowired CashierShiftService cashierShiftService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -610,12 +612,17 @@ class ReservationOperationalFlowIntegrationTest {
     }
 
     private PaymentResponse createCashFinalPayment(Long reservationId, PaymentPurpose purpose) {
+        User cashier = userRepository.save(staff());
+        OpenCashierShiftRequest shiftRequest = new OpenCashierShiftRequest();
+        shiftRequest.setOpeningCashAmount(BigDecimal.valueOf(500_000L));
+        shiftRequest.setNote("Ca kiểm thử payment cuối");
+        cashierShiftService.open(shiftRequest, cashier);
         PaymentRequest request = new PaymentRequest();
         request.setBookingId(reservationId);
         request.setProvider(PaymentProvider.CASH);
         request.setPurpose(purpose);
         return paymentService.createCashPayment(
-                request, new MockHttpServletRequest(), staff());
+                request, new MockHttpServletRequest(), cashier);
     }
 
     private void payRemainingDirectly(Long reservationId, PaymentProvider provider) {

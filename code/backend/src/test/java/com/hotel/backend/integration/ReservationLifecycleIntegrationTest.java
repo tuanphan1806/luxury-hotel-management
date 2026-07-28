@@ -13,6 +13,7 @@ import com.hotel.backend.repository.*;
 import com.hotel.backend.service.PaymentService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.ReservationService;
+import com.hotel.backend.service.CashierShiftService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +56,7 @@ class ReservationLifecycleIntegrationTest {
     @Autowired RoomHoldRepository roomHoldRepository;
     @Autowired ReservationAuditLogRepository auditLogRepository;
     @Autowired UserRepository userRepository;
+    @Autowired CashierShiftService cashierShiftService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -127,9 +129,10 @@ class ReservationLifecycleIntegrationTest {
         feeRequest.setReason("Kiểm tra vòng đời checkout");
         reservationService.updateCheckoutAdditionalFee(reservation.getId(), feeRequest);
 
-        User staff = User.builder().fullName("Nhân viên integration")
+        User staff = userRepository.save(User.builder().fullName("Nhân viên integration")
                 .username("integration-staff").email("integration-staff@example.com")
-                .phone("0900000002").type(UserType.STAFF).status(UserStatus.ACTIVE).build();
+                .phone("0900000002").type(UserType.STAFF).status(UserStatus.ACTIVE).build());
+        openCashierShift(staff);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(staff, null, staff.getAuthorities()));
 
@@ -402,7 +405,8 @@ class ReservationLifecycleIntegrationTest {
         Reservation reservation = confirmedReservation(roomType, "refund-done-" + suffix);
         reservationService.checkIn(reservation.getId(),
                 List.of(assignment(room.getId(), "Refund completion guest")));
-        User staff = staff("refund-complete-staff-" + suffix);
+        User staff = userRepository.save(staff("refund-complete-staff-" + suffix));
+        openCashierShift(staff);
         long remaining = reservationService.calculateFinalPayment(
                 reservation.getId(), staff).getRemainingAmount();
         successfulPayment(reservation.getId(), Math.max(0L, remaining) + 20_000L,
@@ -570,6 +574,13 @@ class ReservationLifecycleIntegrationTest {
                 .type(UserType.STAFF)
                 .status(UserStatus.ACTIVE)
                 .build();
+    }
+
+    private void openCashierShift(User staff) {
+        OpenCashierShiftRequest request = new OpenCashierShiftRequest();
+        request.setOpeningCashAmount(BigDecimal.valueOf(500_000L));
+        request.setNote("Ca kiểm thử tích hợp");
+        cashierShiftService.open(request, staff);
     }
 
     private ConcurrentResult runConcurrently(Runnable firstAction, Runnable secondAction)

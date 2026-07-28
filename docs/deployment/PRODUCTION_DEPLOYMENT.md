@@ -131,6 +131,10 @@ DATABASE_URL=<Neon JDBC URL>
 DATABASE_USERNAME=<Neon role>
 DATABASE_PASSWORD=<Neon password>
 
+# Ngày đầu tiên journal mới có coverage đầy đủ, định dạng yyyy-MM-dd.
+# Không đặt lùi về trước ngày V26 bắt đầu ghi dữ liệu thật.
+APP_ACCOUNTING_GO_LIVE_DATE=<yyyy-MM-dd>
+
 FRONTEND_BASE_URL=https://<vercel-project>.vercel.app
 BACKEND_BASE_URL=https://<render-service>.onrender.com
 CORS_ALLOWED_ORIGINS=https://<vercel-project>.vercel.app
@@ -262,7 +266,15 @@ https://<render-service>.onrender.com/actuator/health
 ```
 
 Phải trả HTTP 200 và trạng thái `UP`. Trong log, Flyway phải hoàn tất tới version
-hiện tại trước khi Hibernate validate thành công.
+`28` trước khi Hibernate validate thành công. Trước lần rollout V26–V28, tạo
+snapshot/branch Neon và kiểm tra `flyway_schema_history`. Nếu một môi trường từng
+chạy bản V26 thử nghiệm có checksum khác, dừng deploy: đối chiếu table, constraint,
+index, trigger và function với database sạch trước; không chạy repair vô điều kiện.
+
+Sau startup, mở `/dashboard/business-days`: ngày trước
+`APP_ACCOUNTING_GO_LIVE_DATE` phải bị chặn, còn ngày đầu coverage chỉ được khóa
+sau khi toàn bộ ca tiền mặt, SePay event, payment/refund/invoice và journal đã
+được đối soát.
 
 ## 5. Nối lại Vercel với Render
 
