@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import { apiClient, cachedGet, getApiErrorMessage, getApiErrorStatus } from "@/lib/api";
@@ -238,6 +238,12 @@ export default function BusinessStatisticsPage() {
   const [ledgerError, setLedgerError] = useState("");
   const [notice, setNotice] = useState("");
   const [selectedExportReport, setSelectedExportReport] = useState<ExportReport>("revenue");
+  const [cashFlowEnabled, setCashFlowEnabled] = useState(false);
+  const [reservationRevenueEnabled, setReservationRevenueEnabled] = useState(false);
+  const [ledgerEnabled, setLedgerEnabled] = useState(false);
+  const cashFlowSectionRef = useRef<HTMLElement | null>(null);
+  const reservationSectionRef = useRef<HTMLElement | null>(null);
+  const ledgerSectionRef = useRef<HTMLElement | null>(null);
 
   const money = useMemo(() => new Intl.NumberFormat(localeTag, { style: "currency", currency: "VND", maximumFractionDigits: 0 }), [localeTag]);
   const number = useMemo(() => new Intl.NumberFormat(localeTag, { maximumFractionDigits: 1 }), [localeTag]);
@@ -380,16 +386,41 @@ export default function BusinessStatisticsPage() {
   }, [isAdmin, loadSummary]);
 
   useEffect(() => {
-    if (isAdmin) void loadLedger();
-  }, [isAdmin, loadLedger]);
+    if (isAdmin && ledgerEnabled) void loadLedger();
+  }, [isAdmin, ledgerEnabled, loadLedger]);
 
   useEffect(() => {
-    if (isAdmin) void loadCashFlow();
-  }, [isAdmin, loadCashFlow]);
+    if (isAdmin && cashFlowEnabled) void loadCashFlow();
+  }, [cashFlowEnabled, isAdmin, loadCashFlow]);
 
   useEffect(() => {
-    if (isAdmin) void loadReservationRevenue();
-  }, [isAdmin, loadReservationRevenue]);
+    if (isAdmin && reservationRevenueEnabled) void loadReservationRevenue();
+  }, [isAdmin, loadReservationRevenue, reservationRevenueEnabled]);
+
+  useEffect(() => {
+    if (!isAdmin || !overview) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setCashFlowEnabled(true);
+      setReservationRevenueEnabled(true);
+      setLedgerEnabled(true);
+      return;
+    }
+    const targets = [
+      [cashFlowSectionRef.current, setCashFlowEnabled],
+      [reservationSectionRef.current, setReservationRevenueEnabled],
+      [ledgerSectionRef.current, setLedgerEnabled],
+    ] as const;
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const match = targets.find(([element]) => element === entry.target);
+        if (match) match[1](true);
+        observer.unobserve(entry.target);
+      });
+    }, { rootMargin: "320px 0px" });
+    targets.forEach(([element]) => { if (element) observer.observe(element); });
+    return () => observer.disconnect();
+  }, [isAdmin, overview]);
 
   const applyPeriod = () => {
     if (!draftPeriod.from || !draftPeriod.to || draftPeriod.from > draftPeriod.to) {
@@ -412,12 +443,11 @@ export default function BusinessStatisticsPage() {
 
   const refresh = () => {
     setIsRefreshing(true);
-    void Promise.all([
-      loadSummary(true),
-      loadCashFlow(true),
-      loadReservationRevenue(true),
-      loadLedger(true),
-    ]).finally(() => setIsRefreshing(false));
+    const requests: Promise<void>[] = [loadSummary(true)];
+    if (cashFlowEnabled) requests.push(loadCashFlow(true));
+    if (reservationRevenueEnabled) requests.push(loadReservationRevenue(true));
+    if (ledgerEnabled) requests.push(loadLedger(true));
+    void Promise.all(requests).finally(() => setIsRefreshing(false));
   };
 
   const updateLedgerFilter = (key: keyof LedgerFilters, value: string) => {
@@ -589,7 +619,7 @@ export default function BusinessStatisticsPage() {
           )}
 
           <section className="grid gap-6 xl:grid-cols-2">
-            <article className={`${sectionClass} p-5 sm:p-6`}>
+            <article ref={cashFlowSectionRef} className={`${sectionClass} p-5 sm:p-6`}>
               <div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#B8944F]">{localize("Doanh thu", "Revenue")}</p><h2 className="mt-1 font-serif text-2xl font-bold">{localize("Doanh thu đã ghi nhận", "Recognized revenue trend")}</h2></div><span className="rounded-full bg-[#F1F0EA] px-3 py-1 text-[10px] font-bold text-[#66727C]">{period.from} → {period.to}</span></div>
               <LineChart points={revenue} valueKey="recognizedRevenue" formatValue={formatMoney} formatPeriod={formatPeriod} emptyLabel={localize("Chưa có hóa đơn checkout trong kỳ.", "No checkout invoices in this period.")} />
               <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[#0F2A43]/8 pt-4 sm:grid-cols-4">
@@ -620,7 +650,7 @@ export default function BusinessStatisticsPage() {
             </article>
           </section>
 
-          <section className={`${sectionClass} overflow-hidden`} aria-labelledby="reservation-revenue-heading">
+          <section ref={reservationSectionRef} className={`${sectionClass} overflow-hidden`} aria-labelledby="reservation-revenue-heading">
             <div className="border-b border-[#0F2A43]/8 px-5 py-5 sm:px-6">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                 <div>
@@ -699,7 +729,7 @@ export default function BusinessStatisticsPage() {
           </section>
         </>}
 
-        <section className={`${sectionClass} overflow-hidden`} aria-labelledby="ledger-heading">
+        <section ref={ledgerSectionRef} className={`${sectionClass} overflow-hidden`} aria-labelledby="ledger-heading">
           <div className="border-b border-[#0F2A43]/8 px-5 py-5 sm:px-6">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#B8944F]">{localize("Sổ giao dịch chỉ đọc", "Read-only transaction ledger")}</p><h2 id="ledger-heading" className="mt-1 font-serif text-2xl font-bold">{localize("Không để tiền vào, tiền hoàn hoặc doanh thu bị khuất", "Keep cash-in, refunds and recognized revenue visible")}</h2></div>

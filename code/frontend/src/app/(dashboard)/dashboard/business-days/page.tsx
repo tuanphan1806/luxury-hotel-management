@@ -62,31 +62,55 @@ export default function BusinessDaysPage() {
   const [journalPage, setJournalPage] = useState(0);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [journalLoading, setJournalLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [closeModal, setCloseModal] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const load = useCallback(async (force = false) => {
-    setLoading(true); setError("");
+  const loadPreview = useCallback(async (force = false) => {
+    setLoading(true);
     try {
       const cacheBust = force ? Date.now() : 0;
-      const suffix = force ? `&_=${cacheBust}` : "";
-      const [previewResponse, historyResponse, journalResponse] = await Promise.all([
-        apiClient.get(`/api/admin/accounting/business-days/${businessDate}/preview${force ? `?_=${cacheBust}` : ""}`),
-        apiClient.get(`/api/admin/accounting/business-days?page=${historyPage}&size=12${suffix}`),
-        apiClient.get(`/api/admin/accounting/journal?businessDate=${businessDate}&page=${journalPage}&size=20${suffix}`),
-      ]);
+      const previewResponse = await apiClient.get(`/api/admin/accounting/business-days/${businessDate}/preview${force ? `?_=${cacheBust}` : ""}`);
       setPreview(unwrap<BusinessDayClose>(previewResponse));
-      setHistory(unwrap<PageResult<BusinessDayClose>>(historyResponse) || emptyPage());
-      setJournal(unwrap<PageResult<FinancialJournalEntry>>(journalResponse) || emptyPage());
     } catch (requestError) {
-      setError(getApiErrorMessage(requestError, "Không thể tải dữ liệu khóa ngày"));
+      setError(getApiErrorMessage(requestError, "Không thể tải đối chiếu ngày nghiệp vụ"));
     } finally { setLoading(false); }
-  }, [businessDate, historyPage, journalPage]);
+  }, [businessDate]);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadHistory = useCallback(async (force = false) => {
+    setHistoryLoading(true);
+    try {
+      const suffix = force ? `&_=${Date.now()}` : "";
+      const response = await apiClient.get(`/api/admin/accounting/business-days?page=${historyPage}&size=12${suffix}`);
+      setHistory(unwrap<PageResult<BusinessDayClose>>(response) || emptyPage());
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Không thể tải lịch sử khóa ngày"));
+    } finally { setHistoryLoading(false); }
+  }, [historyPage]);
+
+  const loadJournal = useCallback(async (force = false) => {
+    setJournalLoading(true);
+    try {
+      const suffix = force ? `&_=${Date.now()}` : "";
+      const response = await apiClient.get(`/api/admin/accounting/journal?businessDate=${businessDate}&page=${journalPage}&size=20${suffix}`);
+      setJournal(unwrap<PageResult<FinancialJournalEntry>>(response) || emptyPage());
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Không thể tải journal ngày nghiệp vụ"));
+    } finally { setJournalLoading(false); }
+  }, [businessDate, journalPage]);
+
+  const loadAll = useCallback(async (force = false) => {
+    setError("");
+    await Promise.all([loadPreview(force), loadHistory(force), loadJournal(force)]);
+  }, [loadHistory, loadJournal, loadPreview]);
+
+  useEffect(() => { void loadPreview(); }, [loadPreview]);
+  useEffect(() => { void loadHistory(); }, [loadHistory]);
+  useEffect(() => { void loadJournal(); }, [loadJournal]);
   useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(""), 4500);
@@ -106,7 +130,7 @@ export default function BusinessDaysPage() {
       clearIdempotencyKey(scope);
       setCloseModal(false); setNote("");
       setNotice(`Đã khóa ngày nghiệp vụ ${businessDate}. Snapshot không thể sửa hoặc xóa.`);
-      await load(true);
+      await loadAll(true);
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, "Không thể khóa ngày nghiệp vụ"));
     } finally { setSubmitting(false); }
@@ -136,7 +160,7 @@ export default function BusinessDaysPage() {
         <label htmlFor="business-date" className="grid gap-1 text-xs font-bold text-[#0F2A43]">Ngày nghiệp vụ
           <input id="business-date" type="date" value={businessDate} onChange={(event) => { setBusinessDate(event.target.value); setJournalPage(0); setExpanded(new Set()); }} className="min-h-11 rounded-lg border border-[#0F2A43]/18 bg-[#FBFAF7] px-3 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20" />
         </label>
-        <button type="button" onClick={() => void load(true)} disabled={loading} className="min-h-11 rounded-lg border border-[#0F2A43]/15 px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:opacity-50">{loading ? "Đang tải…" : "Tải lại"}</button>
+        <button type="button" onClick={() => void loadAll(true)} disabled={loading || historyLoading || journalLoading} className="min-h-11 rounded-lg border border-[#0F2A43]/15 px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:opacity-50">{loading || historyLoading || journalLoading ? "Đang tải…" : "Tải lại"}</button>
         <button type="button" onClick={() => { setError(""); setCloseModal(true); }} disabled={!preview?.closeAllowed || preview?.closed || loading} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#173D5F] disabled:cursor-not-allowed disabled:opacity-45">Khóa ngày</button>
       </div>
     </header>
@@ -161,7 +185,7 @@ export default function BusinessDaysPage() {
         <article className="rounded-2xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-5">
           <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#9A762F]">Số dư kiểm soát</p><h2 className="mt-1 font-serif text-xl font-bold text-[#0F2A43]">Nghĩa vụ còn theo dõi</h2>
           <dl className="mt-4 grid gap-3 text-sm">
-            <div className="flex items-center justify-between gap-4 border-b border-[#0F2A43]/8 pb-3"><dt className="text-[#66727C]">Hoàn tiền đang chờ</dt><dd className="font-bold text-[#0F2A43]">{formatVnd(preview.pendingRefundPayableAmount)}</dd></div>
+            <div className="flex items-center justify-between gap-4 border-b border-[#0F2A43]/8 pb-3"><dt className="text-[#66727C]">{preview.closed ? "Nghĩa vụ hoàn tại lúc khóa" : "Nghĩa vụ hoàn đang mở hiện tại"}</dt><dd className="font-bold text-[#0F2A43]">{formatVnd(preview.pendingRefundPayableAmount)}</dd></div>
             <div className="flex items-center justify-between gap-4 border-b border-[#0F2A43]/8 pb-3"><dt className="text-[#66727C]">Tiền chưa xác định</dt><dd className={`font-bold ${preview.unreconciledFundsBalance ? "text-rose-700" : "text-emerald-700"}`}>{formatVnd(preview.unreconciledFundsBalance)}</dd></div>
             <div className="flex items-center justify-between gap-4"><dt className="text-[#66727C]">Chênh lệch tiền mặt</dt><dd className={`font-bold ${preview.cashVarianceAmount ? "text-rose-700" : "text-[#0F2A43]"}`}>{formatVnd(preview.cashVarianceAmount)}</dd></div>
           </dl>
@@ -172,7 +196,7 @@ export default function BusinessDaysPage() {
     <section className="mt-8">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#9A762F]">Dấu vết tài chính</p><h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Journal ngày {businessDate}</h2></div><p className="text-xs text-[#66727C]">{journal.totalElements} bút toán · bấm từng dòng để xem Nợ/Có</p></div>
       <div className="mt-4 overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white">
-        {journal.content.length ? journal.content.map((entry) => {
+        {journalLoading ? <div className="flex min-h-36 items-center justify-center gap-2 px-6 py-12 text-sm font-semibold text-[#66727C]"><span className="h-4 w-4 animate-spin rounded-full border-2 border-[#0F2A43]/20 border-t-[#0F2A43]" aria-hidden="true" />Đang tải journal…</div> : journal.content.length ? journal.content.map((entry) => {
           const open = expanded.has(entry.id);
           return <article key={entry.id} className="border-b border-[#0F2A43]/8 last:border-b-0">
             <button type="button" onClick={() => toggleEntry(entry.id)} aria-expanded={open} className="grid min-h-16 w-full gap-3 px-4 py-4 text-left transition hover:bg-[#F8F6F0] sm:grid-cols-[1.1fr_1.5fr_1fr_auto] sm:items-center sm:px-5">
@@ -188,10 +212,10 @@ export default function BusinessDaysPage() {
           </article>;
         }) : <div className="px-6 py-12 text-center"><p className="font-serif text-xl font-bold text-[#0F2A43]">Chưa có bút toán trong ngày</p><p className="mt-2 text-sm text-[#66727C]">Payment, refund và invoice hoàn tất sẽ được ghi tự động; ADMIN không nhập journal tùy ý.</p></div>}
       </div>
-      {journal.totalPages > 1 && <nav aria-label="Phân trang journal" className="mt-4 flex items-center justify-end gap-3"><button type="button" disabled={journal.number <= 0 || loading} onClick={() => setJournalPage((page) => Math.max(0, page - 1))} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">← Trước</button><span className="text-xs font-semibold text-[#66727C]">{journal.number + 1}/{journal.totalPages}</span><button type="button" disabled={journal.number >= journal.totalPages - 1 || loading} onClick={() => setJournalPage((page) => page + 1)} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">Sau →</button></nav>}
+      {journal.totalPages > 1 && <nav aria-label="Phân trang journal" className="mt-4 flex items-center justify-end gap-3"><button type="button" disabled={journal.number <= 0 || journalLoading} onClick={() => setJournalPage((page) => Math.max(0, page - 1))} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">← Trước</button><span className="text-xs font-semibold text-[#66727C]">{journal.number + 1}/{journal.totalPages}</span><button type="button" disabled={journal.number >= journal.totalPages - 1 || journalLoading} onClick={() => setJournalPage((page) => page + 1)} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">Sau →</button></nav>}
     </section>
 
-    <section className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#9A762F]">Snapshot bất biến</p><h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Các ngày đã khóa</h2></div><span className="text-xs text-[#66727C]">{history.totalElements} ngày</span></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{history.content.map((item) => <button key={item.id} type="button" onClick={() => { setBusinessDate(item.businessDate); setJournalPage(0); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-2xl border border-[#0F2A43]/10 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-[#B8944F] hover:shadow-lg"><div className="flex items-start justify-between gap-3"><div><p className="font-serif text-lg font-bold text-[#0F2A43]">{item.businessDate}</p><p className="mt-1 text-xs text-[#66727C]">{item.closedByName} · {dateTime(item.closedAtUtc)}</p></div><span className="rounded-full bg-[#E8EDF0] px-2.5 py-1 text-[10px] font-extrabold text-[#0F2A43]">ĐÃ KHÓA</span></div><p className="mt-4 text-sm text-[#66727C]">Doanh thu <b className="text-[#0F2A43]">{formatVnd(item.recognizedRevenueAmount)}</b> · {item.journalEntryCount} bút toán</p></button>)}</div>{!history.content.length && !loading && <p className="mt-4 rounded-2xl border border-dashed border-[#0F2A43]/18 px-5 py-8 text-center text-sm text-[#66727C]">Chưa có ngày nghiệp vụ nào được khóa.</p>}{history.totalPages > 1 && <nav aria-label="Phân trang ngày đã khóa" className="mt-4 flex items-center justify-end gap-3"><button type="button" disabled={history.number <= 0 || loading} onClick={() => setHistoryPage((page) => Math.max(0, page - 1))} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">← Trước</button><span className="text-xs font-semibold text-[#66727C]">{history.number + 1}/{history.totalPages}</span><button type="button" disabled={history.number >= history.totalPages - 1 || loading} onClick={() => setHistoryPage((page) => page + 1)} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">Sau →</button></nav>}</section>
+    <section className="mt-8"><div className="flex items-end justify-between"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#9A762F]">Snapshot bất biến</p><h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Các ngày đã khóa</h2></div><span className="text-xs text-[#66727C]">{history.totalElements} ngày</span></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{history.content.map((item) => <button key={item.id} type="button" onClick={() => { setBusinessDate(item.businessDate); setJournalPage(0); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-2xl border border-[#0F2A43]/10 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-[#B8944F] hover:shadow-lg"><div className="flex items-start justify-between gap-3"><div><p className="font-serif text-lg font-bold text-[#0F2A43]">{item.businessDate}</p><p className="mt-1 text-xs text-[#66727C]">{item.closedByName} · {dateTime(item.closedAtUtc)}</p></div><span className="rounded-full bg-[#E8EDF0] px-2.5 py-1 text-[10px] font-extrabold text-[#0F2A43]">ĐÃ KHÓA</span></div><p className="mt-4 text-sm text-[#66727C]">Doanh thu <b className="text-[#0F2A43]">{formatVnd(item.recognizedRevenueAmount)}</b> · {item.journalEntryCount} bút toán</p></button>)}</div>{!history.content.length && !historyLoading && <p className="mt-4 rounded-2xl border border-dashed border-[#0F2A43]/18 px-5 py-8 text-center text-sm text-[#66727C]">Chưa có ngày nghiệp vụ nào được khóa.</p>}{history.totalPages > 1 && <nav aria-label="Phân trang ngày đã khóa" className="mt-4 flex items-center justify-end gap-3"><button type="button" disabled={history.number <= 0 || historyLoading} onClick={() => setHistoryPage((page) => Math.max(0, page - 1))} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">← Trước</button><span className="text-xs font-semibold text-[#66727C]">{history.number + 1}/{history.totalPages}</span><button type="button" disabled={history.number >= history.totalPages - 1 || historyLoading} onClick={() => setHistoryPage((page) => page + 1)} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold disabled:opacity-45">Sau →</button></nav>}</section>
 
     <ViewportModal open={closeModal} onClose={() => { if (!submitting) setCloseModal(false); }} labelledBy="close-business-day-title" busy={submitting} panelClassName="max-w-lg">
       <div className="flex items-start justify-between border-b border-[#0F2A43]/10 px-5 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#9A762F]">Thao tác bất biến</p><h2 id="close-business-day-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Khóa ngày {businessDate}</h2></div><button type="button" onClick={() => setCloseModal(false)} disabled={submitting} aria-label="Đóng" className="flex h-11 w-11 items-center justify-center rounded-full text-xl text-[#66727C] transition hover:bg-[#F1F0EA] disabled:opacity-40">×</button></div>

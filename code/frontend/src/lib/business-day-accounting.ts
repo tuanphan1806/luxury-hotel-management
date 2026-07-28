@@ -82,6 +82,8 @@ export function defaultBusinessDate(now = new Date()): string {
 }
 
 const BLOCKER_LABELS: Record<string, string> = {
+  ACCOUNTING_GO_LIVE_DATE_NOT_CONFIGURED: "Chưa cấu hình ngày bắt đầu sổ kế toán",
+  BEFORE_ACCOUNTING_GO_LIVE_DATE: "Ngày được chọn nằm trước ngày bắt đầu sổ kế toán",
   DATE_NOT_FINISHED: "Ngày nghiệp vụ chưa kết thúc",
   OPEN_CASHIER_SHIFTS: "Còn ca thu ngân chưa đóng",
   UNRESOLVED_PROVIDER_EVENTS: "Còn giao dịch SePay chưa xử lý",

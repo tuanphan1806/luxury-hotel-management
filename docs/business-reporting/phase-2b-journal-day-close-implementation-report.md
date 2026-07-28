@@ -8,7 +8,7 @@ entries in the same database transaction. ADMIN can review and close a hotel
 business date from the dashboard. This phase does not change reservation,
 RoomHold, check-in, checkout, refund or SePay state machines.
 
-Production is not yet marked complete: V26 must first be applied to a backed-up
+Production is not yet marked complete: V26–V28 must first be applied to a backed-up
 staging/Neon clone and reconciled against one real operating day.
 
 ## Implemented backend
@@ -26,6 +26,11 @@ staging/Neon clone and reconciled against one real operating day.
 - ADMIN-only preview, close, close-history and journal endpoints.
 - Close blockers for active shifts, unresolved provider events, unposted
   completed sources, unbalanced entries and unreconciled funds.
+- Day close remains disabled when `APP_ACCOUNTING_GO_LIVE_DATE` is absent or
+  the selected date precedes it. This prevents a partial, non-backfilled legacy
+  period from being presented as a complete close.
+- Close preview and journal pagination now use aggregate/batch queries instead
+  of loading every source row or issuing one line query per journal entry.
 
 ## Database integrity
 
@@ -36,6 +41,17 @@ staging/Neon clone and reconciled against one real operating day.
 - source idempotency, lookup and business-date indexes;
 - append-only update/delete triggers;
 - triggers preventing direct entry/line insertion into a closed day.
+
+`V27__align_financial_journal_close_guards.sql` is an idempotent compatibility
+migration. It makes clean and early-development V26 schemas converge on the
+same column types, function and closed-day triggers. The local development
+database was repaired only after 97 schema objects matched a clean database
+exactly (same SHA-256); no production Flyway history was changed.
+
+`V28__index_financial_journal_sources.sql` adds partial source-link indexes used
+by close-time unposted-source checks. PostgreSQL does not index foreign keys
+automatically; this migration prevents the optimized aggregate checks from
+falling back to repeated journal scans as the ledger grows.
 
 Journal posting and close acquire the same per-date row mutex. Close therefore
 revalidates after concurrent financial source transactions finish instead of
@@ -53,8 +69,8 @@ trusting an earlier UI preview.
 
 ## Automated evidence (2026-07-29)
 
-- Backend unit/integration regression: 470/470 passed.
-- PostgreSQL 16 migration profile: 24/24 passed, including clean V1–V26,
+- Backend unit/integration regression: 496/496 passed.
+- PostgreSQL 16 migration profile: 26/26 passed, including clean V1–V28,
   Hibernate schema validation, trigger immutability and idempotency.
 - Frontend Vitest: 45/45 passed.
 - Frontend TypeScript and ESLint: passed.
@@ -64,12 +80,17 @@ trusting an earlier UI preview.
 ## Required production rollout
 
 1. Snapshot Neon and verify the backup can be restored.
-2. Apply V26 to a staging clone through normal Flyway startup.
+2. Inspect the staging clone's `flyway_schema_history` before deployment. Apply
+   V26–V28 through normal Flyway startup. If V26 was previously applied with a
+   different checksum, stop and repeat the documented schema comparison; never
+   run an unconditional repair.
 3. Reconcile a representative day against cashier shifts, SePay provider
    events, payments, refunds and invoices.
 4. UAT an exact cash shift, over/short shift, unmatched incoming/outgoing,
    late SePay event and blocked/allowed day close.
-5. Deploy backend before frontend, verify ADMIN/STAFF authorization, then
+5. Set `APP_ACCOUNTING_GO_LIVE_DATE` to the first date from which journal
+   coverage is complete. Do not choose an earlier legacy date.
+6. Deploy backend before frontend, verify ADMIN/STAFF authorization, then
    enable the dashboard route.
 
 ## Explicit non-goals

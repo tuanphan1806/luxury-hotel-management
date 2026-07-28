@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.Optional;
 import java.time.LocalDate;
 import java.util.List;
+import java.math.BigDecimal;
 
 public interface CashierShiftRepository extends JpaRepository<CashierShift, Long> {
 
@@ -42,4 +43,11 @@ public interface CashierShiftRepository extends JpaRepository<CashierShift, Long
             Collection<CashierShiftStatus> statuses);
 
     List<CashierShift> findAllByBusinessDate(LocalDate businessDate);
+
+    @Query("""
+            select coalesce(sum(shift.varianceAmount), 0)
+            from CashierShift shift
+            where shift.businessDate = :businessDate
+            """)
+    BigDecimal sumVarianceByBusinessDate(@Param("businessDate") LocalDate businessDate);
 }

@@ -177,4 +177,21 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             Instant from,
             Instant to);
 
+    @Query("""
+        SELECT COUNT(pt)
+        FROM PaymentTransaction pt
+        WHERE pt.status IN :statuses
+          AND pt.paidAtUtc >= :from
+          AND pt.paidAtUtc < :to
+          AND NOT EXISTS (
+              SELECT journal.id
+              FROM FinancialJournalEntry journal
+              WHERE journal.paymentTransaction.id = pt.id
+          )
+    """)
+    long countUnpostedFinancialTransactions(
+            @Param("statuses") List<PaymentStatus> statuses,
+            @Param("from") Instant from,
+            @Param("to") Instant to);
+
 }

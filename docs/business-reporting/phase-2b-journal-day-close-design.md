@@ -3,9 +3,9 @@
 ## Status and boundary
 
 This document records the implemented Phase 2B contract. Phase 2A cashier
-shifts and Phase 2B journal/day-close are complete locally. V26, source
+shifts and Phase 2B journal/day-close are complete locally. V26–V28, source
 integration, authorization, frontend and automated regression gates pass;
-production still requires a database snapshot, staged V26 rollout and operator
+production still requires a database snapshot, staged V26–V28 rollout and operator
 UAT before the feature is treated as live.
 
 The module is a compact operational journal for hotel reconciliation. It is
@@ -128,19 +128,33 @@ Closing fails when any of these are true for the selected business date:
 5. the date is in the future or is already closed with different request data.
 
 Pending refund obligations are shown in the close snapshot but do not block
-close; they remain liabilities carried into the next day.
+close; they remain liabilities carried into the next day. This value means the
+open refund obligations visible when the close transaction executes. It is
+stored in the immutable close snapshot and is not presented as a reconstructed
+historical balance from refund events alone.
+
+Closing is also blocked until `APP_ACCOUNTING_GO_LIVE_DATE` is configured and
+for every date before that boundary. V26 intentionally does not invent journal
+entries for legacy payment/refund/invoice rows, so allowing an older date to be
+closed would create a misleading partial snapshot. The configuration only gates
+day close; it does not stop payment, refund, invoice or SePay processing.
 
 ## Migration order
 
 1. `V26`: journal entries, journal lines, day-close mutex and business-day
    closes; unique source key, indexes, append-only/closed-day triggers.
-2. Entities/repositories and the source-independent posting service.
-3. Source integration: CASH payment, CASH refund, SePay payment/refund,
+2. `V27`: idempotently aligns early development V26 schemas, normalizes the
+   journal currency/close hash types and guarantees both closed-day insert
+   triggers exist.
+3. `V28`: adds partial indexes for journal links to payment, refund, invoice
+   and provider-event sources used by close-time completeness checks.
+4. Entities/repositories and the source-independent posting service.
+5. Source integration: CASH payment, CASH refund, SePay payment/refund,
    unmatched provider movement and immutable invoice.
-4. ADMIN close preview/close/history/journal API and dashboard UI.
-5. Completed locally: clean PostgreSQL Flyway V1–V26, Hibernate schema
+6. ADMIN close preview/close/history/journal API and dashboard UI.
+7. Completed locally: clean PostgreSQL Flyway V1–V28, Hibernate schema
    validation, idempotency/concurrency tests and full backend/frontend gates.
-6. Remaining rollout-only gates: snapshot Neon, apply V26 on staging/clone,
+8. Remaining rollout-only gates: snapshot Neon, apply V26–V28 on staging/clone,
    reconcile a real hotel day, run operator UAT, then deploy production.
 
 ## Explicit non-goals

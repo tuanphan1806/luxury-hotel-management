@@ -67,6 +67,7 @@ export default function CashierShiftsPage() {
   const [historyPage, setHistoryPage] = useState(0);
   const [selected, setSelected] = useState<CashierShift | null>(null);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [modal, setModal] = useState<ModalKind>(null);
   const [amount, setAmount] = useState("");
@@ -75,24 +76,37 @@ export default function CashierShiftsPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const load = useCallback(async () => {
+  const loadCurrent = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
-      const [currentResponse, historyResponse] = await Promise.all([
-        apiClient.get("/api/accounting/cashier-shifts/current"),
-        apiClient.get(`/api/accounting/cashier-shifts?page=${historyPage}&size=20`),
-      ]);
+      const currentResponse = await apiClient.get("/api/accounting/cashier-shifts/current");
       setCurrent(unwrap<CashierShift | null>(currentResponse) || null);
-      setHistory(unwrap<PageResult<CashierShift>>(historyResponse) || emptyPage);
     } catch (requestError) {
-      setError(getApiErrorMessage(requestError, "Không thể tải dữ liệu ca thu ngân"));
+      setError(getApiErrorMessage(requestError, "Không thể tải ca thu ngân hiện tại"));
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const historyResponse = await apiClient.get(`/api/accounting/cashier-shifts?page=${historyPage}&size=20`);
+      setHistory(unwrap<PageResult<CashierShift>>(historyResponse) || emptyPage);
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Không thể tải lịch sử ca thu ngân"));
+    } finally {
+      setHistoryLoading(false);
+    }
   }, [historyPage]);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadAll = useCallback(async () => {
+    setError("");
+    await Promise.all([loadCurrent(), loadHistory()]);
+  }, [loadCurrent, loadHistory]);
+
+  useEffect(() => { void loadCurrent(); }, [loadCurrent]);
+  useEffect(() => { void loadHistory(); }, [loadHistory]);
   useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(""), 4200);
@@ -149,7 +163,7 @@ export default function CashierShiftsPage() {
       }
       clearIdempotencyKey(scope);
       setModal(null);
-      await load();
+      await loadAll();
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, "Không thể hoàn tất thao tác ca thu ngân"));
     } finally { setSubmitting(false); }
@@ -181,7 +195,7 @@ export default function CashierShiftsPage() {
         </section>
       ) : <section className="mt-6 rounded-2xl border border-dashed border-[#0F2A43]/20 bg-[#F8F6F0] px-6 py-12 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#E8DFC9] text-2xl" aria-hidden="true">₫</div><h2 className="mt-4 font-serif text-2xl font-bold text-[#0F2A43]">Chưa có ca thu ngân đang mở</h2><p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#66727C]">Mở ca và nhập số tiền thực tế trong két trước khi thu hoặc hoàn tiền mặt.</p><button type="button" onClick={() => void openModal("open")} className="mt-5 min-h-11 rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#173D5F]">Mở ca ngay</button></section>}
 
-      <section className="mt-8"><div className="flex items-end justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#9A762F]">Lịch sử bất biến</p><h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Các ca gần đây</h2></div><p className="text-xs text-[#66727C]">{history.totalElements} ca</p></div><div className="mt-4 overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white">{history.content.length ? history.content.map((shift) => <button key={shift.id} type="button" onClick={() => void viewShift(shift)} className="grid min-h-16 w-full gap-3 border-b border-[#0F2A43]/8 px-4 py-4 text-left transition last:border-b-0 hover:bg-[#F8F6F0] sm:grid-cols-[1.2fr_1fr_1fr_auto] sm:items-center sm:px-5"><div><p className="font-bold text-[#0F2A43]">{shift.openedByName}</p><p className="mt-1 text-xs text-[#66727C]">{shift.shiftCode}</p></div><div><p className="text-xs text-[#66727C]">{dateTime(shift.openedAtUtc)}</p><p className="mt-1 text-xs font-bold text-[#0F2A43]">{statusLabel(shift.status)}</p></div><div><p className="text-xs text-[#66727C]">Tiền hệ thống</p><p className="mt-1 font-bold text-[#0F2A43]">{formatVnd(shift.expectedCashAmount)}</p></div><span className="text-sm font-bold text-[#8E6B2E]">Xem chi tiết →</span></button>) : <div className="px-6 py-10 text-center text-sm text-[#66727C]">Chưa có lịch sử ca.</div>}</div>{history.totalPages > 1 && <nav aria-label="Phân trang lịch sử ca" className="mt-4 flex items-center justify-end gap-3"><button type="button" disabled={history.number <= 0 || loading} onClick={() => setHistoryPage((page) => Math.max(0, page - 1))} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:cursor-not-allowed disabled:opacity-45">← Trang trước</button><span className="text-xs font-semibold text-[#66727C]">Trang {history.number + 1}/{history.totalPages}</span><button type="button" disabled={history.number >= history.totalPages - 1 || loading} onClick={() => setHistoryPage((page) => page + 1)} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:cursor-not-allowed disabled:opacity-45">Trang sau →</button></nav>}</section>
+      <section className="mt-8"><div className="flex items-end justify-between gap-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#9A762F]">Lịch sử bất biến</p><h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Các ca gần đây</h2></div><p className="text-xs text-[#66727C]">{history.totalElements} ca</p></div><div className="mt-4 overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white">{history.content.length ? history.content.map((shift) => <button key={shift.id} type="button" onClick={() => void viewShift(shift)} className="grid min-h-16 w-full gap-3 border-b border-[#0F2A43]/8 px-4 py-4 text-left transition last:border-b-0 hover:bg-[#F8F6F0] sm:grid-cols-[1.2fr_1fr_1fr_auto] sm:items-center sm:px-5"><div><p className="font-bold text-[#0F2A43]">{shift.openedByName}</p><p className="mt-1 text-xs text-[#66727C]">{shift.shiftCode}</p></div><div><p className="text-xs text-[#66727C]">{dateTime(shift.openedAtUtc)}</p><p className="mt-1 text-xs font-bold text-[#0F2A43]">{statusLabel(shift.status)}</p></div><div><p className="text-xs text-[#66727C]">Tiền hệ thống</p><p className="mt-1 font-bold text-[#0F2A43]">{formatVnd(shift.expectedCashAmount)}</p></div><span className="text-sm font-bold text-[#8E6B2E]">Xem chi tiết →</span></button>) : <div className="px-6 py-10 text-center text-sm text-[#66727C]">{historyLoading ? "Đang tải lịch sử ca…" : "Chưa có lịch sử ca."}</div>}</div>{history.totalPages > 1 && <nav aria-label="Phân trang lịch sử ca" className="mt-4 flex items-center justify-end gap-3"><button type="button" disabled={history.number <= 0 || historyLoading} onClick={() => setHistoryPage((page) => Math.max(0, page - 1))} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:cursor-not-allowed disabled:opacity-45">← Trang trước</button><span className="text-xs font-semibold text-[#66727C]">Trang {history.number + 1}/{history.totalPages}</span><button type="button" disabled={history.number >= history.totalPages - 1 || historyLoading} onClick={() => setHistoryPage((page) => page + 1)} className="min-h-11 rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:cursor-not-allowed disabled:opacity-45">Trang sau →</button></nav>}</section>
 
       <ViewportModal open={Boolean(modal)} onClose={closeModal} labelledBy="cashier-action-title" busy={submitting} panelClassName="max-w-lg">
         <div className="flex items-start justify-between border-b border-[#0F2A43]/10 px-5 py-4"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#9A762F]">Sổ tiền mặt</p><h2 id="cashier-action-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">{{ open: "Mở ca thu ngân", "cash-in": "Ghi nhận tiền thu", "cash-out": "Ghi nhận tiền chi", close: "Kiểm đếm cuối ca" }[modal || "open"]}</h2></div><button type="button" onClick={closeModal} disabled={submitting} aria-label="Đóng" className="flex h-11 w-11 items-center justify-center rounded-full text-xl text-[#66727C] transition hover:bg-[#F1F0EA] disabled:opacity-40">×</button></div>

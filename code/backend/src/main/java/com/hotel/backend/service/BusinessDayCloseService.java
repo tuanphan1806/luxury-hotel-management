@@ -13,6 +13,7 @@ import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +65,7 @@ public class BusinessDayCloseService {
     private final ReservationAuditService auditService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final LocalDate accountingGoLiveDate;
 
     @Autowired
     public BusinessDayCloseService(
@@ -76,11 +79,12 @@ public class BusinessDayCloseService {
             PaymentRefundRepository refundRepository,
             ReservationInvoiceRepository invoiceRepository,
             ReservationAuditService auditService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${app.accounting.go-live-date:}") String accountingGoLiveDate) {
         this(closeRepository, businessDayLockService, entryRepository, lineRepository,
                 shiftRepository, providerEventRepository, paymentRepository,
                 refundRepository, invoiceRepository, auditService, objectMapper,
-                Clock.systemUTC());
+                Clock.systemUTC(), parseGoLiveDate(accountingGoLiveDate));
     }
 
     BusinessDayCloseService(
@@ -95,7 +99,8 @@ public class BusinessDayCloseService {
             ReservationInvoiceRepository invoiceRepository,
             ReservationAuditService auditService,
             ObjectMapper objectMapper,
-            Clock clock) {
+            Clock clock,
+            LocalDate accountingGoLiveDate) {
         this.closeRepository = closeRepository;
         this.businessDayLockService = businessDayLockService;
         this.entryRepository = entryRepository;
@@ -108,6 +113,7 @@ public class BusinessDayCloseService {
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.accountingGoLiveDate = accountingGoLiveDate;
     }
 
     @Transactional(readOnly = true)
@@ -197,81 +203,84 @@ public class BusinessDayCloseService {
             User currentUser) {
         requireAdmin(currentUser);
         requireDate(businessDate);
-        return entryRepository.findAllByBusinessDate(businessDate, pageable)
-                .map(this::toJournalResponse);
+        Page<FinancialJournalEntry> entries =
+                entryRepository.findAllByBusinessDate(businessDate, pageable);
+        List<Long> entryIds = entries.getContent().stream()
+                .map(FinancialJournalEntry::getId)
+                .toList();
+        Map<Long, List<FinancialJournalLine>> linesByEntry = new HashMap<>();
+        if (!entryIds.isEmpty()) {
+            lineRepository
+                    .findAllByJournalEntryIdInOrderByJournalEntryIdAscLineNumberAsc(entryIds)
+                    .forEach(line -> linesByEntry
+                            .computeIfAbsent(line.getJournalEntry().getId(), ignored -> new ArrayList<>())
+                            .add(line));
+        }
+        return entries.map(entry -> toJournalResponse(
+                entry,
+                linesByEntry.getOrDefault(entry.getId(), List.of())));
     }
 
     private BusinessDayCloseResponse calculate(LocalDate businessDate) {
         Instant from = businessDate.atStartOfDay(HOTEL_ZONE).toInstant();
         Instant to = businessDate.plusDays(1).atStartOfDay(HOTEL_ZONE).toInstant();
-        List<FinancialJournalEntry> entries =
-                entryRepository.findAllByBusinessDateOrderByPostedAtUtcAscIdAsc(businessDate);
-        List<FinancialJournalLine> lines =
-                lineRepository.findAllByJournalEntryBusinessDate(businessDate);
-        BigDecimal totalDebit = entries.stream().map(FinancialJournalEntry::getTotalDebit)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalCredit = entries.stream().map(FinancialJournalEntry::getTotalCredit)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        long unbalancedCount = entries.stream()
-                .filter(entry -> entry.getTotalDebit().compareTo(entry.getTotalCredit()) != 0)
-                .count();
+        FinancialJournalEntryRepository.BusinessDayJournalSummary journalSummary =
+                entryRepository.summarizeBusinessDate(businessDate);
+        List<FinancialJournalLineRepository.BusinessDayAccountTotal> accountTotals =
+                lineRepository.summarizeAccounts(businessDate);
+        long journalEntryCount = journalSummary == null
+                ? 0L : nullSafeLong(journalSummary.getEntryCount());
+        BigDecimal totalDebit = journalSummary == null
+                ? BigDecimal.ZERO : nullSafeMoney(journalSummary.getTotalDebit());
+        BigDecimal totalCredit = journalSummary == null
+                ? BigDecimal.ZERO : nullSafeMoney(journalSummary.getTotalCredit());
+        long unbalancedCount = journalSummary == null
+                ? 0L : nullSafeLong(journalSummary.getUnbalancedCount());
 
-        BigDecimal paymentReceived = sumLines(
-                lines,
+        BigDecimal paymentReceived = sumAccountTotals(
+                accountTotals,
                 FinancialEntryDirection.DEBIT,
                 EnumSet.of(FinancialAccountCode.CASH_ON_HAND, FinancialAccountCode.BANK_SEPAY));
-        BigDecimal refundCompleted = sumLines(
-                lines,
+        BigDecimal refundCompleted = sumAccountTotals(
+                accountTotals,
                 FinancialEntryDirection.CREDIT,
                 EnumSet.of(FinancialAccountCode.CASH_ON_HAND, FinancialAccountCode.BANK_SEPAY));
-        BigDecimal recognizedRevenue = sumLines(
-                lines,
+        BigDecimal recognizedRevenue = sumAccountTotals(
+                accountTotals,
                 FinancialEntryDirection.CREDIT,
                 EnumSet.of(FinancialAccountCode.ROOM_REVENUE, FinancialAccountCode.SERVICE_REVENUE))
-                .subtract(sumLines(lines, FinancialEntryDirection.DEBIT,
+                .subtract(sumAccountTotals(accountTotals, FinancialEntryDirection.DEBIT,
                         EnumSet.of(FinancialAccountCode.DISCOUNT)));
-        BigDecimal unreconciled = sumLines(
-                lines,
+        BigDecimal unreconciled = sumAccountTotals(
+                accountTotals,
                 FinancialEntryDirection.CREDIT,
                 EnumSet.of(FinancialAccountCode.UNRECONCILED_FUNDS))
-                .subtract(sumLines(lines, FinancialEntryDirection.DEBIT,
+                .subtract(sumAccountTotals(accountTotals, FinancialEntryDirection.DEBIT,
                         EnumSet.of(FinancialAccountCode.UNRECONCILED_FUNDS)));
 
         long openShiftCount = shiftRepository.countByBusinessDateAndStatusIn(
                 businessDate, ACTIVE_SHIFT_STATUSES);
-        List<CashierShift> shifts = shiftRepository.findAllByBusinessDate(businessDate);
-        BigDecimal cashVariance = shifts.stream()
-                .map(CashierShift::getVarianceAmount)
-                .filter(value -> value != null)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal cashVariance = nullSafeMoney(
+                shiftRepository.sumVarianceByBusinessDate(businessDate));
         long unresolvedEvents = providerEventRepository.countUnresolvedInRange(
                 UNRESOLVED_EVENT_STATUSES, from, to);
 
-        List<PaymentTransaction> payments = paymentRepository
-                .findByStatusInAndPaidAtUtcGreaterThanEqualAndPaidAtUtcLessThan(
-                        FINANCIALLY_COMPLETED_PAYMENT_STATUSES, from, to);
-        List<PaymentRefund> refunds = refundRepository
-                .findByStatusAndCompletedAtUtcGreaterThanEqualAndCompletedAtUtcLessThan(
-                        RefundStatus.SUCCEEDED, from, to);
-        List<ReservationInvoice> invoices = invoiceRepository
-                .findByIssuedAtUtcGreaterThanEqualAndIssuedAtUtcLessThan(from, to);
-        long unpostedPayments = payments.stream()
-                .filter(payment -> !entryRepository.existsByPaymentTransactionId(payment.getId()))
-                .count();
-        long unpostedRefunds = refunds.stream()
-                .filter(refund -> !entryRepository.existsByRefundId(refund.getId()))
-                .count();
-        long unpostedInvoices = invoices.stream()
-                .filter(invoice -> !entryRepository.existsByInvoiceId(invoice.getId()))
-                .count();
-        BigDecimal pendingRefundPayable = refundRepository
-                .findOperationalQueue(OUTSTANDING_REFUND_STATUSES).stream()
-                .map(refund -> BigDecimal.valueOf(refund.getRequestedAmount() != null
-                        ? refund.getRequestedAmount() : refund.getAmount()))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long unpostedPayments = paymentRepository.countUnpostedFinancialTransactions(
+                FINANCIALLY_COMPLETED_PAYMENT_STATUSES, from, to);
+        long unpostedRefunds = refundRepository.countUnpostedCompletedRefunds(
+                RefundStatus.SUCCEEDED, from, to);
+        long unpostedInvoices = invoiceRepository.countUnpostedIssuedInvoices(from, to);
+        BigDecimal pendingRefundPayable = BigDecimal.valueOf(
+                nullSafeLong(refundRepository.sumOutstandingRequestedAmount(
+                        OUTSTANDING_REFUND_STATUSES)));
 
         List<String> blockers = new ArrayList<>();
         LocalDate today = LocalDate.now(clock.withZone(HOTEL_ZONE));
+        if (accountingGoLiveDate == null) {
+            blockers.add("ACCOUNTING_GO_LIVE_DATE_NOT_CONFIGURED");
+        } else if (businessDate.isBefore(accountingGoLiveDate)) {
+            blockers.add("BEFORE_ACCOUNTING_GO_LIVE_DATE:" + accountingGoLiveDate);
+        }
         if (!businessDate.isBefore(today)) blockers.add("DATE_NOT_FINISHED");
         if (openShiftCount > 0) blockers.add("OPEN_CASHIER_SHIFTS:" + openShiftCount);
         if (unresolvedEvents > 0) blockers.add("UNRESOLVED_PROVIDER_EVENTS:" + unresolvedEvents);
@@ -289,7 +298,7 @@ public class BusinessDayCloseService {
                 blockers.isEmpty(),
                 List.copyOf(blockers),
                 null, null, null, null,
-                entries.size(),
+                journalEntryCount,
                 totalDebit,
                 totalCredit,
                 paymentReceived,
@@ -331,9 +340,10 @@ public class BusinessDayCloseService {
                 close.getNote());
     }
 
-    private FinancialJournalEntryResponse toJournalResponse(FinancialJournalEntry entry) {
-        List<FinancialJournalLineResponse> lines = lineRepository
-                .findAllByJournalEntryIdOrderByLineNumberAsc(entry.getId()).stream()
+    private FinancialJournalEntryResponse toJournalResponse(
+            FinancialJournalEntry entry,
+            List<FinancialJournalLine> journalLines) {
+        List<FinancialJournalLineResponse> lines = journalLines.stream()
                 .map(line -> new FinancialJournalLineResponse(
                         line.getLineNumber(), line.getAccountCode(), line.getDirection(),
                         line.getAmount(), line.getDescription()))
@@ -349,14 +359,15 @@ public class BusinessDayCloseService {
                 entry.getDetailJson(), lines);
     }
 
-    private BigDecimal sumLines(
-            List<FinancialJournalLine> lines,
+    private BigDecimal sumAccountTotals(
+            List<FinancialJournalLineRepository.BusinessDayAccountTotal> totals,
             FinancialEntryDirection direction,
             EnumSet<FinancialAccountCode> accounts) {
-        return lines.stream()
-                .filter(line -> line.getDirection() == direction
-                        && accounts.contains(line.getAccountCode()))
-                .map(FinancialJournalLine::getAmount)
+        return totals.stream()
+                .filter(total -> total.getDirection() == direction
+                        && accounts.contains(total.getAccountCode()))
+                .map(FinancialJournalLineRepository.BusinessDayAccountTotal::getAmount)
+                .map(this::nullSafeMoney)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
@@ -370,6 +381,7 @@ public class BusinessDayCloseService {
         summary.put("refundCompletedAmount", preview.refundCompletedAmount().toPlainString());
         summary.put("recognizedRevenueAmount", preview.recognizedRevenueAmount().toPlainString());
         summary.put("pendingRefundPayableAmount", preview.pendingRefundPayableAmount().toPlainString());
+        summary.put("pendingRefundSnapshotScope", "OPEN_OBLIGATIONS_AT_CLOSE_EXECUTION_TIME");
         summary.put("cashVarianceAmount", preview.cashVarianceAmount().toPlainString());
         summary.put("unreconciledFundsBalance", preview.unreconciledFundsBalance().toPlainString());
         return summary;
@@ -400,6 +412,24 @@ public class BusinessDayCloseService {
 
     private String trimToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private BigDecimal nullSafeMoney(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private long nullSafeLong(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    private static LocalDate parseGoLiveDate(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(
+                    "APP_ACCOUNTING_GO_LIVE_DATE phải có định dạng yyyy-MM-dd", exception);
+        }
     }
 
     private String sha256(String value) {

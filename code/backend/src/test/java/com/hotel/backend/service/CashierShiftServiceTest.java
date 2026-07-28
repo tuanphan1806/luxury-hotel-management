@@ -31,6 +31,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -188,6 +189,28 @@ class CashierShiftServiceTest {
         assertEquals(CashMovementType.CASH_REFUND, movement.getMovementType());
         assertEquals(CashMovementDirection.OUT, movement.getDirection());
         assertEquals(refund, movement.getRefund());
+    }
+
+    @Test
+    void listUsesOneBatchMovementSummaryForThePage() {
+        CashierShift shift = openShift();
+        CashMovementRepository.CashShiftMovementSummary summary =
+                org.mockito.Mockito.mock(CashMovementRepository.CashShiftMovementSummary.class);
+        when(summary.getShiftId()).thenReturn(shift.getId());
+        when(summary.getMovementCount()).thenReturn(3L);
+        when(summary.getExpectedCash()).thenReturn(BigDecimal.valueOf(620_000L));
+        when(shiftRepository.findAllByOpenedById(eq(staff.getId()), any()))
+                .thenReturn(new PageImpl<>(List.of(shift)));
+        when(movementRepository.summarizeByCashierShiftIds(List.of(shift.getId())))
+                .thenReturn(List.of(summary));
+
+        var response = service.list(org.springframework.data.domain.PageRequest.of(0, 20), staff);
+
+        assertEquals(1, response.getTotalElements());
+        assertEquals(3L, response.getContent().get(0).movementCount());
+        assertEquals(BigDecimal.valueOf(620_000L),
+                response.getContent().get(0).expectedCashAmount());
+        verify(movementRepository).summarizeByCashierShiftIds(List.of(shift.getId()));
     }
 
     @Test

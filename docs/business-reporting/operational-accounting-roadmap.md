@@ -13,7 +13,9 @@
 - **Phase 2B complete locally:** balanced automatic journal, durable SePay
   unmatched-funds observation, late provider posting, immutable business-day
   close, per-day locking, database enforcement, ADMIN API/UI and audit trail.
-- V26 clean-migration and schema validation pass on PostgreSQL 16. Production
+- V26–V28 clean migration, early-V26 compatibility upgrade and schema
+  validation pass on PostgreSQL 16. Immutable close additionally requires an
+  explicit `APP_ACCOUNTING_GO_LIVE_DATE`. Production
   remains deliberately undeployed until snapshot/staging reconciliation and
   operator UAT are complete.
 

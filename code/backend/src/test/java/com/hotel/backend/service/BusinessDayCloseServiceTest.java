@@ -13,6 +13,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,17 +51,14 @@ class BusinessDayCloseServiceTest {
     @Mock PaymentRefundRepository refundRepository;
     @Mock ReservationInvoiceRepository invoiceRepository;
     @Mock ReservationAuditService auditService;
+    @Mock FinancialJournalEntryRepository.BusinessDayJournalSummary journalSummary;
 
     private BusinessDayCloseService service;
     private User admin;
 
     @BeforeEach
     void setUp() {
-        service = new BusinessDayCloseService(
-                closeRepository, businessDayLockService, entryRepository, lineRepository,
-                shiftRepository, providerEventRepository, paymentRepository,
-                refundRepository, invoiceRepository, auditService,
-                new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
+        service = createService(PREVIOUS_DAY.minusDays(1));
         admin = User.builder()
                 .username("admin")
                 .fullName("Quản trị viên")
@@ -86,23 +86,14 @@ class BusinessDayCloseServiceTest {
                 .thenReturn(1L);
         when(providerEventRepository.countUnresolvedInRange(any(), any(), any()))
                 .thenReturn(2L);
-        PaymentTransaction unposted = PaymentTransaction.builder()
-                .id("payment-unposted")
-                .build();
-        when(paymentRepository.findByStatusInAndPaidAtUtcGreaterThanEqualAndPaidAtUtcLessThan(
-                any(), any(), any())).thenReturn(List.of(unposted));
-        when(entryRepository.existsByPaymentTransactionId("payment-unposted")).thenReturn(false);
-        FinancialJournalEntry entry = journalEntry();
-        FinancialJournalLine unreconciled = FinancialJournalLine.builder()
-                .journalEntry(entry)
-                .lineNumber(1)
-                .accountCode(FinancialAccountCode.UNRECONCILED_FUNDS)
-                .direction(FinancialEntryDirection.CREDIT)
-                .amount(BigDecimal.valueOf(75_000L))
-                .createdAtUtc(NOW)
-                .build();
-        when(lineRepository.findAllByJournalEntryBusinessDate(PREVIOUS_DAY))
-                .thenReturn(List.of(unreconciled));
+        when(paymentRepository.countUnpostedFinancialTransactions(any(), any(), any()))
+                .thenReturn(1L);
+        FinancialJournalLineRepository.BusinessDayAccountTotal unreconciled =
+                mock(FinancialJournalLineRepository.BusinessDayAccountTotal.class);
+        when(unreconciled.getAccountCode()).thenReturn(FinancialAccountCode.UNRECONCILED_FUNDS);
+        when(unreconciled.getDirection()).thenReturn(FinancialEntryDirection.CREDIT);
+        when(unreconciled.getAmount()).thenReturn(BigDecimal.valueOf(75_000L));
+        when(lineRepository.summarizeAccounts(PREVIOUS_DAY)).thenReturn(List.of(unreconciled));
 
         var response = service.preview(PREVIOUS_DAY, admin);
 
@@ -111,7 +102,7 @@ class BusinessDayCloseServiceTest {
         assertTrue(response.blockers().contains("UNRESOLVED_PROVIDER_EVENTS:2"));
         assertTrue(response.blockers().contains("UNPOSTED_PAYMENTS:1"));
         assertTrue(response.blockers().contains("UNRECONCILED_FUNDS:75000"));
-        verify(paymentRepository).findByStatusInAndPaidAtUtcGreaterThanEqualAndPaidAtUtcLessThan(
+        verify(paymentRepository).countUnpostedFinancialTransactions(
                 argThat(statuses -> statuses.containsAll(List.of(
                         PaymentStatus.SUCCESS,
                         PaymentStatus.REFUND_PENDING,
@@ -164,25 +155,82 @@ class BusinessDayCloseServiceTest {
         assertEquals(ErrorCode.CASHIER_SHIFT_FORBIDDEN, exception.getErrorCode());
     }
 
+    @Test
+    void journalLoadsAllLinesForThePageInOneBatch() {
+        FinancialJournalEntry entry = journalEntry();
+        FinancialJournalLine line = FinancialJournalLine.builder()
+                .journalEntry(entry)
+                .lineNumber(1)
+                .accountCode(FinancialAccountCode.BANK_SEPAY)
+                .direction(FinancialEntryDirection.DEBIT)
+                .amount(BigDecimal.valueOf(75_000L))
+                .description("Tiền vào")
+                .createdAtUtc(NOW)
+                .build();
+        PageRequest pageable = PageRequest.of(0, 20);
+        when(entryRepository.findAllByBusinessDate(PREVIOUS_DAY, pageable))
+                .thenReturn(new PageImpl<>(List.of(entry), pageable, 1));
+        when(lineRepository.findAllByJournalEntryIdInOrderByJournalEntryIdAscLineNumberAsc(
+                List.of(entry.getId()))).thenReturn(List.of(line));
+
+        var response = service.journal(PREVIOUS_DAY, pageable, admin);
+
+        assertEquals(1, response.getTotalElements());
+        assertEquals(1, response.getContent().get(0).lines().size());
+        assertEquals(BigDecimal.valueOf(75_000L),
+                response.getContent().get(0).lines().get(0).amount());
+        verify(lineRepository)
+                .findAllByJournalEntryIdInOrderByJournalEntryIdAscLineNumberAsc(
+                        List.of(entry.getId()));
+    }
+
+    @Test
+    void previewBlocksCloseUntilAccountingGoLiveDateIsConfigured() {
+        service = createService(null);
+
+        var response = service.preview(PREVIOUS_DAY, admin);
+
+        assertFalse(response.closeAllowed());
+        assertTrue(response.blockers().contains("ACCOUNTING_GO_LIVE_DATE_NOT_CONFIGURED"));
+    }
+
+    @Test
+    void previewBlocksDatesBeforeAccountingGoLiveBoundary() {
+        LocalDate goLiveDate = PREVIOUS_DAY.plusDays(1);
+        service = createService(goLiveDate);
+
+        var response = service.preview(PREVIOUS_DAY, admin);
+
+        assertFalse(response.closeAllowed());
+        assertTrue(response.blockers().contains("BEFORE_ACCOUNTING_GO_LIVE_DATE:" + goLiveDate));
+    }
+
     private void emptyDay(LocalDate businessDate) {
         lenient().when(closeRepository.findByBusinessDate(businessDate))
                 .thenReturn(Optional.empty());
-        lenient().when(entryRepository.findAllByBusinessDateOrderByPostedAtUtcAscIdAsc(businessDate))
-                .thenReturn(List.of());
-        lenient().when(lineRepository.findAllByJournalEntryBusinessDate(businessDate))
-                .thenReturn(List.of());
+        lenient().when(entryRepository.summarizeBusinessDate(businessDate))
+                .thenReturn(journalSummary);
+        lenient().when(lineRepository.summarizeAccounts(businessDate)).thenReturn(List.of());
         lenient().when(shiftRepository.countByBusinessDateAndStatusIn(eq(businessDate), any()))
                 .thenReturn(0L);
-        lenient().when(shiftRepository.findAllByBusinessDate(businessDate)).thenReturn(List.of());
+        lenient().when(shiftRepository.sumVarianceByBusinessDate(businessDate))
+                .thenReturn(BigDecimal.ZERO);
         lenient().when(providerEventRepository.countUnresolvedInRange(any(), any(), any()))
                 .thenReturn(0L);
-        lenient().when(paymentRepository.findByStatusInAndPaidAtUtcGreaterThanEqualAndPaidAtUtcLessThan(
-                any(), any(), any())).thenReturn(List.of());
-        lenient().when(refundRepository.findByStatusAndCompletedAtUtcGreaterThanEqualAndCompletedAtUtcLessThan(
-                eq(RefundStatus.SUCCEEDED), any(), any())).thenReturn(List.of());
-        lenient().when(invoiceRepository.findByIssuedAtUtcGreaterThanEqualAndIssuedAtUtcLessThan(any(), any()))
-                .thenReturn(List.of());
-        lenient().when(refundRepository.findOperationalQueue(any())).thenReturn(List.of());
+        lenient().when(paymentRepository.countUnpostedFinancialTransactions(any(), any(), any()))
+                .thenReturn(0L);
+        lenient().when(refundRepository.countUnpostedCompletedRefunds(
+                eq(RefundStatus.SUCCEEDED), any(), any())).thenReturn(0L);
+        lenient().when(invoiceRepository.countUnpostedIssuedInvoices(any(), any())).thenReturn(0L);
+        lenient().when(refundRepository.sumOutstandingRequestedAmount(any())).thenReturn(0L);
+    }
+
+    private BusinessDayCloseService createService(LocalDate goLiveDate) {
+        return new BusinessDayCloseService(
+                closeRepository, businessDayLockService, entryRepository, lineRepository,
+                shiftRepository, providerEventRepository, paymentRepository,
+                refundRepository, invoiceRepository, auditService,
+                new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC), goLiveDate);
     }
 
     private FinancialJournalEntry journalEntry() {

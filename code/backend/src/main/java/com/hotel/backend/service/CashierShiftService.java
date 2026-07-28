@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -145,7 +146,25 @@ public class CashierShiftService {
         Page<CashierShift> shifts = actor.getType() == UserType.ADMIN
                 ? shiftRepository.findAll(pageable)
                 : shiftRepository.findAllByOpenedById(actor.getId(), pageable);
-        return shifts.map(shift -> toResponse(shift, false));
+        List<Long> shiftIds = shifts.getContent().stream().map(CashierShift::getId).toList();
+        Map<Long, CashMovementRepository.CashShiftMovementSummary> summaries = new HashMap<>();
+        if (!shiftIds.isEmpty()) {
+            movementRepository.summarizeByCashierShiftIds(shiftIds)
+                    .forEach(summary -> summaries.put(summary.getShiftId(), summary));
+        }
+        return shifts.map(shift -> {
+            CashMovementRepository.CashShiftMovementSummary summary = summaries.get(shift.getId());
+            BigDecimal currentExpected = summary != null
+                    ? nullSafeMoney(summary.getExpectedCash())
+                    : BigDecimal.ZERO;
+            long movementCount = summary != null && summary.getMovementCount() != null
+                    ? summary.getMovementCount()
+                    : 0L;
+            BigDecimal expected = ACTIVE_STATUSES.contains(shift.getStatus())
+                    ? currentExpected
+                    : shift.getExpectedCashAmount();
+            return toResponse(shift, false, expected, movementCount);
+        });
     }
 
     @Transactional(readOnly = true)
@@ -453,13 +472,21 @@ public class CashierShiftService {
     }
 
     private CashierShiftResponse toResponse(CashierShift shift, boolean includeMovements) {
-        return toResponse(shift, includeMovements, null);
+        return toResponse(shift, includeMovements, null, null);
     }
 
     private CashierShiftResponse toResponse(
             CashierShift shift,
             boolean includeMovements,
             BigDecimal expectedOverride) {
+        return toResponse(shift, includeMovements, expectedOverride, null);
+    }
+
+    private CashierShiftResponse toResponse(
+            CashierShift shift,
+            boolean includeMovements,
+            BigDecimal expectedOverride,
+            Long movementCountOverride) {
         List<CashMovementResponse> movements = includeMovements
                 ? movementRepository.findAllByCashierShiftIdOrderByOccurredAtUtcAscIdAsc(shift.getId())
                         .stream().map(this::toResponse).toList()
@@ -489,7 +516,11 @@ public class CashierShiftService {
                 shift.getVarianceAmount(),
                 shift.getNote(),
                 shift.getCloseNote(),
-                includeMovements ? movements.size() : movementRepository.countByCashierShiftId(shift.getId()),
+                includeMovements
+                        ? movements.size()
+                        : movementCountOverride != null
+                            ? movementCountOverride
+                            : movementRepository.countByCashierShiftId(shift.getId()),
                 movements);
     }
 
@@ -521,6 +552,10 @@ public class CashierShiftService {
 
     private BigDecimal normalize(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value.stripTrailingZeros();
+    }
+
+    private BigDecimal nullSafeMoney(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private String buildCloseNote(String note, String varianceReason) {
