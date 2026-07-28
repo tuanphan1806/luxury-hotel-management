@@ -75,6 +75,10 @@ logging:
         console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [%X{correlationId:-no-correlation}] %logger{36} - %msg%n"
 app:
     frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
+    accounting:
+        # Ngày đầu tiên journal mới được coi là đầy đủ. Để trống sẽ chặn khóa ngày,
+        # nhưng không chặn payment/refund/invoice tiếp tục được ghi nhận.
+        go-live-date: ${APP_ACCOUNTING_GO_LIVE_DATE:}
     seed:
         # Master/demo seed is opt-in. Production must never recreate weak demo users.
         master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:false}

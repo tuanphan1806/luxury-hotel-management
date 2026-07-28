@@ -85,6 +85,7 @@ public class SePayService {
     private final ApplicationEventPublisher eventPublisher;
     private final SePayWebhookAuthenticator webhookAuthenticator;
     private final SePayEventIdentity eventIdentity;
+    private final FinancialJournalService financialJournalService;
 
     public void validateCheckoutConfig() {
         validateQrConfig();
@@ -854,6 +855,7 @@ public class SePayService {
                     receivedAmount,
                     gateway,
                     transactionDate);
+            financialJournalService.postSePayPayment(event, additionalTransfer);
             paymentRefundService.requestCapturedPaymentRefund(
                     additionalTransfer,
                     receivedAmount,
@@ -904,6 +906,7 @@ public class SePayService {
                     ? "Tiền đến sau khi giao dịch hoặc reservation hết hiệu lực; phải hoàn toàn bộ"
                     : "Số tiền chuyển khoản nhỏ hơn số tiền yêu cầu; phải hoàn toàn bộ");
             transactionRepository.save(transaction);
+            financialJournalService.postSePayPayment(event, transaction);
             if (underpayment) {
                 reservationService.cancelForPaymentFailure(
                         transaction.getReservation().getId(),
@@ -943,6 +946,7 @@ public class SePayService {
         transaction.setRefundRequiredAmount(Math.max(0L, receivedAmount - acceptedAmount));
         transaction.setMessage("SePay đã xác nhận tiền vào tài khoản khách sạn");
         transactionRepository.save(transaction);
+        financialJournalService.postSePayPayment(event, transaction);
         if (transaction.getPurpose() == PaymentPurpose.DEPOSIT) {
             reservationService.convertHoldsAfterPayment(transaction.getReservation().getId());
         }
@@ -1035,6 +1039,7 @@ public class SePayService {
         }
         providerEventRepository.save(event);
         if (status == PaymentProviderEventStatus.REVIEW_REQUIRED) {
+            financialJournalService.postUnmatchedProviderMovement(event);
             Map<String, Object> detail = new LinkedHashMap<>();
             detail.put("providerEventId", event.getProviderEventId());
             detail.put("transferType", event.getTransferType());

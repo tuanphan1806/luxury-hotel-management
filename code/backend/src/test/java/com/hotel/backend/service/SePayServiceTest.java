@@ -77,6 +77,7 @@ class SePayServiceTest {
     @Mock ReservationService reservationService;
     @Mock PaymentRefundService paymentRefundService;
     @Mock ReservationAuditService reservationAuditService;
+    @Mock FinancialJournalService financialJournalService;
 
     private SePayConfig config;
     private SePayService sePayService;
@@ -130,9 +131,10 @@ class SePayServiceTest {
                 reservationService,
                 paymentRefundService,
                 reservationAuditService,
-                org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class),
-                new SePayWebhookAuthenticator(config),
-                new SePayEventIdentity(config));
+                 org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class),
+                 new SePayWebhookAuthenticator(config),
+                 new SePayEventIdentity(config),
+                 financialJournalService);
     }
 
     @Test
