@@ -10,7 +10,7 @@ import { useFavorites } from "@/components/favorites/FavoritesProvider";
 import BotanicalLineArt from "@/components/decor/BotanicalLineArt";
 import HotelBrand from "@/components/HotelBrand";
 import { apiClient, authSession } from "@/lib/api";
-import { scheduleIdleTask, shouldConserveData } from "@/lib/performance";
+import { shouldConserveData } from "@/lib/performance";
 import { siteConfig } from "@/lib/siteConfig";
 
 const ChatWidget = dynamic(() => import("@/components/ChatWidget"), {
@@ -163,16 +163,6 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
   }, [pathname]);
 
   useEffect(() => {
-    const warmGuestRoutes = () => {
-      if (shouldConserveData()) return;
-      ["/facilities", "/rooms", "/about", "/reservation", "/support", "/contact"].forEach((href) => {
-        router.prefetch(href);
-      });
-    };
-    return scheduleIdleTask(warmGuestRoutes);
-  }, [router]);
-
-  useEffect(() => {
     const desktopNavigation = window.matchMedia("(min-width: 1280px)");
     const closeMenuOnDesktop = (event: MediaQueryListEvent) => {
       if (event.matches) setMobileMenuOpen(false);
@@ -275,6 +265,10 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
     }`;
   };
 
+  const warmRouteOnIntent = (href: string) => {
+    if (!shouldConserveData()) router.prefetch(href);
+  };
+
   const showMobileBookingBar = !pathname.startsWith("/reservation") && !pathname.startsWith("/booking");
 
   return (
@@ -305,7 +299,15 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
           <div className="hidden min-w-0 flex-1 items-center justify-end gap-2.5 xl:flex">
             <nav aria-label={localize("Điều hướng chính", "Primary navigation")} className="flex items-center gap-3">
               {navigationItems.map((item) => (
-                <Link key={item.href} href={item.href} aria-current={isActiveRoute(item.href) ? "page" : undefined} className={desktopLinkClass(item.href)}>
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  prefetch={false}
+                  onPointerEnter={() => warmRouteOnIntent(item.href)}
+                  onFocus={() => warmRouteOnIntent(item.href)}
+                  aria-current={isActiveRoute(item.href) ? "page" : undefined}
+                  className={desktopLinkClass(item.href)}
+                >
                   {item.label}
                 </Link>
               ))}

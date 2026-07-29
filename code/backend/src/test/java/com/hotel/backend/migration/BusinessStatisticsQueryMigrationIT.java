@@ -144,7 +144,19 @@ class BusinessStatisticsQueryMigrationIT {
                      'DEDUP-STATS-OUT-2', 'REVIEW_REQUIRED', repeat('c', 64),
                      'out', 5000, TIMESTAMPTZ '2026-07-10 19:00:00Z',
                      TIMESTAMPTZ '2026-07-10 19:00:05Z',
-                     TIMESTAMP '2026-07-11 02:00:05')
+                     TIMESTAMP '2026-07-11 02:00:05'),
+                    ('EVT-STATS-IN-IGNORED', 'SEPAY', 'SEPAY-STATS-IN-IGNORED',
+                     'PROVIDER-STATS-IN-IGNORED', 'BANK-STATS-IN-IGNORED',
+                     'DEDUP-STATS-IN-IGNORED', 'IGNORED', repeat('d', 64),
+                     'in', 7000, TIMESTAMPTZ '2026-07-10 20:00:00Z',
+                     TIMESTAMPTZ '2026-07-10 20:00:05Z',
+                     TIMESTAMP '2026-07-11 03:00:05'),
+                    ('EVT-STATS-OUT-IGNORED', 'SEPAY', 'SEPAY-STATS-OUT-IGNORED',
+                     'PROVIDER-STATS-OUT-IGNORED', 'BANK-STATS-OUT-IGNORED',
+                     'DEDUP-STATS-OUT-IGNORED', 'IGNORED', repeat('e', 64),
+                     'out', 8000, TIMESTAMPTZ '2026-07-10 21:00:00Z',
+                     TIMESTAMPTZ '2026-07-10 21:00:05Z',
+                     TIMESTAMP '2026-07-11 04:00:05')
                 """);
         jdbc.update("""
                 INSERT INTO payment_refunds(

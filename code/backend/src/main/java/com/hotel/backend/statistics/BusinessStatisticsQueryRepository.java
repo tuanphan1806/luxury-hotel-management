@@ -186,6 +186,9 @@ public class BusinessStatisticsQueryRepository {
                       AND LOWER(provider_event.transfer_type) = 'in'
                       AND provider_event.amount > 0
                       AND provider_event.payment_transaction_id IS NULL
+                      AND provider_event.status IN (
+                          'RECEIVED', 'PROCESSING',
+                          'FAILED_RETRYABLE', 'REVIEW_REQUIRED')
                       AND (:provider IS NULL
                            OR UPPER(provider_event.provider) = :provider)
                     GROUP BY 1
@@ -213,6 +216,9 @@ public class BusinessStatisticsQueryRepository {
                                    provider_event.received_at_utc) < :toUtc
                       AND LOWER(provider_event.transfer_type) = 'out'
                       AND provider_event.amount > 0
+                      AND provider_event.status IN (
+                          'RECEIVED', 'PROCESSING',
+                          'FAILED_RETRYABLE', 'REVIEW_REQUIRED')
                       AND (:provider IS NULL
                            OR UPPER(provider_event.provider) = :provider)
                       AND NOT EXISTS (
@@ -1011,6 +1017,9 @@ public class BusinessStatisticsQueryRepository {
                   AND LOWER(provider_event.transfer_type) = 'in'
                   AND provider_event.amount > 0
                   AND provider_event.payment_transaction_id IS NULL
+                  AND provider_event.status IN (
+                      'RECEIVED', 'PROCESSING',
+                      'FAILED_RETRYABLE', 'REVIEW_REQUIRED')
                 UNION ALL
                 SELECT CONCAT('REFUND:', refund.id),
                        'REFUND_OUT',
@@ -1061,6 +1070,9 @@ public class BusinessStatisticsQueryRepository {
                                provider_event.received_at_utc) < :toUtc
                   AND LOWER(provider_event.transfer_type) = 'out'
                   AND provider_event.amount > 0
+                  AND provider_event.status IN (
+                      'RECEIVED', 'PROCESSING',
+                      'FAILED_RETRYABLE', 'REVIEW_REQUIRED')
                   AND NOT EXISTS (
                         SELECT 1
                         FROM payment_refunds matched_refund
