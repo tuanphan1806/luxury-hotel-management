@@ -37,6 +37,8 @@ openapi:
     title: Backend service
     version: 1.0.0
 app:
+    scheduling:
+        enabled: false
     seed:
         master-data-enabled: true
         demo-users-enabled: true

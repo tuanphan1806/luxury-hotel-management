@@ -244,6 +244,10 @@ export default function BusinessStatisticsPage() {
   const cashFlowSectionRef = useRef<HTMLElement | null>(null);
   const reservationSectionRef = useRef<HTMLElement | null>(null);
   const ledgerSectionRef = useRef<HTMLElement | null>(null);
+  const summaryRequestRef = useRef(0);
+  const cashFlowRequestRef = useRef(0);
+  const reservationRequestRef = useRef(0);
+  const ledgerRequestRef = useRef(0);
 
   const money = useMemo(() => new Intl.NumberFormat(localeTag, { style: "currency", currency: "VND", maximumFractionDigits: 0 }), [localeTag]);
   const number = useMemo(() => new Intl.NumberFormat(localeTag, { maximumFractionDigits: 1 }), [localeTag]);
@@ -296,6 +300,7 @@ export default function BusinessStatisticsPage() {
   }), { payments: 0, refunds: 0, unaccepted: 0, unmatchedIn: 0, unclassifiedOut: 0, unclassifiedOutAmount: 0 }), [cashFlow]);
 
   const loadSummary = useCallback(async (force = false) => {
+    const requestId = ++summaryRequestRef.current;
     setIsLoading(true);
     setError("");
     const params = { ...period, granularity };
@@ -307,21 +312,24 @@ export default function BusinessStatisticsPage() {
         cachedGet<{ data: OccupancyPoint[] }>("/api/admin/statistics/occupancy", { ttlMs: 30_000, force, config: { params } }),
         cachedGet<{ data: RoomTypePerformance[] }>("/api/admin/statistics/room-types", { ttlMs: 30_000, force, config: { params: period } }),
       ]);
+      if (requestId !== summaryRequestRef.current) return;
       setOverview(apiData(overviewResponse));
       setRevenue(apiData(revenueResponse));
       setBookings(apiData(bookingResponse));
       setOccupancy(apiData(occupancyResponse));
       setRoomTypes(apiData(roomTypeResponse));
     } catch (requestError) {
+      if (requestId !== summaryRequestRef.current) return;
       setError(getApiErrorStatus(requestError) === 403
         ? localize("Chỉ ADMIN được xem báo cáo tài chính.", "Only ADMIN can access financial reports.")
         : getApiErrorMessage(requestError, localize("Không thể tải báo cáo. Vui lòng thử lại.", "Unable to load reports. Please try again.")));
     } finally {
-      setIsLoading(false);
+      if (requestId === summaryRequestRef.current) setIsLoading(false);
     }
   }, [granularity, localize, period]);
 
   const loadCashFlow = useCallback(async (force = false) => {
+    const requestId = ++cashFlowRequestRef.current;
     setIsCashLoading(true);
     setCashFlowError("");
     try {
@@ -330,15 +338,18 @@ export default function BusinessStatisticsPage() {
         force,
         config: { params: { ...period, granularity, provider: cashProvider || undefined } },
       });
+      if (requestId !== cashFlowRequestRef.current) return;
       setCashFlow(apiData(response));
     } catch (requestError) {
+      if (requestId !== cashFlowRequestRef.current) return;
       setCashFlowError(getApiErrorMessage(requestError, localize("Không thể tải dòng tiền theo kênh.", "Unable to load cash flow by provider.")));
     } finally {
-      setIsCashLoading(false);
+      if (requestId === cashFlowRequestRef.current) setIsCashLoading(false);
     }
   }, [cashProvider, granularity, localize, period]);
 
   const loadReservationRevenue = useCallback(async (force = false) => {
+    const requestId = ++reservationRequestRef.current;
     setIsReservationLoading(true);
     setReservationError("");
     try {
@@ -356,15 +367,18 @@ export default function BusinessStatisticsPage() {
           },
         },
       });
+      if (requestId !== reservationRequestRef.current) return;
       setReservationRevenue(apiData(response));
     } catch (requestError) {
+      if (requestId !== reservationRequestRef.current) return;
       setReservationError(getApiErrorMessage(requestError, localize("Không thể tải doanh thu theo đơn.", "Unable to load reservation revenue.")));
     } finally {
-      setIsReservationLoading(false);
+      if (requestId === reservationRequestRef.current) setIsReservationLoading(false);
     }
   }, [granularity, localize, period, reservationFilters, reservationPage]);
 
   const loadLedger = useCallback(async (force = false) => {
+    const requestId = ++ledgerRequestRef.current;
     setIsLedgerLoading(true);
     setLedgerError("");
     try {
@@ -373,11 +387,13 @@ export default function BusinessStatisticsPage() {
         force,
         config: { params: { ...period, ...ledgerFilters, page: ledgerPage, size: 25 } },
       });
+      if (requestId !== ledgerRequestRef.current) return;
       setLedger(apiData(response));
     } catch (requestError) {
+      if (requestId !== ledgerRequestRef.current) return;
       setLedgerError(getApiErrorMessage(requestError, localize("Không thể tải sổ giao dịch.", "Unable to load the transaction ledger.")));
     } finally {
-      setIsLedgerLoading(false);
+      if (requestId === ledgerRequestRef.current) setIsLedgerLoading(false);
     }
   }, [ledgerFilters, ledgerPage, localize, period]);
 
