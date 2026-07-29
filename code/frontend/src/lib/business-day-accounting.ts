@@ -63,6 +63,19 @@ export interface PageResult<T> {
   totalPages: number;
 }
 
+export function businessDayProgress(day: BusinessDayClose) {
+  const journalReady = day.unpostedPaymentCount === 0
+    && day.unpostedRefundCount === 0
+    && day.unpostedInvoiceCount === 0
+    && Number(day.totalDebit) === Number(day.totalCredit);
+  return {
+    journalReady,
+    shiftsReady: day.openShiftCount === 0,
+    closeReady: !day.closed && day.closeAllowed,
+    closed: day.closed,
+  };
+}
+
 export const formatVnd = (value: number | null | undefined) => new Intl.NumberFormat("vi-VN", {
   style: "currency",
   currency: "VND",

@@ -73,6 +73,22 @@ export function formatVnd(value: number | null | undefined): string {
   }).format(Number(value || 0));
 }
 
+export function suggestedOpeningCash(
+  shifts: CashierShift[],
+  allowCarryOver: boolean,
+): { amount: number; source: CashierShift | null } {
+  if (!allowCarryOver) return { amount: 0, source: null };
+  const source = shifts.find(
+    (shift) => shift.status === "CLOSED"
+      && shift.countedCashAmount != null
+      && Number(shift.countedCashAmount) >= 0,
+  ) || null;
+  return {
+    amount: Number(source?.countedCashAmount || 0),
+    source,
+  };
+}
+
 export function movementLabel(type: CashMovementType): string {
   return {
     OPENING_FLOAT: "Tiền đầu ca",

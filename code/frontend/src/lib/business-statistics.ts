@@ -1,4 +1,5 @@
 export type StatisticsGranularity = "day" | "week" | "month";
+export type FinanceWorkspaceView = "overview" | "cashier" | "close";
 
 export type StatisticsKpi = {
   current: number;
@@ -204,32 +205,23 @@ export const monthToDatePreset = (today = new Date()) => ({
   to: toDateInputValue(today),
 });
 
-export const normalizeAmount = (value: number | string | null | undefined) => {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
+export const suggestedStatisticsGranularity = (
+  period: { from: string; to: string },
+): StatisticsGranularity => {
+  const from = new Date(`${period.from}T00:00:00`);
+  const to = new Date(`${period.to}T00:00:00`);
+  const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1);
+  if (days <= 45) return "day";
+  if (days <= 240) return "week";
+  return "month";
 };
 
-export const chartPoints = (
-  values: number[],
-  width: number,
-  height: number,
-  padding = 16,
-) => {
-  if (values.length === 0) return [];
-  const safeValues = values.map(normalizeAmount);
-  const minimum = Math.min(0, ...safeValues);
-  const maximum = Math.max(0, ...safeValues);
-  const range = Math.max(1, maximum - minimum);
-  const horizontalSpace = Math.max(0, width - padding * 2);
-  const verticalSpace = Math.max(0, height - padding * 2);
-  return safeValues.map((value, index) => ({
-    x: padding + (safeValues.length === 1
-      ? horizontalSpace / 2
-      : (index / (safeValues.length - 1)) * horizontalSpace),
-    y: padding + ((maximum - value) / range) * verticalSpace,
-    value,
-  }));
-};
+export const financeWorkspaceFromQuery = (value: string | null): FinanceWorkspaceView =>
+  value === "close"
+    ? "close"
+    : value === "cashier" || value === "operations"
+      ? "cashier"
+      : "overview";
 
 export const apiData = <T>(response: { data?: { data?: T } }): T => {
   if (response.data?.data === undefined) {

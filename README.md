@@ -79,7 +79,13 @@ For source-level development with hot reload, start only PostgreSQL with
 `docker compose up -d postgres`, then run Spring Boot and Next.js from their
 respective `code/backend` and `code/frontend` directories.
 
-Demo users are available only when the development seed flags are enabled. Production configuration disables demo users and requires a one-time secure admin bootstrap.
+Demo users are available only when the development seed flags are enabled.
+Set `APP_SEED_DEMO_SCENARIOS_ENABLED=true` in `code/backend/.env` to create an
+idempotent local reservation/accounting dataset after master data and demo
+users. The dataset includes completed stays across several weeks and months,
+payments, refunds, immutable invoices, balanced journal entries and cash-shift
+movements. Production configuration and `render.yaml` keep this flag disabled.
+See [the business-reporting demo data notes](docs/business-reporting/README.md#10-local-demo-accounting-data).
 
 ## Verification
 
@@ -142,6 +148,7 @@ Follow [the production deployment runbook](docs/deployment/PRODUCTION_DEPLOYMENT
 
 - [Production deployment](docs/deployment/PRODUCTION_DEPLOYMENT.md)
 - [Payment platform](docs/payment-platform/)
+- [Business reporting and local accounting fixtures](docs/business-reporting/)
 - [Database ERD](docs/DB-ERD/)
 - [API summary](API_SUMMARY.md)
 
