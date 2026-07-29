@@ -33,6 +33,7 @@ app:
   seed:
     master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:true}
     demo-users-enabled: ${APP_SEED_DEMO_USERS_ENABLED:true}
+    demo-scenarios-enabled: ${APP_SEED_DEMO_SCENARIOS_ENABLED:false}
   auth-cookie:
     secure: false
   # Next.js backend_proxy chạy cùng máy trong dev; chỉ tin forwarded headers từ localhost.

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { blockerLabel, defaultBusinessDate } from "./business-day-accounting";
+import {
+  blockerLabel,
+  businessDayProgress,
+  defaultBusinessDate,
+  type BusinessDayClose,
+} from "./business-day-accounting";
 
 describe("business day accounting helpers", () => {
   it("defaults to the previous hotel business date", () => {
@@ -11,5 +16,36 @@ describe("business day accounting helpers", () => {
     expect(blockerLabel("UNRECONCILED_FUNDS:100000")).toContain("100.000");
     expect(blockerLabel("ACCOUNTING_GO_LIVE_DATE_NOT_CONFIGURED")).toContain("ngày bắt đầu");
     expect(blockerLabel("BEFORE_ACCOUNTING_GO_LIVE_DATE:2026-07-29")).toContain("2026-07-29");
+  });
+
+  it("connects automatic journal, cashier shifts and day-close readiness", () => {
+    const day = {
+      closed: false,
+      closeAllowed: false,
+      unpostedPaymentCount: 1,
+      unpostedRefundCount: 0,
+      unpostedInvoiceCount: 0,
+      totalDebit: 100_000,
+      totalCredit: 100_000,
+      openShiftCount: 1,
+    } as BusinessDayClose;
+
+    expect(businessDayProgress(day)).toEqual({
+      journalReady: false,
+      shiftsReady: false,
+      closeReady: false,
+      closed: false,
+    });
+    expect(businessDayProgress({
+      ...day,
+      closeAllowed: true,
+      unpostedPaymentCount: 0,
+      openShiftCount: 0,
+    })).toEqual({
+      journalReady: true,
+      shiftsReady: true,
+      closeReady: true,
+      closed: false,
+    });
   });
 });
