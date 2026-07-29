@@ -80,7 +80,9 @@ public class BusinessStatisticsQueryRepository {
                     GROUP BY 1
                 ), refund_totals AS (
                     SELECT %s AS bucket,
-                           SUM(refund.actual_refund_amount) AS refund_outflow
+                           SUM(COALESCE(refund.actual_refund_amount,
+                                        refund.requested_amount,
+                                        refund.amount, 0)) AS refund_outflow
                     FROM payment_refunds refund
                     WHERE refund.completed_at_utc >= :fromUtc
                       AND refund.completed_at_utc < :toUtc
@@ -189,7 +191,9 @@ public class BusinessStatisticsQueryRepository {
                     GROUP BY 1
                 ), refund_totals AS (
                     SELECT %s AS bucket,
-                           SUM(refund.actual_refund_amount) AS refund_outflow,
+                           SUM(COALESCE(refund.actual_refund_amount,
+                                        refund.requested_amount,
+                                        refund.amount, 0)) AS refund_outflow,
                            COUNT(*) AS refund_count
                     FROM payment_refunds refund
                     WHERE refund.completed_at_utc >= :fromUtc
@@ -622,12 +626,20 @@ public class BusinessStatisticsQueryRepository {
                     WHERE payment.status IN %s
                     GROUP BY payment.reservation_id
                 ), refunded_by_reservation AS (
-                    SELECT refund.reservation_id,
-                           SUM(refund.actual_refund_amount) AS refunded_amount
+                    SELECT COALESCE(refund.reservation_id,
+                                    refund_payment.reservation_id)
+                               AS reservation_id,
+                           SUM(COALESCE(refund.actual_refund_amount,
+                                        refund.requested_amount,
+                                        refund.amount, 0)) AS refunded_amount
                     FROM payment_refunds refund
+                    LEFT JOIN payment_transactions refund_payment
+                      ON refund_payment.id = refund.payment_transaction_id
                     WHERE refund.status = 'SUCCEEDED'
-                      AND refund.reservation_id IS NOT NULL
-                    GROUP BY refund.reservation_id
+                      AND COALESCE(refund.reservation_id,
+                                   refund_payment.reservation_id) IS NOT NULL
+                    GROUP BY COALESCE(refund.reservation_id,
+                                      refund_payment.reservation_id)
                 ), open_reservations AS (
                     SELECT reservation.id,
                            reservation.status,
@@ -788,20 +800,28 @@ public class BusinessStatisticsQueryRepository {
                       )
                     GROUP BY payment.reservation_id
                 ), refund_totals AS (
-                    SELECT refund.reservation_id,
-                           SUM(refund.actual_refund_amount)
-                               FILTER (WHERE refund.actual_refund_amount IS NOT NULL)
+                    SELECT COALESCE(refund.reservation_id,
+                                    refund_payment.reservation_id)
+                               AS reservation_id,
+                           SUM(COALESCE(refund.actual_refund_amount,
+                                        refund.requested_amount,
+                                        refund.amount, 0))
                                AS refund_outflow,
                            COUNT(*) FILTER (WHERE refund.actual_refund_amount IS NULL)
                                AS legacy_refund_count
                     FROM payment_refunds refund
+                    LEFT JOIN payment_transactions refund_payment
+                      ON refund_payment.id = refund.payment_transaction_id
                     WHERE refund.status = 'SUCCEEDED'
                       AND EXISTS (
                           SELECT 1
                           FROM selected_invoices selected
-                          WHERE selected.reservation_id = refund.reservation_id
+                          WHERE selected.reservation_id = COALESCE(
+                              refund.reservation_id,
+                              refund_payment.reservation_id)
                       )
-                    GROUP BY refund.reservation_id
+                    GROUP BY COALESCE(refund.reservation_id,
+                                      refund_payment.reservation_id)
                 )
                 """.formatted(filters, PAID_STATUSES);
         MapSqlParameterSource parameters = utcParameters(period)
@@ -995,7 +1015,8 @@ public class BusinessStatisticsQueryRepository {
                 SELECT CONCAT('REFUND:', refund.id),
                        'REFUND_OUT',
                        refund.completed_at_utc,
-                       refund.reservation_id,
+                       COALESCE(refund.reservation_id,
+                                refund_payment.reservation_id),
                        reservation.reservation_code,
                        COALESCE(refund.manual_transfer_reference,
                                 refund.refund_code,
@@ -1009,8 +1030,11 @@ public class BusinessStatisticsQueryRepository {
                             THEN 'LEGACY_UNRECONCILED' ELSE 'CANONICAL' END,
                        'Tiền đã hoàn cho khách'
                 FROM payment_refunds refund
+                LEFT JOIN payment_transactions refund_payment
+                  ON refund_payment.id = refund.payment_transaction_id
                 LEFT JOIN reservations reservation
-                  ON reservation.id = refund.reservation_id
+                  ON reservation.id = COALESCE(refund.reservation_id,
+                                               refund_payment.reservation_id)
                 WHERE refund.completed_at_utc >= :fromUtc
                   AND refund.completed_at_utc < :toUtc
                   AND refund.status = 'SUCCEEDED'
