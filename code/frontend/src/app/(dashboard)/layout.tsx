@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { apiClient, authSession, cachedGet } from "@/lib/api";
 import { LanguageSwitcher, useLanguage } from "@/components/i18n/LanguageProvider";
 import HotelBrand from "@/components/HotelBrand";
-import { scheduleIdleTask, shouldConserveData } from "@/lib/performance";
+import { shouldConserveData } from "@/lib/performance";
 import { siteConfig } from "@/lib/siteConfig";
 
 interface SidebarItemProps {
@@ -155,19 +155,6 @@ export default function DashboardLayout({
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [isAccountMenuOpen]);
-
-  useEffect(() => {
-    if (!accessChecked) return;
-    const warmDashboardRoutes = () => {
-      if (shouldConserveData()) return;
-      [
-        "/dashboard",
-        "/dashboard/rooms",
-        "/dashboard/reservations",
-      ].forEach((href) => router.prefetch(href));
-    };
-    return scheduleIdleTask(warmDashboardRoutes);
-  }, [accessChecked, router]);
 
   useEffect(() => {
     const desktopBreakpoint = window.matchMedia("(min-width: 768px)");
