@@ -144,17 +144,24 @@ export default function DashboardOverview() {
   };
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
+    let active = true;
+
+    const loadUserName = async () => {
       try {
-        const parsed = JSON.parse(storedUser);
-        const name = parsed.fullName || parsed.username;
-        if (name) setUserName(name.split(" ").filter(Boolean).slice(-1)[0]);
+        const response = await cachedGet("/api/user/me", { ttlMs: 5_000 });
+        const profile = response.data?.data;
+        const name = profile?.fullName || profile?.username;
+        if (active && name) setUserName(name.split(" ").filter(Boolean).slice(-1)[0]);
       } catch {
-        // Dashboard layout đã xử lý session; tên mặc định vẫn dùng được.
+        // Dashboard layout xử lý phiên; tên mặc định vẫn dùng được khi profile lỗi.
       }
-    }
+    };
+
+    void loadUserName();
     void loadDashboard();
+    return () => {
+      active = false;
+    };
     // Chỉ tải lại khi dashboard được mở; nút Làm mới xử lý các lần tiếp theo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

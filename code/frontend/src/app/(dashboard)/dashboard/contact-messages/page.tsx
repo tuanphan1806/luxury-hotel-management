@@ -12,6 +12,7 @@ import {
   FilterQuickButton,
 } from "@/components/dashboard/DashboardFilterPanel";
 import DashboardTimeGroupingControl from "@/components/dashboard/DashboardTimeGroupingControl";
+import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import {
   DashboardTimeGrouping,
   DashboardTimeScope,
@@ -45,6 +46,7 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
 };
 
 export default function ContactMessagesPage() {
+  const { isAdmin } = useDashboardRole();
   const { localeTag, localize } = useLanguage();
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,7 +61,6 @@ export default function ContactMessagesPage() {
   const [replySubject, setReplySubject] = useState("");
   const [replyMessage, setReplyMessage] = useState("");
   const [isReplying, setIsReplying] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   const loadMessages = useCallback(async () => {
@@ -78,15 +79,6 @@ export default function ContactMessagesPage() {
   }, [localize]);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        setIsAdmin(String(parsed.role || parsed.type || "").replace("ROLE_", "").toUpperCase() === "ADMIN");
-      } catch {
-        setIsAdmin(false);
-      }
-    }
     void loadMessages();
   }, [loadMessages]);
 
