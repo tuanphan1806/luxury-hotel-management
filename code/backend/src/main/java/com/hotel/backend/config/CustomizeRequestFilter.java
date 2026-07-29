@@ -47,7 +47,6 @@ public class CustomizeRequestFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         log.info("{} {}", request.getMethod(),request.getRequestURL());
-        //TODO verify TOKEN
         String authHeader = request.getHeader("Authorization");
         if (authHeader!=null && authHeader.startsWith("Bearer ")) {
             authHeader=authHeader.substring(7);
@@ -178,6 +177,10 @@ public class CustomizeRequestFilter extends OncePerRequestFilter {
         if (method.equals("GET") && uri.equals("/auth/confirm-email")) return true;
         if (method.equals("POST") && uri.equals("/api/contact-messages")) return true;
         if (method.equals("POST") && uri.equals("/api/payments/sepay/webhook")) return true;
+        if (method.equals("POST") && (
+                uri.equals("/api/reservations/lookup")
+                        || uri.equals("/api/pricing/quote")
+        )) return true;
 
         // Public GET endpoints
         if (method.equals("GET")) {
@@ -185,11 +188,12 @@ public class CustomizeRequestFilter extends OncePerRequestFilter {
                    uri.startsWith("/api/room-types") ||
                    uri.startsWith("/api/facilities") ||
                    uri.startsWith("/api/galleries") ||
+                   uri.equals("/api/add-on-services") ||
+                   uri.equals("/api/add-on-services/") ||
+                   uri.matches("/api/add-on-services/\\d+") ||
                    uri.startsWith("/api/reviews/room-type/") ||
                    uri.equals("/api/rooms/available") ||
-                   uri.equals("/api/reservations/availability") ||
-                   uri.equals("/api/reservations/lookup") ||
-                   uri.equals("/api/pricing/quote");
+                   uri.equals("/api/reservations/availability");
         }
 
         return false;
