@@ -51,14 +51,7 @@ export function RoomRateCompact({ rate, className = "" }: RoomRateCompactProps) 
   const overnightPrice = publicRateAmount(rate.overnightPrice);
 
   if (overnightPrice == null) {
-    return (
-      <div className={`rounded-xl border border-white/75 bg-[#FBFAF6]/96 px-3.5 py-2.5 text-[#0F2A43] shadow-[0_10px_28px_rgba(9,30,48,0.18)] backdrop-blur-sm ${className}`}>
-        <p className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#80632F]">
-          {localize("Giá qua đêm", "Overnight rate")}
-        </p>
-        <p className="mt-1 text-xs font-bold">{localize("Kiểm tra giá", "Check rate")}</p>
-      </div>
-    );
+    return null;
   }
 
   return (

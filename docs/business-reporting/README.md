@@ -156,3 +156,41 @@ This is still operational accounting, not statutory accounting. Supplier/AP,
 payroll, expenses, depreciation, free-form corrections, trial balance, P&L,
 month close, tax filing and electronic-invoice compliance remain separately
 scoped work requiring an accounting professional.
+
+## 10. Local demo accounting data
+
+Local development can opt into a coherent, idempotent dataset:
+
+```properties
+APP_SEED_MASTER_DATA_ENABLED=true
+APP_SEED_DEMO_USERS_ENABLED=true
+APP_SEED_DEMO_SCENARIOS_ENABLED=true
+```
+
+`DemoScenarioSeedService` resolves users, room types, rooms and services by
+stable business keys rather than database IDs. It creates each scenario only
+when its `DEMO-FIN-*` reservation code does not already exist. Repeated
+application starts therefore skip the complete scenario instead of duplicating
+payments, refunds, invoices or journal entries.
+
+The current scenario matrix contains:
+
+- payment pending, paid draft, confirmed deposit and confirmed multi-room
+  bookings;
+- an active checked-in stay;
+- ten checked-out stays spread across the current day, recent weeks and three
+  calendar months;
+- hourly, overnight and daily pricing examples, multi-room bookings and
+  booking-time add-on services;
+- SePay and cash payments, one overpayment refund, cancellation refunds by
+  bank and cash, and a no-show without fabricated cash;
+- immutable checkout invoices, balanced financial journal entries and an open
+  local cashier shift with matching cash movements.
+
+The fixture intentionally does not create fake SePay provider webhook events.
+It uses canonical payment rows and the real journal/invoice services, so local
+reconciliation cannot mistake demo rows for bank events.
+
+This flag is for local QA only. Keep
+`APP_SEED_DEMO_SCENARIOS_ENABLED=false` in production and never enable it
+against the Neon production database.

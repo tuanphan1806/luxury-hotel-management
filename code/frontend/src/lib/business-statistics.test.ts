@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  chartPoints,
+  financeWorkspaceFromQuery,
   monthToDatePreset,
+  suggestedStatisticsGranularity,
   statisticsPreset,
   toDateInputValue,
 } from "./business-statistics";
@@ -22,11 +23,17 @@ describe("business statistics helpers", () => {
     expect(toDateInputValue(new Date(2026, 0, 5))).toBe("2026-01-05");
   });
 
-  it("keeps zero and negative values inside the chart", () => {
-    const points = chartPoints([-10, 0, 20], 300, 120, 10);
-    expect(points).toHaveLength(3);
-    expect(points[0].x).toBe(10);
-    expect(points[2].x).toBe(290);
-    expect(points.every((point) => point.y >= 10 && point.y <= 110)).toBe(true);
+  it("chooses a readable grouping for the selected reporting period", () => {
+    expect(suggestedStatisticsGranularity({ from: "2026-07-01", to: "2026-07-30" })).toBe("day");
+    expect(suggestedStatisticsGranularity({ from: "2026-01-01", to: "2026-04-30" })).toBe("week");
+    expect(suggestedStatisticsGranularity({ from: "2025-01-01", to: "2026-01-01" })).toBe("month");
+  });
+
+  it("maps legacy finance links into the unified flat workspace", () => {
+    expect(financeWorkspaceFromQuery(null)).toBe("overview");
+    expect(financeWorkspaceFromQuery("overview")).toBe("overview");
+    expect(financeWorkspaceFromQuery("operations")).toBe("cashier");
+    expect(financeWorkspaceFromQuery("cashier")).toBe("cashier");
+    expect(financeWorkspaceFromQuery("close")).toBe("close");
   });
 });

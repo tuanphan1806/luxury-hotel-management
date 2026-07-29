@@ -40,6 +40,8 @@ services:
         value: "false"
       - key: APP_SEED_DEMO_USERS_ENABLED
         value: "false"
+      - key: APP_SEED_DEMO_SCENARIOS_ENABLED
+        value: "false"
       - key: APP_BOOTSTRAP_ADMIN_ENABLED
         value: "false"
       - key: APP_ACCOUNTING_GO_LIVE_DATE
@@ -47,11 +49,11 @@ services:
       - key: SEPAY_RECONCILIATION_ENABLED
         value: "true"
       - key: PRICING_ENGINE_V2_ENABLED
-        value: "false"
+        value: "true"
       - key: PRICING_ENGINE_V2_ROOM_TYPE_CODES
-        value: STANDARD
+        value: STANDARD,DELUXE,EXECUTIVE,SUITE,FAMILY,PRESIDENTIAL
       - key: PRICING_ENGINE_V2_REQUIRE_QUOTE
-        value: "false"
+        value: "true"
       - key: PRICING_QUOTE_TTL_MINUTES
         value: "15"
       - key: PRICING_MAX_STAY_DAYS

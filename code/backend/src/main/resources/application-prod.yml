@@ -39,6 +39,7 @@ app:
     master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:false}
     add-on-services-enabled: ${APP_SEED_ADD_ON_SERVICES_ENABLED:false}
     demo-users-enabled: ${APP_SEED_DEMO_USERS_ENABLED:false}
+    demo-scenarios-enabled: ${APP_SEED_DEMO_SCENARIOS_ENABLED:false}
   bootstrap-admin:
     enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}
   seed-media:
