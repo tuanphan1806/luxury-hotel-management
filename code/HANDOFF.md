@@ -6,6 +6,22 @@
 
 ## Production release candidate — 2026-07-26
 
+- Production verification was refreshed on 2026-07-30 at deployed ref
+  `87e9b3c`: ADMIN/STAFF role boundaries, cash walk-in/check-out, invoice,
+  audit and financial journal were checked directly in the deployed UI.
+- Reservation `RES-18557480` is the cash UAT evidence: 70,000 VND is identical
+  across payment, checkout reconciliation, invoice, `CASH_IN`,
+  `REVENUE_RECOGNIZED` and audit trail.
+- The live finance dashboard and checkout-exception page currently show zero
+  unresolved cash-flow/checkout exceptions. The earlier 2,000 VND SePay item
+  is no longer in the active review queue.
+- A bounded 24-request read-only smoke returned HTTP 200 throughout (p95 home
+  1,625 ms, rooms 560 ms, backend health 278 ms). Keep the production-like
+  load gate PARTIAL until it is run against an approved staging/Neon clone.
+- Remaining release evidence: coordinated real-bank SePay incoming/outgoing,
+  Neon restore rehearsal, sustained staging load, monitoring-email receipt and
+  final operator sign-off.
+
 - Active checkout remains `C:\Users\admin\Downloads\hotelmanagement-new`; the
   OneDrive checkout is not the release source.
 - Backend SOLID refactor preserves the existing REST/database contracts and

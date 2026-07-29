@@ -1,9 +1,39 @@
 # Full-system QA report
 
-Status: LOCAL AUTOMATED QA COMPLETE; PRODUCTION EXTERNAL GATES PARTIAL
+Status: AUTOMATED QA + PRODUCTION CASH UAT COMPLETE; REAL-BANK/RESTORE GATES PARTIAL
 Baseline date: 2026-07-26
 Audited branch/ref: `release/2026-07-26-system-hardening`, based on
 `main` / `476f9c656c86af234706acbfff116530e0d5b7e3`
+
+## Production verification update — 2026-07-30
+
+- Deployed frontend ref: `87e9b3c` (PR #36). GitHub quality gates and the
+  Vercel production deployment passed.
+- Pricing V2 is enabled in the production blueprint for all six canonical room
+  type codes: `STANDARD`, `DELUXE`, `EXECUTIVE`, `SUITE`, `FAMILY` and
+  `PRESIDENTIAL`.
+- The ADMIN finance dashboard reports **no unmatched incoming or unclassified
+  outgoing cash-flow exception** in the active reporting window. The earlier
+  2,000 VND SePay review item is no longer present in the live exception queue;
+  normal SePay and refund entries remain visible in the read-only journal.
+- The checkout-exception queue contains zero pending requests.
+- Production cash operator UAT is evidenced by reservation `RES-18557480`:
+  atomic walk-in/check-in, 70,000 VND CASH payment, MATCHED checkout,
+  immutable invoice `INV-RES-18557480`, `CASH_IN` and
+  `REVENUE_RECOGNIZED` journal rows, plus STAFF-attributed audit entries all
+  agree on 70,000 VND.
+- Authorization UAT after PR #36 confirms STAFF cannot see reservation history,
+  while ADMIN can; the dashboard greeting also resolves the authoritative
+  server role instead of stale browser storage.
+- A bounded read-only production smoke (8 requests per target, concurrency 4)
+  returned 24/24 HTTP 200. Observed p95: home 1,625 ms, rooms 560 ms and proxied
+  backend health 278 ms. This is a safe latency smoke, not a replacement for a
+  sustained production-like load test.
+
+Still external/partial after this update: one coordinated real-bank SePay
+incoming/outgoing run, Neon backup/restore rehearsal, sustained load/concurrency
+at an approved staging volume, monitoring-email receipt and final operator
+sign-off.
 
 ## 1. Baseline identity and safety
 
