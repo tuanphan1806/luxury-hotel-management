@@ -277,7 +277,18 @@ public class CashierShiftService {
                 payment.getReceivedAmount() != null
                         ? payment.getReceivedAmount()
                         : payment.getAmount());
-        CashierShift shift = requireActiveShiftForUpdate(actor);
+        CashierShift shift = shiftRepository
+                .findActiveByUserIdForUpdate(actor.getId(), ACTIVE_STATUSES)
+                .filter(activeShift -> activeShift.getStatus() == CashierShiftStatus.OPEN)
+                .orElse(null);
+        // STAFF physically operates a cashier drawer, so an open shift remains
+        // mandatory. ADMIN can resolve a reservation without opening a front-desk
+        // shift; the caller still persists the payment, financial journal and
+        // reservation audit in the same transaction.
+        if (shift == null) {
+            if (actor.getType() == UserType.ADMIN) return;
+            throw new AppException(ErrorCode.CASHIER_SHIFT_REQUIRED);
+        }
         CashMovement existing = movementRepository
                 .findBySourceTypeAndSourceIdAndMovementType(
                         CashMovementSourceType.PAYMENT_TRANSACTION,

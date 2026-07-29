@@ -128,6 +128,7 @@ class PaymentServiceTest {
         verify(reservationRepository, never()).findById(8L);
         verify(reservationService).convertHoldsAfterPayment(8L);
         verify(cashierShiftService).recordCashPayment(any(PaymentTransaction.class), eq(staff));
+        verify(financialJournalService).postPayment(any(PaymentTransaction.class));
         verify(reservationAuditService).record(
                 eq(reservation),
                 eq(com.hotel.backend.constant.ReservationAuditAction.PAYMENT_RECEIVED),
