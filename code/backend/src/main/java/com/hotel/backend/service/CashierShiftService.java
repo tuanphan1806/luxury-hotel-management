@@ -14,6 +14,7 @@ import com.hotel.backend.dto.request.CloseCashierShiftRequest;
 import com.hotel.backend.dto.request.OpenCashierShiftRequest;
 import com.hotel.backend.dto.response.CashMovementResponse;
 import com.hotel.backend.dto.response.CashierShiftResponse;
+import com.hotel.backend.dto.response.MoneyReportResponse;
 import com.hotel.backend.entity.CashMovement;
 import com.hotel.backend.entity.CashierShift;
 import com.hotel.backend.entity.PaymentRefund;
@@ -59,14 +60,21 @@ public class CashierShiftService {
     private final CashierShiftRepository shiftRepository;
     private final CashMovementRepository movementRepository;
     private final ReservationAuditService auditService;
+    private final MoneyReportService moneyReportService;
     private final Clock clock;
 
     @Autowired
     public CashierShiftService(
             CashierShiftRepository shiftRepository,
             CashMovementRepository movementRepository,
-            ReservationAuditService auditService) {
-        this(shiftRepository, movementRepository, auditService, Clock.systemUTC());
+            ReservationAuditService auditService,
+            MoneyReportService moneyReportService) {
+        this(
+                shiftRepository,
+                movementRepository,
+                auditService,
+                moneyReportService,
+                Clock.systemUTC());
     }
 
     CashierShiftService(
@@ -74,9 +82,19 @@ public class CashierShiftService {
             CashMovementRepository movementRepository,
             ReservationAuditService auditService,
             Clock clock) {
+        this(shiftRepository, movementRepository, auditService, null, clock);
+    }
+
+    CashierShiftService(
+            CashierShiftRepository shiftRepository,
+            CashMovementRepository movementRepository,
+            ReservationAuditService auditService,
+            MoneyReportService moneyReportService,
+            Clock clock) {
         this.shiftRepository = shiftRepository;
         this.movementRepository = movementRepository;
         this.auditService = auditService;
+        this.moneyReportService = moneyReportService;
         this.clock = clock;
     }
 
@@ -96,7 +114,7 @@ public class CashierShiftService {
                 .openedByName(displayName(actor))
                 .openedByRole(actor.getType().name())
                 .openedAtUtc(now)
-                .openingCashAmount(normalize(request.getOpeningCashAmount()))
+                .openingCashAmount(BigDecimal.ZERO)
                 .note(trimToNull(request.getNote()))
                 .build();
         try {
@@ -105,20 +123,6 @@ public class CashierShiftService {
             throw new AppException(ErrorCode.CASHIER_SHIFT_ALREADY_OPEN);
         }
 
-        if (shift.getOpeningCashAmount().signum() > 0) {
-            appendMovement(
-                    shift,
-                    CashMovementType.OPENING_FLOAT,
-                    CashMovementDirection.IN,
-                    shift.getOpeningCashAmount(),
-                    CashMovementSourceType.CASHIER_SHIFT,
-                    shift.getShiftCode(),
-                    null,
-                    null,
-                    null,
-                    actor,
-                    "Tiền đầu ca");
-        }
         auditService.recordTargetForUser(
                 actor,
                 "CASHIER_SHIFT",
@@ -127,7 +131,7 @@ public class CashierShiftService {
                 "Mở ca thu ngân " + shift.getShiftCode(),
                 Map.of(
                         "businessDate", shift.getBusinessDate(),
-                        "openingCashAmount", shift.getOpeningCashAmount()));
+                        "trackingMode", "AUTOMATIC"));
         return toResponse(shift, true);
     }
 
@@ -228,42 +232,30 @@ public class CashierShiftService {
         ensureOpen(shift);
 
         BigDecimal expected = expectedCash(shift.getId());
-        BigDecimal counted = normalize(request.getCountedCashAmount());
-        BigDecimal variance = counted.subtract(expected);
-        String varianceReason = trimToNull(request.getVarianceReason());
-        if (variance.signum() != 0 && (varianceReason == null || varianceReason.length() < 5)) {
-            throw new AppException(
-                    ErrorCode.INVALID_REQUEST,
-                    "Ca có chênh lệch tiền; cần nhập lý do từ 5 ký tự");
-        }
 
         Instant now = clock.instant();
         shift.setExpectedCashAmount(expected);
-        shift.setCountedCashAmount(counted);
-        shift.setVarianceAmount(variance);
+        // Compatibility columns remain populated, but operators no longer
+        // re-enter a total already derived from completed transactions.
+        shift.setCountedCashAmount(expected);
+        shift.setVarianceAmount(BigDecimal.ZERO);
         shift.setClosedBy(actor);
         shift.setClosedByName(displayName(actor));
         shift.setClosedByRole(actor.getType().name());
         shift.setClosedAtUtc(now);
-        shift.setCloseNote(buildCloseNote(request.getNote(), varianceReason));
+        shift.setCloseNote(trimToNull(request.getNote()));
         shift.setStatus(CashierShiftStatus.CLOSED);
         shift = shiftRepository.saveAndFlush(shift);
 
         Map<String, Object> detail = new LinkedHashMap<>();
-        detail.put("expectedCashAmount", expected);
-        detail.put("countedCashAmount", counted);
-        detail.put("varianceAmount", variance);
-        if (varianceReason != null) detail.put("varianceReason", varianceReason);
+        detail.put("cashNetAmount", expected);
+        detail.put("trackingMode", "AUTOMATIC");
         auditService.recordTargetForUser(
                 actor,
                 "CASHIER_SHIFT",
                 String.valueOf(shift.getId()),
-                variance.signum() == 0
-                        ? ReservationAuditAction.CASHIER_SHIFT_CLOSED
-                        : ReservationAuditAction.CASH_VARIANCE_RECORDED,
-                variance.signum() == 0
-                        ? "Đóng ca thu ngân khớp tiền"
-                        : "Đóng ca thu ngân có chênh lệch " + variance + " VND",
+                ReservationAuditAction.CASHIER_SHIFT_CLOSED,
+                "Kết thúc ca thu ngân " + shift.getShiftCode(),
                 detail);
         return toResponse(shift, true);
     }
@@ -323,7 +315,17 @@ public class CashierShiftService {
                 refund.getActualRefundAmount() != null
                         ? refund.getActualRefundAmount()
                         : refund.getAmount());
-        CashierShift shift = requireActiveShiftForUpdate(actor);
+        CashierShift shift = shiftRepository
+                .findActiveByUserIdForUpdate(actor.getId(), ACTIVE_STATUSES)
+                .filter(activeShift -> activeShift.getStatus() == CashierShiftStatus.OPEN)
+                .orElse(null);
+        // STAFF must work inside a cashier shift. ADMIN may resolve an
+        // exceptional refund without opening a front-desk shift; the refund
+        // remains part of the canonical financial report.
+        if (shift == null) {
+            if (actor.getType() == UserType.ADMIN) return;
+            throw new AppException(ErrorCode.CASHIER_SHIFT_REQUIRED);
+        }
         CashMovement existing = movementRepository
                 .findBySourceTypeAndSourceIdAndMovementType(
                         CashMovementSourceType.PAYMENT_REFUND,
@@ -437,12 +439,6 @@ public class CashierShiftService {
                 detail);
     }
 
-    private CashierShift requireActiveShiftForUpdate(User actor) {
-        return shiftRepository.findActiveByUserIdForUpdate(actor.getId(), ACTIVE_STATUSES)
-                .filter(shift -> shift.getStatus() == CashierShiftStatus.OPEN)
-                .orElseThrow(() -> new AppException(ErrorCode.CASHIER_SHIFT_REQUIRED));
-    }
-
     private CashierShift requireShift(Long shiftId) {
         return shiftRepository.findById(shiftId)
                 .orElseThrow(() -> new AppException(ErrorCode.CASHIER_SHIFT_NOT_FOUND));
@@ -508,6 +504,37 @@ public class CashierShiftService {
                     || shift.getStatus() == CashierShiftStatus.CLOSING
                     ? expectedCash(shift.getId())
                     : shift.getExpectedCashAmount();
+        BigDecimal cashIncome = movements.stream()
+                .filter(movement ->
+                        movement.movementType() == CashMovementType.CASH_PAYMENT
+                                && movement.direction() == CashMovementDirection.IN)
+                .map(CashMovementResponse::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal cashRefund = movements.stream()
+                .filter(movement ->
+                        movement.movementType() == CashMovementType.CASH_REFUND
+                                && movement.direction() == CashMovementDirection.OUT)
+                .map(CashMovementResponse::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal transferIncome = BigDecimal.ZERO;
+        BigDecimal transferRefund = BigDecimal.ZERO;
+        Instant reportingTo = shift.getClosedAtUtc() != null
+                ? shift.getClosedAtUtc()
+                : clock.instant();
+        if (includeMovements
+                && moneyReportService != null
+                && shift.getOpenedAtUtc().isBefore(reportingTo)) {
+            MoneyReportResponse.Breakdown online =
+                    moneyReportService.summarizeWindow(
+                            shift.getOpenedAtUtc(), reportingTo);
+            // Cash belongs to the operator through cash_movements. Online
+            // transfers have no cashier actor, so they are informational for
+            // the same time window and are not used to grade the operator.
+            transferIncome = online.transferIncome();
+            transferRefund = online.transferRefund();
+        }
+        BigDecimal totalIncome = cashIncome.add(transferIncome);
+        BigDecimal totalRefund = cashRefund.add(transferRefund);
         return new CashierShiftResponse(
                 shift.getId(),
                 shift.getShiftCode(),
@@ -532,7 +559,14 @@ public class CashierShiftService {
                         : movementCountOverride != null
                             ? movementCountOverride
                             : movementRepository.countByCashierShiftId(shift.getId()),
-                movements);
+                movements,
+                cashIncome,
+                transferIncome,
+                totalIncome,
+                cashRefund,
+                transferRefund,
+                totalRefund,
+                totalIncome.subtract(totalRefund));
     }
 
     private CashMovementResponse toResponse(CashMovement movement) {
@@ -567,14 +601,6 @@ public class CashierShiftService {
 
     private BigDecimal nullSafeMoney(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
-    }
-
-    private String buildCloseNote(String note, String varianceReason) {
-        String normalizedNote = trimToNull(note);
-        if (varianceReason == null) return normalizedNote;
-        return normalizedNote == null
-                ? "Lý do chênh lệch: " + varianceReason
-                : normalizedNote + " | Lý do chênh lệch: " + varianceReason;
     }
 
     private String displayName(User user) {

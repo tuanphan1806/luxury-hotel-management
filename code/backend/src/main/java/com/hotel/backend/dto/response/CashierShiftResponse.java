@@ -27,5 +27,12 @@ public record CashierShiftResponse(
         String note,
         String closeNote,
         long movementCount,
-        List<CashMovementResponse> movements) {
+        List<CashMovementResponse> movements,
+        BigDecimal cashIncomeAmount,
+        BigDecimal transferIncomeAmount,
+        BigDecimal totalIncomeAmount,
+        BigDecimal cashRefundAmount,
+        BigDecimal transferRefundAmount,
+        BigDecimal totalRefundAmount,
+        BigDecimal netAmount) {
 }

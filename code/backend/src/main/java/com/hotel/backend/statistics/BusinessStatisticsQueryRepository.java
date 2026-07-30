@@ -1,6 +1,7 @@
 package com.hotel.backend.statistics;
 
 import com.hotel.backend.dto.response.BusinessStatisticsResponse;
+import com.hotel.backend.dto.response.MoneyReportResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -284,6 +285,358 @@ public class BusinessStatisticsQueryRepository {
                         resultSet.getLong("unclassified_cash_out_count"),
                         decimal(resultSet, "legacy_unreconciled_amount"),
                         resultSet.getLong("legacy_unreconciled_count")));
+    }
+
+    /**
+     * Canonical money movements linked to reservations, split by collection
+     * and refund channel. Unmatched SePay events are reported separately and
+     * never included in revenue totals.
+     */
+    public List<MoneyFlowRow> moneyFlow(
+            StatisticsPeriod period,
+            StatisticsGranularity granularity) {
+        String unit = granularity.postgresUnit();
+        String paymentBucket = bucketUtc("payment.paid_at_utc", unit);
+        String refundBucket = bucketUtc("refund.completed_at_utc", unit);
+        String providerEventBucket = bucketUtc(
+                "COALESCE(provider_event.provider_occurred_at_utc, "
+                        + "provider_event.received_at_utc)", unit);
+        String sql = """
+                WITH payment_totals AS (
+                    SELECT %s AS bucket,
+                           SUM(COALESCE(payment.received_amount,
+                                        payment.amount, 0))
+                               FILTER (WHERE payment.provider = 'CASH')
+                               AS cash_income,
+                           SUM(COALESCE(payment.received_amount,
+                                        payment.amount, 0))
+                               FILTER (WHERE payment.provider = 'SEPAY')
+                               AS transfer_income,
+                           COUNT(*) AS payment_count
+                    FROM payment_transactions payment
+                    WHERE payment.paid_at_utc >= :fromUtc
+                      AND payment.paid_at_utc < :toUtc
+                      AND payment.status IN %s
+                    GROUP BY 1
+                ), refund_totals AS (
+                    SELECT %s AS bucket,
+                           SUM(COALESCE(refund.actual_refund_amount,
+                                        refund.requested_amount,
+                                        refund.amount, 0))
+                               FILTER (
+                                   WHERE refund.channel = 'CASH_AT_COUNTER')
+                               AS cash_refund,
+                           SUM(COALESCE(refund.actual_refund_amount,
+                                        refund.requested_amount,
+                                        refund.amount, 0))
+                               FILTER (
+                                   WHERE refund.channel =
+                                         'MANUAL_BANK_TRANSFER')
+                               AS transfer_refund,
+                           COUNT(*) AS refund_count
+                    FROM payment_refunds refund
+                    WHERE refund.completed_at_utc >= :fromUtc
+                      AND refund.completed_at_utc < :toUtc
+                      AND refund.status = 'SUCCEEDED'
+                    GROUP BY 1
+                ), unmatched_totals AS (
+                    SELECT %s AS bucket,
+                           COUNT(*) AS unmatched_count,
+                           SUM(provider_event.amount) AS unmatched_amount
+                    FROM payment_provider_events provider_event
+                    WHERE COALESCE(provider_event.provider_occurred_at_utc,
+                                   provider_event.received_at_utc) >= :fromUtc
+                      AND COALESCE(provider_event.provider_occurred_at_utc,
+                                   provider_event.received_at_utc) < :toUtc
+                      AND LOWER(provider_event.transfer_type) = 'in'
+                      AND provider_event.amount > 0
+                      AND provider_event.payment_transaction_id IS NULL
+                      AND provider_event.status IN (
+                          'RECEIVED', 'PROCESSING',
+                          'FAILED_RETRYABLE', 'REVIEW_REQUIRED')
+                    GROUP BY 1
+                ), period_keys AS (
+                    SELECT bucket FROM payment_totals
+                    UNION SELECT bucket FROM refund_totals
+                    UNION SELECT bucket FROM unmatched_totals
+                )
+                SELECT period_keys.bucket,
+                       COALESCE(payment_totals.cash_income, 0)
+                           AS cash_income,
+                       COALESCE(payment_totals.transfer_income, 0)
+                           AS transfer_income,
+                       COALESCE(refund_totals.cash_refund, 0)
+                           AS cash_refund,
+                       COALESCE(refund_totals.transfer_refund, 0)
+                           AS transfer_refund,
+                       COALESCE(payment_totals.payment_count, 0)
+                           AS payment_count,
+                       COALESCE(refund_totals.refund_count, 0)
+                           AS refund_count,
+                       COALESCE(unmatched_totals.unmatched_count, 0)
+                           AS unmatched_count,
+                       COALESCE(unmatched_totals.unmatched_amount, 0)
+                           AS unmatched_amount
+                FROM period_keys
+                LEFT JOIN payment_totals USING (bucket)
+                LEFT JOIN refund_totals USING (bucket)
+                LEFT JOIN unmatched_totals USING (bucket)
+                ORDER BY period_keys.bucket
+                """.formatted(
+                paymentBucket,
+                PAID_STATUSES,
+                refundBucket,
+                providerEventBucket);
+        return jdbc.query(sql, utcParameters(period), (resultSet, rowNum) ->
+                new MoneyFlowRow(
+                        localDate(resultSet, "bucket"),
+                        decimal(resultSet, "cash_income"),
+                        decimal(resultSet, "transfer_income"),
+                        decimal(resultSet, "cash_refund"),
+                        decimal(resultSet, "transfer_refund"),
+                        resultSet.getLong("payment_count"),
+                        resultSet.getLong("refund_count"),
+                        resultSet.getLong("unmatched_count"),
+                        decimal(resultSet, "unmatched_amount")));
+    }
+
+    /**
+     * Money movements inside an exact UTC interval. Used by cashier shifts;
+     * the interval is a reporting window and does not re-post any transaction.
+     */
+    public MoneyWindowRow moneyWindow(Instant fromUtc, Instant toUtc) {
+        String sql = """
+                WITH payment_totals AS (
+                    SELECT COALESCE(SUM(COALESCE(payment.received_amount,
+                                                 payment.amount, 0))
+                                      FILTER (
+                                          WHERE payment.provider = 'CASH'), 0)
+                               AS cash_income,
+                           COALESCE(SUM(COALESCE(payment.received_amount,
+                                                 payment.amount, 0))
+                                      FILTER (
+                                          WHERE payment.provider = 'SEPAY'), 0)
+                               AS transfer_income,
+                           COUNT(*) AS payment_count
+                    FROM payment_transactions payment
+                    WHERE payment.paid_at_utc >= :fromUtc
+                      AND payment.paid_at_utc < :toUtc
+                      AND payment.status IN %s
+                ), refund_totals AS (
+                    SELECT COALESCE(SUM(COALESCE(
+                                           refund.actual_refund_amount,
+                                           refund.requested_amount,
+                                           refund.amount, 0))
+                                      FILTER (
+                                          WHERE refund.channel =
+                                                'CASH_AT_COUNTER'), 0)
+                               AS cash_refund,
+                           COALESCE(SUM(COALESCE(
+                                           refund.actual_refund_amount,
+                                           refund.requested_amount,
+                                           refund.amount, 0))
+                                      FILTER (
+                                          WHERE refund.channel =
+                                                'MANUAL_BANK_TRANSFER'), 0)
+                               AS transfer_refund,
+                           COUNT(*) AS refund_count
+                    FROM payment_refunds refund
+                    WHERE refund.completed_at_utc >= :fromUtc
+                      AND refund.completed_at_utc < :toUtc
+                      AND refund.status = 'SUCCEEDED'
+                )
+                SELECT payment_totals.cash_income,
+                       payment_totals.transfer_income,
+                       refund_totals.cash_refund,
+                       refund_totals.transfer_refund,
+                       payment_totals.payment_count,
+                       refund_totals.refund_count
+                FROM payment_totals
+                CROSS JOIN refund_totals
+                """.formatted(PAID_STATUSES);
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("fromUtc", Timestamp.from(fromUtc))
+                .addValue("toUtc", Timestamp.from(toUtc));
+        return jdbc.queryForObject(sql, parameters, (resultSet, rowNum) ->
+                new MoneyWindowRow(
+                        decimal(resultSet, "cash_income"),
+                        decimal(resultSet, "transfer_income"),
+                        decimal(resultSet, "cash_refund"),
+                        decimal(resultSet, "transfer_refund"),
+                        resultSet.getLong("payment_count"),
+                        resultSet.getLong("refund_count")));
+    }
+
+    /**
+     * Reservation-level drill-down for the same payment/refund interval used
+     * by {@link #moneyFlow}. It deliberately filters by money movement time,
+     * not invoice issue time, so the page reconciles with the summary above.
+     */
+    public MoneyReportResponse.ReservationMoneyPage reservationMoney(
+            StatisticsPeriod period,
+            String query,
+            int page,
+            int size) {
+        String aggregates = """
+                WITH payment_totals AS (
+                    SELECT payment.reservation_id,
+                           SUM(COALESCE(payment.received_amount,
+                                        payment.amount, 0))
+                               FILTER (WHERE payment.provider = 'CASH')
+                               AS cash_income,
+                           SUM(COALESCE(payment.received_amount,
+                                        payment.amount, 0))
+                               FILTER (WHERE payment.provider = 'SEPAY')
+                               AS transfer_income,
+                           COUNT(*) AS payment_count,
+                           MAX(payment.paid_at_utc) AS last_payment_at_utc
+                    FROM payment_transactions payment
+                    WHERE payment.paid_at_utc >= :fromUtc
+                      AND payment.paid_at_utc < :toUtc
+                      AND payment.status IN %s
+                    GROUP BY payment.reservation_id
+                ), refund_totals AS (
+                    SELECT COALESCE(
+                               refund.reservation_id,
+                               refund_payment.reservation_id)
+                               AS reservation_id,
+                           SUM(COALESCE(
+                                   refund.actual_refund_amount,
+                                   refund.requested_amount,
+                                   refund.amount, 0))
+                               FILTER (
+                                   WHERE refund.channel = 'CASH_AT_COUNTER')
+                               AS cash_refund,
+                           SUM(COALESCE(
+                                   refund.actual_refund_amount,
+                                   refund.requested_amount,
+                                   refund.amount, 0))
+                               FILTER (
+                                   WHERE refund.channel =
+                                         'MANUAL_BANK_TRANSFER')
+                               AS transfer_refund,
+                           COUNT(*) AS refund_count,
+                           MAX(refund.completed_at_utc)
+                               AS last_refund_at_utc
+                    FROM payment_refunds refund
+                    LEFT JOIN payment_transactions refund_payment
+                      ON refund_payment.id = refund.payment_transaction_id
+                    WHERE refund.completed_at_utc >= :fromUtc
+                      AND refund.completed_at_utc < :toUtc
+                      AND refund.status = 'SUCCEEDED'
+                    GROUP BY COALESCE(
+                        refund.reservation_id,
+                        refund_payment.reservation_id)
+                ), money_by_reservation AS (
+                    SELECT COALESCE(
+                               payment_totals.reservation_id,
+                               refund_totals.reservation_id)
+                               AS reservation_id,
+                           COALESCE(payment_totals.cash_income, 0)
+                               AS cash_income,
+                           COALESCE(payment_totals.transfer_income, 0)
+                               AS transfer_income,
+                           COALESCE(refund_totals.cash_refund, 0)
+                               AS cash_refund,
+                           COALESCE(refund_totals.transfer_refund, 0)
+                               AS transfer_refund,
+                           COALESCE(payment_totals.payment_count, 0)
+                               AS payment_count,
+                           COALESCE(refund_totals.refund_count, 0)
+                               AS refund_count,
+                           COALESCE(
+                               GREATEST(
+                                   payment_totals.last_payment_at_utc,
+                                   refund_totals.last_refund_at_utc),
+                               payment_totals.last_payment_at_utc,
+                               refund_totals.last_refund_at_utc)
+                               AS last_movement_at_utc
+                    FROM payment_totals
+                    FULL OUTER JOIN refund_totals
+                      ON refund_totals.reservation_id =
+                         payment_totals.reservation_id
+                    WHERE COALESCE(
+                              payment_totals.reservation_id,
+                              refund_totals.reservation_id) IS NOT NULL
+                )
+                """.formatted(PAID_STATUSES);
+        String filters = """
+                WHERE (:query IS NULL
+                       OR POSITION(
+                           :query IN UPPER(reservation.reservation_code)) > 0)
+                """;
+        MapSqlParameterSource parameters = utcParameters(period)
+                .addValue("query", normalizeFilter(query), Types.VARCHAR)
+                .addValue("limit", size)
+                .addValue("offset", (long) page * size);
+        String dataSql = """
+                %s
+                SELECT reservation.id AS reservation_id,
+                       reservation.reservation_code,
+                       reservation.status AS reservation_status,
+                       money.cash_income,
+                       money.transfer_income,
+                       money.cash_refund,
+                       money.transfer_refund,
+                       money.payment_count,
+                       money.refund_count,
+                       money.last_movement_at_utc
+                FROM money_by_reservation money
+                JOIN reservations reservation
+                  ON reservation.id = money.reservation_id
+                %s
+                ORDER BY money.last_movement_at_utc DESC,
+                         reservation.id DESC
+                LIMIT :limit OFFSET :offset
+                """.formatted(aggregates, filters);
+        List<MoneyReportResponse.ReservationMoney> content = jdbc.query(
+                dataSql,
+                parameters,
+                (resultSet, rowNum) -> {
+                    BigDecimal cashIncome =
+                            decimal(resultSet, "cash_income");
+                    BigDecimal transferIncome =
+                            decimal(resultSet, "transfer_income");
+                    BigDecimal cashRefund =
+                            decimal(resultSet, "cash_refund");
+                    BigDecimal transferRefund =
+                            decimal(resultSet, "transfer_refund");
+                    BigDecimal totalIncome =
+                            cashIncome.add(transferIncome);
+                    BigDecimal totalRefund =
+                            cashRefund.add(transferRefund);
+                    return new MoneyReportResponse.ReservationMoney(
+                            resultSet.getLong("reservation_id"),
+                            resultSet.getString("reservation_code"),
+                            resultSet.getString("reservation_status"),
+                            new MoneyReportResponse.Breakdown(
+                                    cashIncome,
+                                    transferIncome,
+                                    totalIncome,
+                                    cashRefund,
+                                    transferRefund,
+                                    totalRefund,
+                                    totalIncome.subtract(totalRefund),
+                                    resultSet.getLong("payment_count"),
+                                    resultSet.getLong("refund_count")),
+                            instant(resultSet, "last_movement_at_utc"));
+                });
+        String countSql = """
+                %s
+                SELECT COUNT(*)
+                FROM money_by_reservation money
+                JOIN reservations reservation
+                  ON reservation.id = money.reservation_id
+                %s
+                """.formatted(aggregates, filters);
+        Long total = jdbc.queryForObject(
+                countSql, parameters, Long.class);
+        long totalElements = total != null ? total : 0L;
+        int totalPages = totalElements == 0
+                ? 0
+                : (int) ((totalElements + size - 1L) / size);
+        return new MoneyReportResponse.ReservationMoneyPage(
+                content, page, size, totalElements, totalPages);
     }
 
     public List<BookingRow> bookings(StatisticsPeriod period,
@@ -1230,6 +1583,27 @@ public class BusinessStatisticsQueryRepository {
             long unclassifiedCashOutCount,
             BigDecimal legacyUnreconciledAmount,
             long legacyUnreconciledCount) {
+    }
+
+    public record MoneyFlowRow(
+            LocalDate period,
+            BigDecimal cashIncome,
+            BigDecimal transferIncome,
+            BigDecimal cashRefund,
+            BigDecimal transferRefund,
+            long paymentCount,
+            long refundCount,
+            long unmatchedTransferCount,
+            BigDecimal unmatchedTransferAmount) {
+    }
+
+    public record MoneyWindowRow(
+            BigDecimal cashIncome,
+            BigDecimal transferIncome,
+            BigDecimal cashRefund,
+            BigDecimal transferRefund,
+            long paymentCount,
+            long refundCount) {
     }
 
     public record BookingRow(

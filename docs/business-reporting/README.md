@@ -184,8 +184,14 @@ The current scenario matrix contains:
   booking-time add-on services;
 - SePay and cash payments, one overpayment refund, cancellation refunds by
   bank and cash, and a no-show without fabricated cash;
-- immutable checkout invoices, balanced financial journal entries and an open
-  local cashier shift with matching cash movements.
+- immutable checkout invoices, balanced financial journal entries and a
+  completed demo cashier shift with matching cash movements.
+
+Cash scenarios run inside a dedicated demo shift. The seeder refuses to attach
+fixture movements to a real active STAFF shift, starts the demo shift at zero
+without asking for an opening balance, and closes it automatically after all
+cash payment/refund rows have been recorded. A rerun also closes a legacy demo
+shift left open by an older seed version.
 
 The fixture intentionally does not create fake SePay provider webhook events.
 It uses canonical payment rows and the real journal/invoice services, so local

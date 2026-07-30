@@ -149,6 +149,12 @@ class AuthorizationMatrixIntegrationTest {
             mockMvc.perform(get("/api/admin/statistics/reservations")
                             .header("Authorization", bearer(token)))
                     .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/statistics/money")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/statistics/money/reservations")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
         }
     }
 

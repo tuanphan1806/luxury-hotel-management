@@ -48,6 +48,13 @@ export interface CashierShift {
   closeNote?: string | null;
   movementCount: number;
   movements: CashMovement[];
+  cashIncomeAmount: number;
+  transferIncomeAmount: number;
+  totalIncomeAmount: number;
+  cashRefundAmount: number;
+  transferRefundAmount: number;
+  totalRefundAmount: number;
+  netAmount: number;
 }
 
 export interface PageResult<T> {
@@ -58,35 +65,12 @@ export interface PageResult<T> {
   totalPages: number;
 }
 
-export function parseWholeVnd(value: string): number | null {
-  const normalized = value.replace(/[.\s]/g, "");
-  if (!/^\d+$/.test(normalized)) return null;
-  const amount = Number(normalized);
-  return Number.isSafeInteger(amount) ? amount : null;
-}
-
 export function formatVnd(value: number | null | undefined): string {
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
     currency: "VND",
     maximumFractionDigits: 0,
   }).format(Number(value || 0));
-}
-
-export function suggestedOpeningCash(
-  shifts: CashierShift[],
-  allowCarryOver: boolean,
-): { amount: number; source: CashierShift | null } {
-  if (!allowCarryOver) return { amount: 0, source: null };
-  const source = shifts.find(
-    (shift) => shift.status === "CLOSED"
-      && shift.countedCashAmount != null
-      && Number(shift.countedCashAmount) >= 0,
-  ) || null;
-  return {
-    amount: Number(source?.countedCashAmount || 0),
-    source,
-  };
 }
 
 export function movementLabel(type: CashMovementType): string {

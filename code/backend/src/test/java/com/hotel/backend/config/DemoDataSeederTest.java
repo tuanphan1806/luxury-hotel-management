@@ -24,6 +24,7 @@ class DemoDataSeederTest {
                         3,
                         10,
                         29,
+                        true,
                         true));
 
         new DemoDataSeeder(scenarioSeedService).run();
