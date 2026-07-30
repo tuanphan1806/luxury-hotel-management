@@ -357,6 +357,28 @@ class BusinessStatisticsQueryMigrationIT {
                     assertThat(entry.amounts().paymentCount()).isEqualTo(1);
                     assertThat(entry.amounts().refundCount()).isEqualTo(2);
                 });
+        assertThat(repository.reservationMoneyByPeriod(
+                period, StatisticsGranularity.DAY, "stats-1", 0, 20)
+                .content())
+                .satisfiesExactly(
+                        entry -> {
+                            assertThat(entry.period())
+                                    .isEqualTo(LocalDate.of(2026, 7, 11));
+                            assertThat(entry.amounts().totalIncome()).isZero();
+                            assertThat(entry.amounts().transferRefund())
+                                    .isEqualByComparingTo("35000");
+                            assertThat(entry.amounts().netRevenue())
+                                    .isEqualByComparingTo("-35000");
+                        },
+                        entry -> {
+                            assertThat(entry.period())
+                                    .isEqualTo(LocalDate.of(2026, 7, 10));
+                            assertThat(entry.amounts().transferIncome())
+                                    .isEqualByComparingTo("200000");
+                            assertThat(entry.amounts().totalRefund()).isZero();
+                            assertThat(entry.amounts().netRevenue())
+                                    .isEqualByComparingTo("200000");
+                        });
 
         List<BusinessStatisticsQueryRepository.DailyOccupancyRow> occupancy =
                 repository.dailyOccupancy(period);

@@ -639,6 +639,205 @@ public class BusinessStatisticsQueryRepository {
                 content, page, size, totalElements, totalPages);
     }
 
+    /**
+     * Reservation drill-down partitioned by the same calendar bucket as the
+     * money summary. A reservation can intentionally appear in more than one
+     * bucket when, for example, payment and refund happen on different days.
+     */
+    public MoneyReportResponse.ReservationMoneyPage reservationMoneyByPeriod(
+            StatisticsPeriod period,
+            StatisticsGranularity granularity,
+            String query,
+            int page,
+            int size) {
+        String paymentBucket = bucketUtc(
+                "payment.paid_at_utc", granularity.postgresUnit());
+        String refundBucket = bucketUtc(
+                "refund.completed_at_utc", granularity.postgresUnit());
+        String aggregates = """
+                WITH payment_totals AS (
+                    SELECT %s AS bucket,
+                           payment.reservation_id,
+                           SUM(COALESCE(payment.received_amount,
+                                        payment.amount, 0))
+                               FILTER (WHERE payment.provider = 'CASH')
+                               AS cash_income,
+                           SUM(COALESCE(payment.received_amount,
+                                        payment.amount, 0))
+                               FILTER (WHERE payment.provider = 'SEPAY')
+                               AS transfer_income,
+                           COUNT(*) AS payment_count,
+                           MAX(payment.paid_at_utc) AS last_payment_at_utc
+                    FROM payment_transactions payment
+                    WHERE payment.paid_at_utc >= :fromUtc
+                      AND payment.paid_at_utc < :toUtc
+                      AND payment.status IN %s
+                    GROUP BY 1, payment.reservation_id
+                ), refund_totals AS (
+                    SELECT %s AS bucket,
+                           COALESCE(
+                               refund.reservation_id,
+                               refund_payment.reservation_id)
+                               AS reservation_id,
+                           SUM(COALESCE(
+                                   refund.actual_refund_amount,
+                                   refund.requested_amount,
+                                   refund.amount, 0))
+                               FILTER (
+                                   WHERE refund.channel = 'CASH_AT_COUNTER')
+                               AS cash_refund,
+                           SUM(COALESCE(
+                                   refund.actual_refund_amount,
+                                   refund.requested_amount,
+                                   refund.amount, 0))
+                               FILTER (
+                                   WHERE refund.channel =
+                                         'MANUAL_BANK_TRANSFER')
+                               AS transfer_refund,
+                           COUNT(*) AS refund_count,
+                           MAX(refund.completed_at_utc)
+                               AS last_refund_at_utc
+                    FROM payment_refunds refund
+                    LEFT JOIN payment_transactions refund_payment
+                      ON refund_payment.id = refund.payment_transaction_id
+                    WHERE refund.completed_at_utc >= :fromUtc
+                      AND refund.completed_at_utc < :toUtc
+                      AND refund.status = 'SUCCEEDED'
+                    GROUP BY 1, COALESCE(
+                        refund.reservation_id,
+                        refund_payment.reservation_id)
+                ), money_by_reservation AS (
+                    SELECT COALESCE(
+                               payment_totals.bucket,
+                               refund_totals.bucket) AS bucket,
+                           COALESCE(
+                               payment_totals.reservation_id,
+                               refund_totals.reservation_id)
+                               AS reservation_id,
+                           COALESCE(payment_totals.cash_income, 0)
+                               AS cash_income,
+                           COALESCE(payment_totals.transfer_income, 0)
+                               AS transfer_income,
+                           COALESCE(refund_totals.cash_refund, 0)
+                               AS cash_refund,
+                           COALESCE(refund_totals.transfer_refund, 0)
+                               AS transfer_refund,
+                           COALESCE(payment_totals.payment_count, 0)
+                               AS payment_count,
+                           COALESCE(refund_totals.refund_count, 0)
+                               AS refund_count,
+                           COALESCE(
+                               GREATEST(
+                                   payment_totals.last_payment_at_utc,
+                                   refund_totals.last_refund_at_utc),
+                               payment_totals.last_payment_at_utc,
+                               refund_totals.last_refund_at_utc)
+                               AS last_movement_at_utc
+                    FROM payment_totals
+                    FULL OUTER JOIN refund_totals
+                      ON refund_totals.reservation_id =
+                         payment_totals.reservation_id
+                     AND refund_totals.bucket = payment_totals.bucket
+                    WHERE COALESCE(
+                              payment_totals.reservation_id,
+                              refund_totals.reservation_id) IS NOT NULL
+                )
+                """.formatted(
+                paymentBucket,
+                PAID_STATUSES,
+                refundBucket);
+        String filters = """
+                WHERE (:query IS NULL
+                       OR POSITION(
+                           :query IN UPPER(reservation.reservation_code)) > 0)
+                """;
+        MapSqlParameterSource parameters = utcParameters(period)
+                .addValue("query", normalizeFilter(query), Types.VARCHAR)
+                .addValue("limit", size)
+                .addValue("offset", (long) page * size);
+        String dataSql = """
+                %s
+                SELECT money.bucket,
+                       reservation.id AS reservation_id,
+                       reservation.reservation_code,
+                       reservation.status AS reservation_status,
+                       money.cash_income,
+                       money.transfer_income,
+                       money.cash_refund,
+                       money.transfer_refund,
+                       money.payment_count,
+                       money.refund_count,
+                       money.last_movement_at_utc
+                FROM money_by_reservation money
+                JOIN reservations reservation
+                  ON reservation.id = money.reservation_id
+                %s
+                ORDER BY money.bucket DESC,
+                         money.last_movement_at_utc DESC,
+                         reservation.id DESC
+                LIMIT :limit OFFSET :offset
+                """.formatted(aggregates, filters);
+        List<MoneyReportResponse.ReservationMoney> content = jdbc.query(
+                dataSql,
+                parameters,
+                (resultSet, rowNum) -> {
+                    BigDecimal cashIncome =
+                            decimal(resultSet, "cash_income");
+                    BigDecimal transferIncome =
+                            decimal(resultSet, "transfer_income");
+                    BigDecimal cashRefund =
+                            decimal(resultSet, "cash_refund");
+                    BigDecimal transferRefund =
+                            decimal(resultSet, "transfer_refund");
+                    BigDecimal totalIncome =
+                            cashIncome.add(transferIncome);
+                    BigDecimal totalRefund =
+                            cashRefund.add(transferRefund);
+                    LocalDate rawBucket = localDate(resultSet, "bucket");
+                    LocalDate bucketStart = rawBucket.isBefore(period.from())
+                            ? period.from() : rawBucket;
+                    LocalDate rangeEndExclusive = period.to().plusDays(1);
+                    LocalDate rawBucketEnd =
+                            granularity.nextBucket(rawBucket);
+                    LocalDate bucketEndExclusive =
+                            rawBucketEnd.isAfter(rangeEndExclusive)
+                                    ? rangeEndExclusive : rawBucketEnd;
+                    return new MoneyReportResponse.ReservationMoney(
+                            resultSet.getLong("reservation_id"),
+                            resultSet.getString("reservation_code"),
+                            resultSet.getString("reservation_status"),
+                            new MoneyReportResponse.Breakdown(
+                                    cashIncome,
+                                    transferIncome,
+                                    totalIncome,
+                                    cashRefund,
+                                    transferRefund,
+                                    totalRefund,
+                                    totalIncome.subtract(totalRefund),
+                                    resultSet.getLong("payment_count"),
+                                    resultSet.getLong("refund_count")),
+                            instant(resultSet, "last_movement_at_utc"),
+                            bucketStart,
+                            bucketEndExclusive);
+                });
+        String countSql = """
+                %s
+                SELECT COUNT(*)
+                FROM money_by_reservation money
+                JOIN reservations reservation
+                  ON reservation.id = money.reservation_id
+                %s
+                """.formatted(aggregates, filters);
+        Long total = jdbc.queryForObject(
+                countSql, parameters, Long.class);
+        long totalElements = total != null ? total : 0L;
+        int totalPages = totalElements == 0
+                ? 0
+                : (int) ((totalElements + size - 1L) / size);
+        return new MoneyReportResponse.ReservationMoneyPage(
+                content, page, size, totalElements, totalPages);
+    }
+
     public List<BookingRow> bookings(StatisticsPeriod period,
                                      StatisticsGranularity granularity) {
         String bucket = bucketLocal("reservation.created_at",

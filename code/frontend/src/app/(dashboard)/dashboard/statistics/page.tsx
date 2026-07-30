@@ -4,9 +4,11 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CashierShiftPanel from "@/components/dashboard/CashierShiftPanel";
+import DashboardTimeGroupingControl from "@/components/dashboard/DashboardTimeGroupingControl";
 import type { FinanceReservationDetail } from "@/components/dashboard/FinanceReservationDetailModal";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
+import type { DashboardTimeGrouping } from "@/lib/dashboard-time";
 import {
   apiClient,
   cachedGet,
@@ -39,7 +41,7 @@ const initialRange = statisticsPreset(30);
 const emptyReservations: ReservationMoneyPage = {
   content: [],
   page: 0,
-  size: 12,
+  size: 100,
   totalElements: 0,
   totalPages: 0,
 };
@@ -90,6 +92,39 @@ function reservationStatusLabel(status: string) {
     CHECKED_OUT: "Đã trả phòng",
     NO_SHOW: "Không đến",
   }[status] || status.replaceAll("_", " ");
+}
+
+function reservationStatusClass(status: string) {
+  return {
+    CANCELLED: "border-rose-200 bg-rose-50 text-rose-700",
+    CHECKED_OUT: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    CHECKED_IN: "border-amber-200 bg-amber-50 text-amber-800",
+    CONFIRMED: "border-sky-200 bg-sky-50 text-sky-700",
+  }[status] || "border-[#0F2A43]/12 bg-[#F1F0EA] text-[#0F2A43]";
+}
+
+function sumMoney(items: ReservationMoneyEntry[]): MoneyBreakdown {
+  return items.reduce<MoneyBreakdown>((total, item) => ({
+    cashIncome: total.cashIncome + item.amounts.cashIncome,
+    transferIncome: total.transferIncome + item.amounts.transferIncome,
+    totalIncome: total.totalIncome + item.amounts.totalIncome,
+    cashRefund: total.cashRefund + item.amounts.cashRefund,
+    transferRefund: total.transferRefund + item.amounts.transferRefund,
+    totalRefund: total.totalRefund + item.amounts.totalRefund,
+    netRevenue: total.netRevenue + item.amounts.netRevenue,
+    paymentCount: total.paymentCount + item.amounts.paymentCount,
+    refundCount: total.refundCount + item.amounts.refundCount,
+  }), {
+    cashIncome: 0,
+    transferIncome: 0,
+    totalIncome: 0,
+    cashRefund: 0,
+    transferRefund: 0,
+    totalRefund: 0,
+    netRevenue: 0,
+    paymentCount: 0,
+    refundCount: 0,
+  });
 }
 
 function MoneyCard({
@@ -193,6 +228,7 @@ export default function BusinessStatisticsPage() {
     useState<FinanceReservationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [expandedMoneyKey, setExpandedMoneyKey] = useState<string | null>(null);
 
   useEffect(() => {
     const sync = () => {
@@ -231,9 +267,10 @@ export default function BusinessStatisticsPage() {
           config: {
             params: {
               ...range,
+              granularity,
               q: query || undefined,
               page: reservationPage,
-              size: 12,
+              size: 100,
             },
           },
         }),
@@ -292,6 +329,7 @@ export default function BusinessStatisticsPage() {
     setDraftRange(next);
     setGranularity(suggestedStatisticsGranularity(next));
     setReservationPage(0);
+    setExpandedMoneyKey(null);
   };
 
   const applyCustomRange = () => {
@@ -303,6 +341,7 @@ export default function BusinessStatisticsPage() {
     setRange(draftRange);
     setGranularity(suggestedStatisticsGranularity(draftRange));
     setReservationPage(0);
+    setExpandedMoneyKey(null);
   };
 
   const refresh = () => {
@@ -388,6 +427,51 @@ export default function BusinessStatisticsPage() {
     () => `${range.from.split("-").reverse().join("/")} – ${range.to.split("-").reverse().join("/")}`,
     [range],
   );
+  const timelineGroups = useMemo(() => {
+    if (!report) return [];
+    const groups = new Map<string, {
+      period: string;
+      periodEndExclusive: string;
+      items: ReservationMoneyEntry[];
+      amounts: MoneyBreakdown;
+    }>();
+    reservations.content.forEach((item) => {
+      let matchingPeriod = item.period
+        ? report.periods.find((point) => point.period === item.period)
+        : undefined;
+      if (!matchingPeriod) {
+        const movementDate = new Intl.DateTimeFormat("en-CA", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          timeZone: "Asia/Ho_Chi_Minh",
+        }).format(new Date(item.lastMovementAtUtc));
+        matchingPeriod = report.periods.find((point) =>
+          point.period <= movementDate
+          && movementDate < point.periodEndExclusive);
+      }
+      const period = item.period || matchingPeriod?.period;
+      const periodEndExclusive = item.periodEndExclusive
+        || matchingPeriod?.periodEndExclusive;
+      if (!period || !periodEndExclusive) return;
+      const current = groups.get(period);
+      if (current) current.items.push(item);
+      else {
+        groups.set(period, {
+          period,
+          periodEndExclusive,
+          items: [item],
+          amounts: matchingPeriod?.amounts || sumMoney([item]),
+        });
+      }
+    });
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        amounts: query ? sumMoney(group.items) : group.amounts,
+      }))
+      .sort((left, right) => right.period.localeCompare(left.period));
+  }, [query, report, reservations.content]);
 
   if (role && !isAdmin) {
     return (
@@ -511,7 +595,7 @@ export default function BusinessStatisticsPage() {
         <>
           <section className={`${panelClass} finance-report-no-print mt-5 p-4 sm:p-5`}>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="max-w-md">
                 <label className="text-xs font-bold text-[#0F2A43]">
                   Khoảng báo cáo
                   <select
@@ -528,19 +612,6 @@ export default function BusinessStatisticsPage() {
                     <option value="30">30 ngày gần nhất</option>
                     <option value="month">Tháng này</option>
                     <option value="custom">Tùy chọn ngày</option>
-                  </select>
-                </label>
-                <label className="text-xs font-bold text-[#0F2A43]">
-                  Hiển thị theo
-                  <select
-                    value={granularity}
-                    onChange={(event) =>
-                      setGranularity(event.target.value as StatisticsGranularity)}
-                    className="mt-2 min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3 text-sm outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20"
-                  >
-                    <option value="day">Theo ngày</option>
-                    <option value="week">Theo tuần</option>
-                    <option value="month">Theo tháng</option>
                   </select>
                 </label>
               </div>
@@ -627,117 +698,40 @@ export default function BusinessStatisticsPage() {
               )}
 
               <section className={`${panelClass} mt-5 overflow-hidden`}>
-                <div className="border-b border-[#0F2A43]/10 px-5 py-5 sm:px-6">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#B8944F]">
-                    Sổ thu chi
-                  </p>
-                  <h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">
-                    Theo thời gian và từng đơn đặt phòng
-                  </h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[#66727C]">
-                    Một nguồn số liệu thống nhất: xem tổng tiền theo kỳ, sau đó chọn bất kỳ đơn nào để kiểm tra khách, phòng, thời gian lưu trú và chi phí.
-                  </p>
-                </div>
-                <div className="border-b border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-3 sm:px-6">
-                  <h3 className="text-sm font-extrabold text-[#0F2A43]">
-                    Tổng hợp {granularity === "day" ? "theo ngày" : granularity === "week" ? "theo tuần" : "theo tháng"}
-                  </h3>
-                </div>
-                <div className="finance-period-mobile space-y-3 px-4 py-4 md:hidden">
-                  {report.periods.map((point) => (
-                    <article
-                      key={point.period}
-                      className="rounded-xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="font-bold text-[#0F2A43]">
-                          {reportPeriodLabel(
-                            point.period,
-                            point.periodEndExclusive,
-                            granularity,
-                            localeTag,
-                          )}
-                        </p>
-                        <p
-                          className={`text-right font-serif text-lg font-bold ${
-                            point.amounts.netRevenue < 0
-                              ? "text-rose-700"
-                              : "text-[#0F2A43]"
-                          }`}
-                        >
-                          {vnd(point.amounts.netRevenue, localeTag)}
-                        </p>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <p className="text-[#66727C]">Thu tiền mặt</p>
-                          <p className="mt-1 font-bold text-emerald-700">
-                            {vnd(point.amounts.cashIncome, localeTag)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[#66727C]">Thu chuyển khoản</p>
-                          <p className="mt-1 font-bold text-emerald-700">
-                            {vnd(point.amounts.transferIncome, localeTag)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[#66727C]">Hoàn tiền mặt</p>
-                          <p className="mt-1 font-bold text-rose-700">
-                            {vnd(point.amounts.cashRefund, localeTag)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[#66727C]">Hoàn chuyển khoản</p>
-                          <p className="mt-1 font-bold text-rose-700">
-                            {vnd(point.amounts.transferRefund, localeTag)}
-                          </p>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-                <div className="finance-period-table lux-scrollbar hidden overflow-x-auto md:block">
-                  <table className="min-w-[900px] w-full text-left text-sm">
-                    <thead className="bg-[#F8F6F0] text-[10px] uppercase tracking-[0.13em] text-[#66727C]">
-                      <tr>
-                        <th className="px-5 py-3">Kỳ</th>
-                        <th className="px-4 py-3 text-right">Thu bằng tiền mặt</th>
-                        <th className="px-4 py-3 text-right">Thu bằng chuyển khoản</th>
-                        <th className="px-4 py-3 text-right">Hoàn bằng tiền mặt</th>
-                        <th className="px-4 py-3 text-right">Hoàn bằng chuyển khoản</th>
-                        <th className="px-5 py-3 text-right">Doanh thu thực nhận</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {report.periods.map((point) => (
-                        <tr key={point.period} className="border-t border-[#0F2A43]/8 transition hover:bg-[#F8F6F0]/70">
-                          <td className="px-5 py-4 font-bold text-[#0F2A43]">
-                            {reportPeriodLabel(
-                              point.period,
-                              point.periodEndExclusive,
-                              granularity,
-                              localeTag,
-                            )}
-                          </td>
-                          <td className="px-4 py-4 text-right text-emerald-700">{vnd(point.amounts.cashIncome, localeTag)}</td>
-                          <td className="px-4 py-4 text-right text-emerald-700">{vnd(point.amounts.transferIncome, localeTag)}</td>
-                          <td className="px-4 py-4 text-right text-rose-700">{vnd(point.amounts.cashRefund, localeTag)}</td>
-                          <td className="px-4 py-4 text-right text-rose-700">{vnd(point.amounts.transferRefund, localeTag)}</td>
-                          <td className="px-5 py-4 text-right font-bold text-[#0F2A43]">{vnd(point.amounts.netRevenue, localeTag)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="flex flex-col gap-4 border-y border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+                <div className="flex flex-col gap-4 border-b border-[#0F2A43]/10 px-5 py-5 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#B8944F]">
-                      Các đơn tạo nên số liệu
+                      Sổ thu chi
                     </p>
-                    <h3 className="mt-1 text-lg font-extrabold text-[#0F2A43]">
-                      Chọn một đơn để xem chi tiết
-                    </h3>
+                    <h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">
+                      Thu chi theo thời gian và đơn đặt phòng
+                    </h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[#66727C]">
+                      Mỗi nhóm là một kỳ báo cáo; mở từng đơn để xem rõ tiền mặt, chuyển khoản và khoản hoàn tạo nên số liệu.
+                    </p>
+                  </div>
+                  <div className="finance-report-no-print shrink-0">
+                    <DashboardTimeGroupingControl
+                      value={granularity.toUpperCase() as DashboardTimeGrouping}
+                      onChange={(value) => {
+                        setGranularity(value.toLowerCase() as StatisticsGranularity);
+                        setReservationPage(0);
+                        setExpandedMoneyKey(null);
+                      }}
+                      title="Nhóm theo thời gian phát sinh"
+                      ariaLabel="Nhóm thu chi theo ngày, tuần hoặc tháng"
+                      labels={{ day: "Ngày", week: "Tuần", month: "Tháng" }}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3 border-b border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                  <div>
+                    <p className="font-bold text-[#0F2A43]">
+                      {reservations.totalElements.toLocaleString(localeTag)} dòng đơn phát sinh tiền
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#66727C]">
+                      Một đơn có thể xuất hiện ở nhiều kỳ nếu ngày thu và ngày hoàn khác nhau.
+                    </p>
                   </div>
                   <div className="finance-report-no-print flex w-full max-w-lg gap-2">
                     <label className="sr-only" htmlFor="finance-reservation-search">
@@ -780,56 +774,102 @@ export default function BusinessStatisticsPage() {
                     Chưa có đơn phát sinh tiền trong khoảng đã chọn.
                   </div>
                 ) : (
-                  <div className="divide-y divide-[#0F2A43]/8">
-                    {reservations.content.map((item) => (
-                      <button
-                        key={item.reservationId}
-                        type="button"
-                        onClick={() => void openReservationDetail(item)}
-                        className="grid w-full cursor-pointer gap-4 px-5 py-4 text-left transition duration-200 hover:bg-[#F8F6F0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F] lg:grid-cols-[minmax(180px,1.2fr)_repeat(3,minmax(130px,0.8fr))_auto] lg:items-center sm:px-6"
-                        aria-label={`Xem chi tiết tài chính đơn ${item.reservationCode}`}
-                      >
-                        <div className="min-w-0">
-                          <span className="font-bold text-[#0F2A43]">
-                            {item.reservationCode}
-                          </span>
-                          <p className="mt-1 text-xs text-[#66727C]">
-                            {reservationStatusLabel(item.reservationStatus)}
-                            {" · "}Phát sinh gần nhất{" "}
-                            {new Date(item.lastMovementAtUtc).toLocaleString(localeTag, {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                              timeZone: "Asia/Ho_Chi_Minh",
-                            })}
-                          </p>
+                  <div className="space-y-4 bg-[#F7F4EC]/55 p-3">
+                    {timelineGroups.map((group) => (
+                      <section key={group.period} aria-labelledby={`finance-period-${group.period}`}>
+                        <div className="mb-2 flex flex-col gap-2 rounded-md border border-[#0F2A43]/8 bg-[#EAE2D2]/70 px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="flex items-center gap-3">
+                            <h3 id={`finance-period-${group.period}`} className="text-[11px] font-black uppercase tracking-[0.12em] text-[#80632F]">
+                              {reportPeriodLabel(group.period, group.periodEndExclusive, granularity, localeTag)}
+                            </h3>
+                            <span className="text-[11px] font-semibold text-[#66727C]">
+                              {group.items.length} đơn
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-4 text-[11px] sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+                            <span className="text-[#66727C]">Thu <b className="ml-1 text-emerald-700">{vnd(group.amounts.totalIncome, localeTag)}</b></span>
+                            <span className="text-[#66727C]">Hoàn <b className="ml-1 text-rose-700">{vnd(group.amounts.totalRefund, localeTag)}</b></span>
+                            <span className="text-[#66727C]">Thực nhận <b className={group.amounts.netRevenue < 0 ? "ml-1 text-rose-700" : "ml-1 text-[#0F2A43]"}>{vnd(group.amounts.netRevenue, localeTag)}</b></span>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#7A858E]">Đã thu</p>
-                          <p className="mt-1 font-bold text-emerald-700">{vnd(item.amounts.totalIncome, localeTag)}</p>
-                          <p className="mt-1 text-[11px] leading-5 text-[#66727C]">
-                            Tiền mặt {vnd(item.amounts.cashIncome, localeTag)}
-                            {" · "}Chuyển khoản {vnd(item.amounts.transferIncome, localeTag)}
-                          </p>
+                        <div className="space-y-2">
+                          {group.items.map((item) => {
+                            const rowKey = `${group.period}-${item.reservationId}`;
+                            const isExpanded = expandedMoneyKey === rowKey;
+                            const detailsId = `finance-money-${rowKey}`;
+                            return (
+                              <article key={rowKey} className="overflow-hidden rounded-lg border border-[#0F2A43]/12 bg-white shadow-[0_4px_14px_rgba(15,42,67,0.04)]">
+                                <button
+                                  type="button"
+                                  aria-expanded={isExpanded}
+                                  aria-controls={detailsId}
+                                  onClick={() => setExpandedMoneyKey((current) => current === rowKey ? null : rowKey)}
+                                  className="group grid min-h-[72px] w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3 text-left transition hover:bg-[#F1F0EA]/65 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#B8944F] xl:grid-cols-[minmax(12rem,1.2fr)_repeat(3,minmax(8rem,0.75fr))_auto] xl:items-center"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="truncate font-mono text-sm font-black text-[#0F2A43]">{item.reservationCode}</span>
+                                      <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${reservationStatusClass(item.reservationStatus)}`}>
+                                        {reservationStatusLabel(item.reservationStatus)}
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-[#66727C]">
+                                      {item.amounts.paymentCount} khoản thu · {item.amounts.refundCount} khoản hoàn · {new Date(item.lastMovementAtUtc).toLocaleTimeString(localeTag, { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" })}
+                                    </p>
+                                  </div>
+                                  <div className="text-xs">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#66727C]">Đã thu</p>
+                                    <p className="mt-1 font-bold text-emerald-700">{vnd(item.amounts.totalIncome, localeTag)}</p>
+                                  </div>
+                                  <div className="text-xs">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#66727C]">Đã hoàn</p>
+                                    <p className="mt-1 font-bold text-rose-700">{vnd(item.amounts.totalRefund, localeTag)}</p>
+                                  </div>
+                                  <div className="text-xs">
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#66727C]">Thực nhận</p>
+                                    <p className={`mt-1 font-bold ${item.amounts.netRevenue < 0 ? "text-rose-700" : "text-[#0F2A43]"}`}>{vnd(item.amounts.netRevenue, localeTag)}</p>
+                                  </div>
+                                  <span className={`col-start-2 row-start-1 flex h-9 w-9 items-center justify-center justify-self-end rounded-full border border-[#0F2A43]/15 bg-white text-[#0F2A43] transition group-hover:border-[#B8944F] group-hover:bg-[#FBFAF6] xl:col-auto xl:row-auto ${isExpanded ? "rotate-180" : ""}`} aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                                  </span>
+                                </button>
+                                {isExpanded && (
+                                  <div id={detailsId} className="border-t border-[#0F2A43]/10 bg-[#FBFAF6]">
+                                    <dl className="grid gap-px bg-[#0F2A43]/8 sm:grid-cols-2 lg:grid-cols-4">
+                                      {[
+                                        ["Thu tiền mặt", item.amounts.cashIncome, "text-emerald-700"],
+                                        ["Thu chuyển khoản", item.amounts.transferIncome, "text-emerald-700"],
+                                        ["Hoàn tiền mặt", item.amounts.cashRefund, "text-rose-700"],
+                                        ["Hoàn chuyển khoản", item.amounts.transferRefund, "text-rose-700"],
+                                      ].map(([label, value, color]) => (
+                                        <div key={String(label)} className="bg-white px-4 py-3 text-xs">
+                                          <dt className="text-[#66727C]">{label}</dt>
+                                          <dd className={`mt-1 font-bold ${color}`}>{vnd(Number(value), localeTag)}</dd>
+                                        </div>
+                                      ))}
+                                    </dl>
+                                    <div className="finance-report-no-print flex flex-wrap items-center justify-end gap-2 border-t border-[#0F2A43]/8 px-4 py-3">
+                                      <Link
+                                        href={`/dashboard/reservations?reservationCode=${encodeURIComponent(item.reservationCode)}`}
+                                        className="inline-flex min-h-10 items-center rounded-lg border border-[#0F2A43]/15 bg-white px-4 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F8F6F0]"
+                                      >
+                                        Mở đơn vận hành
+                                      </Link>
+                                      <button
+                                        type="button"
+                                        onClick={() => void openReservationDetail(item)}
+                                        className="min-h-10 rounded-lg bg-[#0F2A43] px-4 text-xs font-bold text-white transition hover:bg-[#173D5F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                                      >
+                                        Xem đầy đủ chi phí
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </article>
+                            );
+                          })}
                         </div>
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#7A858E]">Đã hoàn</p>
-                          <p className="mt-1 font-bold text-rose-700">{vnd(item.amounts.totalRefund, localeTag)}</p>
-                          <p className="mt-1 text-[11px] leading-5 text-[#66727C]">
-                            Tiền mặt {vnd(item.amounts.cashRefund, localeTag)}
-                            {" · "}Chuyển khoản {vnd(item.amounts.transferRefund, localeTag)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#7A858E]">Doanh thu thực nhận</p>
-                          <p className="mt-1 font-bold text-[#0F2A43]">{vnd(item.amounts.netRevenue, localeTag)}</p>
-                        </div>
-                        <span className="finance-report-no-print inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#0F2A43]/15 px-3 text-xs font-bold text-[#0F2A43]">
-                          Chi tiết
-                          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-                            <path d="m9 18 6-6-6-6" />
-                          </svg>
-                        </span>
-                      </button>
+                      </section>
                     ))}
                   </div>
                 )}

@@ -143,6 +143,33 @@ public class MoneyReportService {
         return queryRepository.reservationMoney(range, query, page, size);
     }
 
+    @Transactional(readOnly = true)
+    public MoneyReportResponse.ReservationMoneyPage reservationMoney(
+            LocalDate requestedFrom,
+            LocalDate requestedTo,
+            String query,
+            int requestedPage,
+            int requestedSize,
+            String requestedGranularity) {
+        if (requestedGranularity == null
+                || requestedGranularity.isBlank()) {
+            return reservationMoney(
+                    requestedFrom,
+                    requestedTo,
+                    query,
+                    requestedPage,
+                    requestedSize);
+        }
+        StatisticsPeriod range = StatisticsPeriod.resolve(
+                requestedFrom, requestedTo, clock);
+        StatisticsGranularity granularity =
+                StatisticsGranularity.parse(requestedGranularity);
+        int page = Math.max(requestedPage, 0);
+        int size = Math.min(Math.max(requestedSize, 1), 100);
+        return queryRepository.reservationMoneyByPeriod(
+                range, granularity, query, page, size);
+    }
+
     private MoneyReportResponse.Breakdown breakdown(
             BigDecimal cashIncome,
             BigDecimal transferIncome,
