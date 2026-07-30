@@ -721,8 +721,8 @@ public class DataSeeder implements CommandLineRunner {
     }
 
     private User findExistingUser(String username, String email, String phone) {
-        return userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(email))
+        return userRepository.findByUsernameIgnoreCase(username)
+                .or(() -> userRepository.findByEmailIgnoreCase(email))
                 .or(() -> userRepository.findByPhone(phone))
                 .orElse(null);
     }
