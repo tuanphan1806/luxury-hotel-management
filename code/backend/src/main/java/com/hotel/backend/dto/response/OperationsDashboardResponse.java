@@ -16,6 +16,8 @@ public class OperationsDashboardResponse {
     private long bookingsCreatedToday;
     private long pendingConfirmations;
     private long cancellationRequests;
+    private long pendingServiceRequests;
+    private long openContactMessages;
 
     private long totalRooms;
     private long availableRooms;

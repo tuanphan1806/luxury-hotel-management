@@ -1,12 +1,16 @@
 package com.hotel.backend.service;
 
 import com.hotel.backend.constant.CleaningStatus;
+import com.hotel.backend.constant.ContactMessageStatus;
 import com.hotel.backend.constant.ReservationStatus;
+import com.hotel.backend.constant.ReservationServiceStatus;
 import com.hotel.backend.constant.RoomStatus;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.response.OperationsDashboardResponse;
+import com.hotel.backend.repository.ContactMessageRepository;
 import com.hotel.backend.repository.CustomerProfileRepository;
 import com.hotel.backend.repository.ReservationRepository;
+import com.hotel.backend.repository.ReservationServiceOrderRepository;
 import com.hotel.backend.repository.RoomRepository;
 import com.hotel.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +28,8 @@ public class OperationsDashboardService {
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
     private final CustomerProfileRepository customerProfileRepository;
+    private final ReservationServiceOrderRepository reservationServiceOrderRepository;
+    private final ContactMessageRepository contactMessageRepository;
 
     @Transactional(readOnly = true)
     public OperationsDashboardResponse getSummary() {
@@ -53,6 +59,12 @@ public class OperationsDashboardService {
                         startOfDay, startOfTomorrow, ReservationStatus.PAYMENT_PENDING))
                 .pendingConfirmations(reservationRepository.countByStatus(ReservationStatus.DRAFT))
                 .cancellationRequests(reservationRepository.countByStatus(ReservationStatus.CANCELLATION_PENDING))
+                .pendingServiceRequests(reservationServiceOrderRepository.countByStatusIn(List.of(
+                        ReservationServiceStatus.REQUESTED,
+                        ReservationServiceStatus.CONFIRMED)))
+                .openContactMessages(contactMessageRepository.countByStatusIn(List.of(
+                        ContactMessageStatus.NEW,
+                        ContactMessageStatus.READ)))
                 .totalRooms(totalRooms)
                 .availableRooms(availableRooms)
                 .occupiedRooms(occupiedRooms)
