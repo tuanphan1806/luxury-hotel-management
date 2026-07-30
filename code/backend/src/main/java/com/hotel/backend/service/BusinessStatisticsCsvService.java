@@ -1,6 +1,7 @@
 package com.hotel.backend.service;
 
 import com.hotel.backend.dto.response.BusinessStatisticsResponse;
+import com.hotel.backend.dto.response.MoneyReportResponse;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,7 @@ public class BusinessStatisticsCsvService {
     private static final int MAX_RESERVATION_EXPORT_ROWS = 10_000;
 
     private final BusinessStatisticsService statisticsService;
+    private final MoneyReportService moneyReportService;
 
     public ExportFile export(
             String requestedReport,
@@ -53,6 +55,7 @@ public class BusinessStatisticsCsvService {
                 ? "revenue"
                 : requestedReport.trim().toLowerCase(Locale.ROOT);
         return switch (report) {
+            case "money" -> money(from, to, granularity, query);
             case "revenue" -> revenue(from, to, granularity);
             case "cash-flow" -> cashFlow(
                     from, to, granularity, provider);
@@ -65,8 +68,89 @@ public class BusinessStatisticsCsvService {
                     from, to, eventType, provider, status, query);
             default -> throw new AppException(
                     ErrorCode.INVALID_REQUEST,
-                    "report chỉ nhận revenue, cash-flow, bookings, occupancy, room-types, reservations hoặc ledger");
+                    "report chỉ nhận money, revenue, cash-flow, bookings, occupancy, room-types, reservations hoặc ledger");
         };
+    }
+
+    private ExportFile money(
+            LocalDate from,
+            LocalDate to,
+            String granularity,
+            String query) {
+        MoneyReportResponse.Report report =
+                moneyReportService.report(from, to, granularity);
+        List<String> lines = new ArrayList<>();
+        lines.add("Loại dòng;Kỳ hoặc mã đơn;Trạng thái đơn;Phát sinh gần nhất;"
+                + "Thu tiền mặt;Thu chuyển khoản;Tổng thu;"
+                + "Hoàn tiền mặt;Hoàn chuyển khoản;Tổng hoàn;"
+                + "Doanh thu thực nhận;Số giao dịch thu;Số khoản hoàn");
+        lines.add(moneyRow(
+                "TỔNG CỘNG",
+                report.from() + " - " + report.to(),
+                null,
+                null,
+                report.totals()));
+        for (MoneyReportResponse.Period period : report.periods()) {
+            lines.add(moneyRow(
+                    "THEO KỲ",
+                    period.period() + " - "
+                            + period.periodEndExclusive().minusDays(1),
+                    null,
+                    null,
+                    period.amounts()));
+        }
+
+        int page = 0;
+        long exported = 0;
+        long total;
+        do {
+            MoneyReportResponse.ReservationMoneyPage result =
+                    moneyReportService.reservationMoney(
+                            from, to, query, page, 100);
+            total = result.totalElements();
+            for (MoneyReportResponse.ReservationMoney reservation
+                    : result.content()) {
+                if (exported >= MAX_RESERVATION_EXPORT_ROWS) break;
+                lines.add(moneyRow(
+                        "THEO ĐƠN",
+                        reservation.reservationCode(),
+                        reservation.reservationStatus(),
+                        reservation.lastMovementAtUtc(),
+                        reservation.amounts()));
+                exported++;
+            }
+            page++;
+        } while (exported < total
+                && exported < MAX_RESERVATION_EXPORT_ROWS);
+
+        return file(
+                "bao-cao-thu-chi",
+                report.from(),
+                report.to(),
+                lines,
+                exported < total);
+    }
+
+    private String moneyRow(
+            String rowType,
+            Object periodOrReservation,
+            String reservationStatus,
+            Object lastMovement,
+            MoneyReportResponse.Breakdown amounts) {
+        return row(
+                rowType,
+                periodOrReservation,
+                reservationStatus,
+                lastMovement,
+                amounts.cashIncome(),
+                amounts.transferIncome(),
+                amounts.totalIncome(),
+                amounts.cashRefund(),
+                amounts.transferRefund(),
+                amounts.totalRefund(),
+                amounts.netRevenue(),
+                amounts.paymentCount(),
+                amounts.refundCount());
     }
 
     private ExportFile revenue(

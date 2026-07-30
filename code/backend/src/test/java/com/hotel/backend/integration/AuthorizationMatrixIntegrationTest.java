@@ -155,6 +155,13 @@ class AuthorizationMatrixIntegrationTest {
             mockMvc.perform(get("/api/admin/statistics/money/reservations")
                             .header("Authorization", bearer(token)))
                     .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/admin/statistics/export")
+                            .param("report", "money")
+                            .param("from", "2026-07-01")
+                            .param("to", "2026-07-31")
+                            .param("granularity", "day")
+                            .header("Authorization", bearer(token)))
+                    .andExpect(status().isForbidden());
         }
     }
 

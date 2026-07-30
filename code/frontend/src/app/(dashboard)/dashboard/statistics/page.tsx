@@ -1,11 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CashierShiftPanel from "@/components/dashboard/CashierShiftPanel";
+import type { FinanceReservationDetail } from "@/components/dashboard/FinanceReservationDetailModal";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
-import { cachedGet, getApiErrorMessage, getApiErrorStatus } from "@/lib/api";
+import {
+  apiClient,
+  cachedGet,
+  getApiErrorMessage,
+  getApiErrorStatus,
+} from "@/lib/api";
 import {
   apiData,
   financeWorkspaceFromQuery,
@@ -13,11 +20,17 @@ import {
   type MoneyBreakdown,
   type MoneyReport,
   monthToDatePreset,
+  type ReservationMoneyEntry,
   type ReservationMoneyPage,
   type StatisticsGranularity,
   statisticsPreset,
   suggestedStatisticsGranularity,
 } from "@/lib/business-statistics";
+
+const FinanceReservationDetailModal = dynamic(
+  () => import("@/components/dashboard/FinanceReservationDetailModal"),
+  { ssr: false },
+);
 
 type DateRange = { from: string; to: string };
 type RangePreset = "today" | "7" | "30" | "month" | "custom";
@@ -171,8 +184,15 @@ export default function BusinessStatisticsPage() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [selectedMoneyReservation, setSelectedMoneyReservation] =
+    useState<ReservationMoneyEntry | null>(null);
+  const [reservationDetail, setReservationDetail] =
+    useState<FinanceReservationDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
 
   useEffect(() => {
     const sync = () => {
@@ -295,6 +315,74 @@ export default function BusinessStatisticsPage() {
     setQuery(queryDraft.trim());
   };
 
+  const openReservationDetail = async (item: ReservationMoneyEntry) => {
+    setSelectedMoneyReservation(item);
+    setReservationDetail(null);
+    setDetailError("");
+    setDetailLoading(true);
+    try {
+      const response = await cachedGet<{ data: FinanceReservationDetail }>(
+        `/api/reservations/${item.reservationId}`,
+        { ttlMs: 30_000 },
+      );
+      setReservationDetail(apiData(response));
+    } catch (requestError) {
+      setDetailError(
+        getApiErrorMessage(
+          requestError,
+          "Không thể tải chi tiết đơn. Vui lòng thử lại.",
+        ),
+      );
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const closeReservationDetail = () => {
+    setSelectedMoneyReservation(null);
+    setReservationDetail(null);
+    setDetailError("");
+  };
+
+  const exportMoneyReport = async () => {
+    setExporting(true);
+    setError("");
+    try {
+      const response = await apiClient.get("/api/admin/statistics/export", {
+        params: {
+          report: "money",
+          ...range,
+          granularity,
+          q: query || undefined,
+        },
+        responseType: "blob",
+      });
+      const disposition = String(response.headers["content-disposition"] || "");
+      const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+      const plainName = disposition.match(/filename=\"?([^\";]+)\"?/i)?.[1];
+      const fileName = encodedName
+        ? decodeURIComponent(encodedName)
+        : plainName || `luxury-hotel-bao-cao-thu-chi-${range.from}_${range.to}.csv`;
+      const url = window.URL.createObjectURL(response.data);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (requestError) {
+      setError(
+        getApiErrorMessage(
+          requestError,
+          "Không thể xuất file báo cáo. Vui lòng thử lại.",
+        ),
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const totals = report?.totals;
   const dateSummary = useMemo(
     () => `${range.from.split("-").reverse().join("/")} – ${range.to.split("-").reverse().join("/")}`,
@@ -331,7 +419,7 @@ export default function BusinessStatisticsPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:py-8">
+    <main className="finance-report-print-root mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:py-8">
       <header className="overflow-hidden rounded-3xl bg-[#0F2A43] text-white shadow-[0_18px_48px_rgba(15,42,67,0.18)]">
         <div className="grid gap-6 px-6 py-7 lg:grid-cols-[1fr_auto] lg:items-end lg:px-8">
           <div>
@@ -346,31 +434,52 @@ export default function BusinessStatisticsPage() {
               Không nhập lại doanh thu và không cộng giao dịch ngân hàng chưa ghép đơn.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-white/70">
-            <span>{dateSummary}</span>
-            {lastUpdatedAt && (
-              <span>
-                Cập nhật {lastUpdatedAt.toLocaleTimeString(localeTag, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
+          <div className="space-y-3 text-xs text-white/70 lg:text-right">
+            <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+              <span>{dateSummary}</span>
+              {lastUpdatedAt && (
+                <span>
+                  Cập nhật {lastUpdatedAt.toLocaleTimeString(localeTag, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              )}
+            </div>
+            {activeView === "overview" && (
+              <div className="finance-report-no-print flex flex-wrap gap-2 lg:justify-end">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="min-h-11 rounded-lg border border-white/20 px-4 font-bold text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C398]"
+                >
+                  In / Lưu PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void exportMoneyReport()}
+                  disabled={exporting}
+                  className="min-h-11 rounded-lg border border-[#D8C398]/50 bg-[#D8C398] px-4 font-bold text-[#0F2A43] transition hover:bg-[#E7D8B8] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {exporting ? "Đang xuất…" : "Xuất Excel (CSV)"}
+                </button>
+                <button
+                  type="button"
+                  onClick={refresh}
+                  disabled={refreshing}
+                  className="min-h-11 rounded-lg border border-white/20 px-4 font-bold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {refreshing ? "Đang cập nhật…" : "Cập nhật"}
+                </button>
+              </div>
             )}
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={refreshing}
-              className="min-h-11 rounded-lg border border-white/20 px-4 font-bold text-white transition hover:bg-white/10 disabled:opacity-50"
-            >
-              {refreshing ? "Đang cập nhật…" : "Cập nhật"}
-            </button>
           </div>
         </div>
       </header>
 
       <nav
         aria-label="Khu vực tài chính"
-        className={`${panelClass} mt-5 grid gap-2 p-2 sm:grid-cols-2`}
+        className={`${panelClass} finance-report-no-print mt-5 grid gap-2 p-2 sm:grid-cols-2`}
       >
         {([
           ["overview", "Báo cáo thu chi", "Số tiền tự động theo ngày, tuần hoặc tháng"],
@@ -400,7 +509,7 @@ export default function BusinessStatisticsPage() {
         </section>
       ) : (
         <>
-          <section className={`${panelClass} mt-5 p-4 sm:p-5`}>
+          <section className={`${panelClass} finance-report-no-print mt-5 p-4 sm:p-5`}>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-xs font-bold text-[#0F2A43]">
@@ -518,15 +627,23 @@ export default function BusinessStatisticsPage() {
               )}
 
               <section className={`${panelClass} mt-5 overflow-hidden`}>
-                <div className="border-b border-[#0F2A43]/10 px-5 py-4 sm:px-6">
+                <div className="border-b border-[#0F2A43]/10 px-5 py-5 sm:px-6">
                   <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#B8944F]">
-                    Theo thời gian
+                    Sổ thu chi
                   </p>
                   <h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">
-                    Thu, hoàn tiền và doanh thu thực nhận
+                    Theo thời gian và từng đơn đặt phòng
                   </h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[#66727C]">
+                    Một nguồn số liệu thống nhất: xem tổng tiền theo kỳ, sau đó chọn bất kỳ đơn nào để kiểm tra khách, phòng, thời gian lưu trú và chi phí.
+                  </p>
                 </div>
-                <div className="space-y-3 px-4 py-4 md:hidden">
+                <div className="border-b border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-3 sm:px-6">
+                  <h3 className="text-sm font-extrabold text-[#0F2A43]">
+                    Tổng hợp {granularity === "day" ? "theo ngày" : granularity === "week" ? "theo tuần" : "theo tháng"}
+                  </h3>
+                </div>
+                <div className="finance-period-mobile space-y-3 px-4 py-4 md:hidden">
                   {report.periods.map((point) => (
                     <article
                       key={point.period}
@@ -580,7 +697,7 @@ export default function BusinessStatisticsPage() {
                     </article>
                   ))}
                 </div>
-                <div className="lux-scrollbar hidden overflow-x-auto md:block">
+                <div className="finance-period-table lux-scrollbar hidden overflow-x-auto md:block">
                   <table className="min-w-[900px] w-full text-left text-sm">
                     <thead className="bg-[#F8F6F0] text-[10px] uppercase tracking-[0.13em] text-[#66727C]">
                       <tr>
@@ -613,19 +730,16 @@ export default function BusinessStatisticsPage() {
                     </tbody>
                   </table>
                 </div>
-              </section>
-
-              <section className={`${panelClass} mt-5 overflow-hidden`}>
-                <div className="flex flex-col gap-4 border-b border-[#0F2A43]/10 px-5 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+                <div className="flex flex-col gap-4 border-y border-[#0F2A43]/10 bg-[#FBFAF6] px-5 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-6">
                   <div>
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#B8944F]">
-                      Nguồn số liệu
+                      Các đơn tạo nên số liệu
                     </p>
-                    <h2 className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">
-                      Chi tiết theo đơn
-                    </h2>
+                    <h3 className="mt-1 text-lg font-extrabold text-[#0F2A43]">
+                      Chọn một đơn để xem chi tiết
+                    </h3>
                   </div>
-                  <div className="flex w-full max-w-lg gap-2">
+                  <div className="finance-report-no-print flex w-full max-w-lg gap-2">
                     <label className="sr-only" htmlFor="finance-reservation-search">
                       Tìm mã đơn
                     </label>
@@ -668,17 +782,17 @@ export default function BusinessStatisticsPage() {
                 ) : (
                   <div className="divide-y divide-[#0F2A43]/8">
                     {reservations.content.map((item) => (
-                      <article
+                      <button
                         key={item.reservationId}
-                        className="grid gap-4 px-5 py-4 transition hover:bg-[#F8F6F0]/70 lg:grid-cols-[minmax(180px,1.2fr)_repeat(3,minmax(130px,0.8fr))_auto] lg:items-center sm:px-6"
+                        type="button"
+                        onClick={() => void openReservationDetail(item)}
+                        className="grid w-full cursor-pointer gap-4 px-5 py-4 text-left transition duration-200 hover:bg-[#F8F6F0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F] lg:grid-cols-[minmax(180px,1.2fr)_repeat(3,minmax(130px,0.8fr))_auto] lg:items-center sm:px-6"
+                        aria-label={`Xem chi tiết tài chính đơn ${item.reservationCode}`}
                       >
                         <div className="min-w-0">
-                          <Link
-                            href={`/dashboard/reservations?reservationCode=${encodeURIComponent(item.reservationCode)}`}
-                            className="font-bold text-[#0F2A43] hover:text-[#8E6B2E]"
-                          >
+                          <span className="font-bold text-[#0F2A43]">
                             {item.reservationCode}
-                          </Link>
+                          </span>
                           <p className="mt-1 text-xs text-[#66727C]">
                             {reservationStatusLabel(item.reservationStatus)}
                             {" · "}Phát sinh gần nhất{" "}
@@ -709,18 +823,18 @@ export default function BusinessStatisticsPage() {
                           <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#7A858E]">Doanh thu thực nhận</p>
                           <p className="mt-1 font-bold text-[#0F2A43]">{vnd(item.amounts.netRevenue, localeTag)}</p>
                         </div>
-                        <Link
-                          href={`/dashboard/reservations?reservationCode=${encodeURIComponent(item.reservationCode)}`}
-                          className="inline-flex min-h-10 items-center justify-center rounded-lg border border-[#0F2A43]/15 px-3 text-xs font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA]"
-                        >
-                          Xem đơn
-                        </Link>
-                      </article>
+                        <span className="finance-report-no-print inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#0F2A43]/15 px-3 text-xs font-bold text-[#0F2A43]">
+                          Chi tiết
+                          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                            <path d="m9 18 6-6-6-6" />
+                          </svg>
+                        </span>
+                      </button>
                     ))}
                   </div>
                 )}
                 {reservations.totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t border-[#0F2A43]/10 px-5 py-4 text-sm">
+                  <div className="finance-report-no-print flex items-center justify-between border-t border-[#0F2A43]/10 px-5 py-4 text-sm">
                     <button
                       type="button"
                       onClick={() => setReservationPage((page) => Math.max(0, page - 1))}
@@ -745,10 +859,39 @@ export default function BusinessStatisticsPage() {
                   </div>
                 )}
               </section>
+
+              <details className="finance-report-no-print mt-4 ml-auto w-fit max-w-full text-right text-xs text-[#66727C]">
+                <summary className="cursor-pointer list-none rounded-lg px-2 py-2 font-semibold transition hover:bg-[#F1F0EA] hover:text-[#0F2A43] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">
+                  Công cụ xử lý sự cố hiếm gặp
+                </summary>
+                <div className="mt-1 rounded-xl border border-[#0F2A43]/10 bg-white p-3 text-left shadow-sm">
+                  <p className="max-w-md leading-5">
+                    Chỉ dùng khi payment, refund và sửa phí hợp lệ vẫn không thể đưa checkout về trạng thái khớp.
+                  </p>
+                  <Link
+                    href="/dashboard/reconciliation-requests"
+                    className="mt-2 inline-flex min-h-10 items-center font-bold text-[#80632F] hover:text-[#0F2A43]"
+                  >
+                    Mở ngoại lệ đối soát →
+                  </Link>
+                </div>
+              </details>
             </>
           ) : null}
         </>
       )}
+
+      <FinanceReservationDetailModal
+        selected={selectedMoneyReservation}
+        detail={reservationDetail}
+        loading={detailLoading}
+        error={detailError}
+        localeTag={localeTag}
+        onClose={closeReservationDetail}
+        onRetry={() => {
+          if (selectedMoneyReservation) void openReservationDetail(selectedMoneyReservation);
+        }}
+      />
     </main>
   );
 }

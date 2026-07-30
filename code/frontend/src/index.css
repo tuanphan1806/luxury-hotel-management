@@ -1119,9 +1119,12 @@ html.hotel-reduce-motion *::after {
   .invoice-print-root,
   .invoice-print-root *,
   .payment-receipt-print-root,
-  .payment-receipt-print-root * { visibility: visible !important; }
+  .payment-receipt-print-root *,
+  .finance-report-print-root,
+  .finance-report-print-root * { visibility: visible !important; }
   .invoice-print-root,
-  .payment-receipt-print-root {
+  .payment-receipt-print-root,
+  .finance-report-print-root {
     position: absolute !important;
     inset: 0 auto auto 0 !important;
     width: 100% !important;
@@ -1132,7 +1135,38 @@ html.hotel-reduce-motion *::after {
     box-shadow: none !important;
   }
   .invoice-no-print,
-  .payment-receipt-no-print { display: none !important; }
+  .payment-receipt-no-print,
+  .finance-report-no-print { display: none !important; }
   .invoice-print-root table { break-inside: auto; }
   .invoice-print-root tr { break-inside: avoid; }
+  .finance-report-print-root {
+    padding: 0 !important;
+    color: #0F2A43 !important;
+    background: #fff !important;
+    font-size: 9pt !important;
+  }
+  .finance-report-print-root > header {
+    color: #0F2A43 !important;
+    background: #fff !important;
+    border: 1px solid rgba(15, 42, 67, 0.18) !important;
+    box-shadow: none !important;
+  }
+  .finance-report-print-root > header * { color: #0F2A43 !important; }
+  .finance-report-print-root header,
+  .finance-report-print-root section,
+  .finance-report-print-root article { break-inside: avoid; }
+  .finance-report-print-root .finance-period-mobile { display: none !important; }
+  .finance-report-print-root .finance-period-table {
+    display: block !important;
+    overflow: visible !important;
+  }
+  .finance-report-print-root .finance-period-table table {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 8pt !important;
+  }
+  .finance-report-print-root .finance-period-table th,
+  .finance-report-print-root .finance-period-table td {
+    padding: 6px 8px !important;
+  }
 }
