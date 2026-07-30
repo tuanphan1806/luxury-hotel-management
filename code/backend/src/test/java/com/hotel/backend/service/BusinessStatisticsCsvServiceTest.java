@@ -1,6 +1,7 @@
 package com.hotel.backend.service;
 
 import com.hotel.backend.dto.response.BusinessStatisticsResponse;
+import com.hotel.backend.dto.response.MoneyReportResponse;
 import com.hotel.backend.exception.AppException;
 import org.junit.jupiter.api.Test;
 
@@ -20,8 +21,76 @@ class BusinessStatisticsCsvServiceTest {
 
     private final BusinessStatisticsService statisticsService =
             mock(BusinessStatisticsService.class);
+    private final MoneyReportService moneyReportService =
+            mock(MoneyReportService.class);
     private final BusinessStatisticsCsvService csvService =
-            new BusinessStatisticsCsvService(statisticsService);
+            new BusinessStatisticsCsvService(
+                    statisticsService,
+                    moneyReportService);
+
+    @Test
+    void exportsUnifiedMoneyReportWithPeriodsAndReservations() {
+        LocalDate from = LocalDate.of(2026, 7, 1);
+        LocalDate to = LocalDate.of(2026, 7, 31);
+        MoneyReportResponse.Breakdown totals =
+                new MoneyReportResponse.Breakdown(
+                        BigDecimal.valueOf(100_000),
+                        BigDecimal.valueOf(200_000),
+                        BigDecimal.valueOf(300_000),
+                        BigDecimal.valueOf(20_000),
+                        BigDecimal.valueOf(30_000),
+                        BigDecimal.valueOf(50_000),
+                        BigDecimal.valueOf(250_000),
+                        3,
+                        2);
+        when(moneyReportService.report(from, to, "month"))
+                .thenReturn(new MoneyReportResponse.Report(
+                        from,
+                        to,
+                        "Asia/Ho_Chi_Minh",
+                        "month",
+                        totals,
+                        List.of(new MoneyReportResponse.Period(
+                                from,
+                                LocalDate.of(2026, 8, 1),
+                                totals)),
+                        0,
+                        BigDecimal.ZERO,
+                        Instant.parse("2026-07-31T17:00:00Z")));
+        when(moneyReportService.reservationMoney(
+                from, to, "RES-1", 0, 100))
+                .thenReturn(new MoneyReportResponse.ReservationMoneyPage(
+                        List.of(new MoneyReportResponse.ReservationMoney(
+                                1L,
+                                "RES-1",
+                                "CHECKED_OUT",
+                                totals,
+                                Instant.parse("2026-07-31T10:00:00Z"))),
+                        0,
+                        100,
+                        1,
+                        1));
+
+        BusinessStatisticsCsvService.ExportFile export = csvService.export(
+                "money",
+                from,
+                to,
+                "month",
+                null,
+                null,
+                null,
+                "RES-1");
+        String csv = new String(export.content(), StandardCharsets.UTF_8);
+
+        assertThat(export.fileName())
+                .isEqualTo("luxury-hotel-bao-cao-thu-chi-2026-07-01_2026-07-31.csv");
+        assertThat(csv)
+                .contains("TỔNG CỘNG;2026-07-01 - 2026-07-31")
+                .contains("THEO KỲ;2026-07-01 - 2026-07-31")
+                .contains("THEO ĐƠN;RES-1;CHECKED_OUT")
+                .contains("100000;200000;300000;20000;30000;50000;250000;3;2");
+        assertThat(export.truncated()).isFalse();
+    }
 
     @Test
     void ledgerExportHasUtf8BomAndNeutralizesSpreadsheetFormula() {

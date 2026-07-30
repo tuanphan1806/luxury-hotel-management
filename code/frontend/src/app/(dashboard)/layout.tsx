@@ -384,15 +384,6 @@ export default function DashboardLayout({
           <path d="M12 9v6" />
         </svg>
       ),
-    }, {
-      href: "/dashboard/reconciliation-requests",
-      label: localize("Ngoại lệ đối soát", "Reconciliation exceptions"),
-      icon: (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full">
-          <path d="M4 4h16v16H4z" />
-          <path d="m8 12 2.5 2.5L16 9" />
-        </svg>
-      ),
     }] : []),
   ];
 
@@ -443,7 +434,7 @@ export default function DashboardLayout({
       <nav aria-label={localize("Điều hướng dashboard", "Dashboard navigation")} className="lux-scrollbar flex-1 space-y-1.5 overflow-y-auto px-4 py-6">
         {[
           { title: t("operations"), items: navigationItems.filter((item) => ["/dashboard", "/dashboard/rooms", "/dashboard/reservations", "/dashboard/cashier-shifts", "/dashboard/contact-messages", "/dashboard/guest"].includes(item.href)) },
-          { title: t("management"), items: navigationItems.filter((item) => ["/dashboard/users", "/dashboard/facilities", "/dashboard/room-types", "/dashboard/statistics", "/dashboard/services", "/dashboard/audit-logs", "/dashboard/reconciliation-requests"].includes(item.href)) },
+          { title: t("management"), items: navigationItems.filter((item) => ["/dashboard/users", "/dashboard/facilities", "/dashboard/room-types", "/dashboard/statistics", "/dashboard/services", "/dashboard/audit-logs"].includes(item.href)) },
         ].map((group, groupIndex) => (
           <div key={group.title} className={groupIndex ? "pt-5" : ""}>
             {!collapsed && <p className="mb-2 px-4 text-[0.6rem] font-bold uppercase tracking-[0.24em] text-[#B8944F]/75">{group.title}</p>}
