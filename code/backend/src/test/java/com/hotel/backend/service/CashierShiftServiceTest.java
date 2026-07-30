@@ -15,6 +15,7 @@ import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.request.CloseCashierShiftRequest;
 import com.hotel.backend.dto.request.CashMovementRequest;
 import com.hotel.backend.dto.request.OpenCashierShiftRequest;
+import com.hotel.backend.dto.response.MoneyReportResponse;
 import com.hotel.backend.entity.CashMovement;
 import com.hotel.backend.entity.CashierShift;
 import com.hotel.backend.entity.PaymentRefund;
@@ -43,7 +44,6 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -58,6 +58,7 @@ class CashierShiftServiceTest {
     @Mock CashierShiftRepository shiftRepository;
     @Mock CashMovementRepository movementRepository;
     @Mock ReservationAuditService auditService;
+    @Mock MoneyReportService moneyReportService;
 
     private CashierShiftService service;
     private User staff;
@@ -80,7 +81,7 @@ class CashierShiftServiceTest {
     }
 
     @Test
-    void openCreatesShiftAndOpeningFloatMovement() {
+    void openStartsAutomaticShiftWithoutOpeningFloat() {
         when(shiftRepository.findActiveByUserIdForUpdate(eq(7L), any()))
                 .thenReturn(Optional.empty());
         when(shiftRepository.saveAndFlush(any(CashierShift.class)))
@@ -89,26 +90,22 @@ class CashierShiftServiceTest {
                     shift.setId(11L);
                     return shift;
                 });
-        when(movementRepository.saveAndFlush(any(CashMovement.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
         when(movementRepository.calculateExpectedCash(11L))
-                .thenReturn(BigDecimal.valueOf(500_000L));
+                .thenReturn(BigDecimal.ZERO);
         when(movementRepository.findAllByCashierShiftIdOrderByOccurredAtUtcAscIdAsc(11L))
                 .thenReturn(List.of());
 
         OpenCashierShiftRequest request = new OpenCashierShiftRequest();
         request.setOpeningCashAmount(BigDecimal.valueOf(500_000L));
-        request.setNote("Tiền đầu ca đã kiểm đếm");
+        request.setNote("Ca sáng");
 
         var response = service.open(request, staff);
 
         assertEquals(CashierShiftStatus.OPEN, response.status());
         assertEquals(LocalDate.of(2026, 7, 28), response.businessDate());
-        assertEquals(BigDecimal.valueOf(500_000L), response.expectedCashAmount());
-        ArgumentCaptor<CashMovement> movementCaptor = ArgumentCaptor.forClass(CashMovement.class);
-        verify(movementRepository).saveAndFlush(movementCaptor.capture());
-        assertEquals(CashMovementType.OPENING_FLOAT, movementCaptor.getValue().getMovementType());
-        assertEquals(CashMovementDirection.IN, movementCaptor.getValue().getDirection());
+        assertEquals(BigDecimal.ZERO, response.openingCashAmount());
+        assertEquals(BigDecimal.ZERO, response.expectedCashAmount());
+        verify(movementRepository, never()).saveAndFlush(any());
         verify(auditService).recordTargetForUser(
                 eq(staff), eq("CASHIER_SHIFT"), eq("11"),
                 eq(ReservationAuditAction.CASHIER_SHIFT_OPENED), any(), any());
@@ -210,6 +207,37 @@ class CashierShiftServiceTest {
     }
 
     @Test
+    void recordCashRefundAllowsAdminWithoutOpeningCashierShift() {
+        User admin = User.builder()
+                .fullName("Quản trị viên")
+                .username("admin")
+                .email("admin@example.com")
+                .type(UserType.ADMIN)
+                .status(UserStatus.ACTIVE)
+                .build();
+        admin.setId(8L);
+        PaymentTransaction payment = cashPayment(93L, 80_000L);
+        PaymentRefund refund = PaymentRefund.builder()
+                .id("refund-admin-cash")
+                .paymentTransaction(payment)
+                .reservation(payment.getReservation())
+                .provider(PaymentProvider.CASH)
+                .channel(RefundChannel.CASH_AT_COUNTER)
+                .status(RefundStatus.SUCCEEDED)
+                .amount(80_000L)
+                .actualRefundAmount(80_000L)
+                .requestId("refund-admin-request")
+                .refundCode("REFUND-ADMIN-CASH")
+                .build();
+        when(shiftRepository.findActiveByUserIdForUpdate(eq(8L), any()))
+                .thenReturn(Optional.empty());
+
+        service.recordCashRefund(refund, admin);
+
+        verify(movementRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void listUsesOneBatchMovementSummaryForThePage() {
         CashierShift shift = openShift();
         CashMovementRepository.CashShiftMovementSummary summary =
@@ -229,6 +257,48 @@ class CashierShiftServiceTest {
         assertEquals(BigDecimal.valueOf(620_000L),
                 response.getContent().get(0).expectedCashAmount());
         verify(movementRepository).summarizeByCashierShiftIds(List.of(shift.getId()));
+    }
+
+    @Test
+    void currentIncludesOnlineMoneyForTheExactShiftWindow() {
+        CashierShift shift = openShift();
+        CashierShiftService serviceWithMoney = new CashierShiftService(
+                shiftRepository,
+                movementRepository,
+                auditService,
+                moneyReportService,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        when(shiftRepository
+                .findFirstByOpenedByIdAndStatusInOrderByOpenedAtUtcDesc(
+                        eq(7L), any()))
+                .thenReturn(Optional.of(shift));
+        when(movementRepository.calculateExpectedCash(11L))
+                .thenReturn(BigDecimal.ZERO);
+        when(movementRepository
+                .findAllByCashierShiftIdOrderByOccurredAtUtcAscIdAsc(11L))
+                .thenReturn(List.of());
+        when(moneyReportService.summarizeWindow(
+                shift.getOpenedAtUtc(), NOW))
+                .thenReturn(new MoneyReportResponse.Breakdown(
+                        BigDecimal.ZERO,
+                        BigDecimal.valueOf(240_000L),
+                        BigDecimal.valueOf(240_000L),
+                        BigDecimal.ZERO,
+                        BigDecimal.valueOf(35_000L),
+                        BigDecimal.valueOf(35_000L),
+                        BigDecimal.valueOf(205_000L),
+                        2L,
+                        1L));
+
+        var response = serviceWithMoney.current(staff);
+
+        assertEquals(
+                BigDecimal.valueOf(240_000L),
+                response.transferIncomeAmount());
+        assertEquals(
+                BigDecimal.valueOf(35_000L),
+                response.transferRefundAmount());
+        assertEquals(BigDecimal.valueOf(205_000L), response.netAmount());
     }
 
     @Test
@@ -267,25 +337,7 @@ class CashierShiftServiceTest {
     }
 
     @Test
-    void closeWithVarianceRequiresReasonAndDoesNotMutateShift() {
-        CashierShift shift = openShift();
-        when(shiftRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(shift));
-        when(movementRepository.calculateExpectedCash(11L))
-                .thenReturn(BigDecimal.valueOf(620_000L));
-        CloseCashierShiftRequest request = new CloseCashierShiftRequest();
-        request.setCountedCashAmount(BigDecimal.valueOf(610_000L));
-
-        AppException exception = assertThrows(
-                AppException.class,
-                () -> service.close(11L, request, staff));
-
-        assertEquals(ErrorCode.INVALID_REQUEST, exception.getErrorCode());
-        assertEquals(CashierShiftStatus.OPEN, shift.getStatus());
-        verify(shiftRepository, never()).saveAndFlush(any());
-    }
-
-    @Test
-    void closeRecalculatesExpectedAndAuditsVariance() {
+    void closeUsesAutomaticallyCalculatedAmountAndIgnoresLegacyCountFields() {
         CashierShift shift = openShift();
         when(shiftRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(shift));
         when(movementRepository.calculateExpectedCash(11L))
@@ -296,16 +348,18 @@ class CashierShiftServiceTest {
                 .thenReturn(List.of());
         CloseCashierShiftRequest request = new CloseCashierShiftRequest();
         request.setCountedCashAmount(BigDecimal.valueOf(610_000L));
-        request.setVarianceReason("Thiếu 10.000 đồng khi kiểm đếm cuối ca");
+        request.setVarianceReason("Giá trị legacy không còn được sử dụng");
+        request.setNote("Kết thúc ca sáng");
 
         var response = service.close(11L, request, staff);
 
         assertEquals(CashierShiftStatus.CLOSED, response.status());
-        assertEquals(BigDecimal.valueOf(-10_000L), response.varianceAmount());
-        assertTrue(response.closeNote().contains("Thiếu 10.000"));
+        assertEquals(BigDecimal.valueOf(620_000L), response.countedCashAmount());
+        assertEquals(BigDecimal.ZERO, response.varianceAmount());
+        assertEquals("Kết thúc ca sáng", response.closeNote());
         verify(auditService).recordTargetForUser(
                 eq(staff), eq("CASHIER_SHIFT"), eq("11"),
-                eq(ReservationAuditAction.CASH_VARIANCE_RECORDED), any(), any());
+                eq(ReservationAuditAction.CASHIER_SHIFT_CLOSED), any(), any());
     }
 
     private CashierShift openShift() {
@@ -319,7 +373,7 @@ class CashierShiftServiceTest {
                 .openedByName(staff.getFullName())
                 .openedByRole(UserType.STAFF.name())
                 .openedAtUtc(NOW.minusSeconds(3600))
-                .openingCashAmount(BigDecimal.valueOf(500_000L))
+                .openingCashAmount(BigDecimal.ZERO)
                 .build();
     }
 

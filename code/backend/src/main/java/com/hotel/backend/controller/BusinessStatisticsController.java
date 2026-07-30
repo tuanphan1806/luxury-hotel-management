@@ -2,8 +2,10 @@ package com.hotel.backend.controller;
 
 import com.hotel.backend.dto.response.ApiResponse;
 import com.hotel.backend.dto.response.BusinessStatisticsResponse;
+import com.hotel.backend.dto.response.MoneyReportResponse;
 import com.hotel.backend.service.BusinessStatisticsCsvService;
 import com.hotel.backend.service.BusinessStatisticsService;
+import com.hotel.backend.service.MoneyReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ContentDisposition;
@@ -27,6 +29,32 @@ import java.util.List;
 public class BusinessStatisticsController {
     private final BusinessStatisticsService statisticsService;
     private final BusinessStatisticsCsvService csvService;
+    private final MoneyReportService moneyReportService;
+
+    @GetMapping("/money")
+    public ApiResponse<MoneyReportResponse.Report> money(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "day") String granularity) {
+        return ApiResponse.success(
+                moneyReportService.report(from, to, granularity));
+    }
+
+    @GetMapping("/money/reservations")
+    public ApiResponse<MoneyReportResponse.ReservationMoneyPage>
+    reservationMoney(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false, name = "q") String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(moneyReportService.reservationMoney(
+                from, to, query, page, size));
+    }
 
     @GetMapping("/overview")
     public ApiResponse<BusinessStatisticsResponse.Overview> overview(

@@ -34,6 +34,6 @@ describe("business statistics helpers", () => {
     expect(financeWorkspaceFromQuery("overview")).toBe("overview");
     expect(financeWorkspaceFromQuery("operations")).toBe("cashier");
     expect(financeWorkspaceFromQuery("cashier")).toBe("cashier");
-    expect(financeWorkspaceFromQuery("close")).toBe("close");
+    expect(financeWorkspaceFromQuery("close")).toBe("overview");
   });
 });

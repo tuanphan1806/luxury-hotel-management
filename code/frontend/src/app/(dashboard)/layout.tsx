@@ -353,7 +353,7 @@ export default function DashboardLayout({
     },
     ...(user.role === "ADMIN" ? [{
       href: "/dashboard/statistics",
-      label: localize("Tài chính & kế toán", "Finance & accounting"),
+      label: localize("Báo cáo thu chi", "Income & refunds"),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full">
           <path d="M4 19V9" />
