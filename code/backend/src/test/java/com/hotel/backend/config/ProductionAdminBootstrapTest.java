@@ -22,8 +22,8 @@ class ProductionAdminBootstrapTest {
     void createsOneActiveAdminWithEncodedPassword() throws Exception {
         UserRepository users = mock(UserRepository.class);
         PasswordEncoder encoder = mock(PasswordEncoder.class);
-        when(users.findByUsername("hotel-admin")).thenReturn(Optional.empty());
-        when(users.findByEmail("admin@example.com")).thenReturn(Optional.empty());
+        when(users.findByUsernameIgnoreCase("hotel-admin")).thenReturn(Optional.empty());
+        when(users.findByEmailIgnoreCase("admin@example.com")).thenReturn(Optional.empty());
         when(encoder.encode("StrongPassword9")).thenReturn("encoded");
 
         ProductionAdminBootstrap bootstrap = new ProductionAdminBootstrap(
@@ -49,8 +49,8 @@ class ProductionAdminBootstrapTest {
                 .type(UserType.ADMIN)
                 .password("existing-hash")
                 .build();
-        when(users.findByUsername("hotel-admin")).thenReturn(Optional.of(existing));
-        when(users.findByEmail("admin@example.com")).thenReturn(Optional.of(existing));
+        when(users.findByUsernameIgnoreCase("hotel-admin")).thenReturn(Optional.of(existing));
+        when(users.findByEmailIgnoreCase("admin@example.com")).thenReturn(Optional.of(existing));
 
         ProductionAdminBootstrap bootstrap = new ProductionAdminBootstrap(
                 users, encoder, "Hotel Admin", "hotel-admin", "admin@example.com",
@@ -72,6 +72,15 @@ class ProductionAdminBootstrapTest {
     }
 
     @Test
+    void rejectsInvalidBootstrapUsernameBeforeStartup() {
+        assertThatThrownBy(() -> new ProductionAdminBootstrap(
+                mock(UserRepository.class), mock(PasswordEncoder.class),
+                "Hotel Admin", "admin@example.com", "admin@example.com", "", "StrongPassword9"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("3-30");
+    }
+
+    @Test
     void refusesToPromoteAConflictingAccount() {
         UserRepository users = mock(UserRepository.class);
         User customer = User.builder()
@@ -79,8 +88,8 @@ class ProductionAdminBootstrapTest {
                 .email("customer@example.com")
                 .type(UserType.CUSTOMER)
                 .build();
-        when(users.findByUsername("hotel-admin")).thenReturn(Optional.of(customer));
-        when(users.findByEmail("admin@example.com")).thenReturn(Optional.empty());
+        when(users.findByUsernameIgnoreCase("hotel-admin")).thenReturn(Optional.of(customer));
+        when(users.findByEmailIgnoreCase("admin@example.com")).thenReturn(Optional.empty());
 
         ProductionAdminBootstrap bootstrap = new ProductionAdminBootstrap(
                 users, mock(PasswordEncoder.class), "Hotel Admin", "hotel-admin",

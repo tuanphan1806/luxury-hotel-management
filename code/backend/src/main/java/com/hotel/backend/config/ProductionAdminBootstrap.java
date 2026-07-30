@@ -44,7 +44,7 @@ public class ProductionAdminBootstrap implements CommandLineRunner {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.fullName = requireText(fullName, "BOOTSTRAP_ADMIN_FULL_NAME");
-        this.username = requireText(username, "BOOTSTRAP_ADMIN_USERNAME");
+        this.username = normalizeUsername(username);
         this.email = normalizeEmail(email);
         this.phone = normalizeNullable(phone);
         this.password = validatePassword(password);
@@ -52,12 +52,12 @@ public class ProductionAdminBootstrap implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        User byUsername = userRepository.findByUsername(username).orElse(null);
-        User byEmail = userRepository.findByEmail(email).orElse(null);
+        User byUsername = userRepository.findByUsernameIgnoreCase(username).orElse(null);
+        User byEmail = userRepository.findByEmailIgnoreCase(email).orElse(null);
         User existing = byUsername != null ? byUsername : byEmail;
 
         if (existing != null) {
-            boolean exactIdentity = username.equals(existing.getUsername())
+            boolean exactIdentity = username.equalsIgnoreCase(existing.getUsername())
                     && email.equalsIgnoreCase(existing.getEmail());
             if (!exactIdentity || !UserType.ADMIN.equals(existing.getType())) {
                 throw new IllegalStateException(
@@ -98,6 +98,15 @@ public class ProductionAdminBootstrap implements CommandLineRunner {
         String normalized = requireText(value, "BOOTSTRAP_ADMIN_EMAIL").toLowerCase(Locale.ROOT);
         if (!normalized.contains("@") || normalized.startsWith("@") || normalized.endsWith("@")) {
             throw new IllegalArgumentException("BOOTSTRAP_ADMIN_EMAIL is invalid");
+        }
+        return normalized;
+    }
+
+    private static String normalizeUsername(String value) {
+        String normalized = requireText(value, "BOOTSTRAP_ADMIN_USERNAME");
+        if (!normalized.matches("^[A-Za-z0-9._-]{3,30}$")) {
+            throw new IllegalArgumentException(
+                    "BOOTSTRAP_ADMIN_USERNAME must contain 3-30 letters, numbers, dots, underscores or hyphens");
         }
         return normalized;
     }

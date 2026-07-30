@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "28";
+    private static final String LATEST_VERSION = "29";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -150,7 +150,9 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_financial_journal_refund");
             assertIndex(connection, "idx_financial_journal_invoice");
             assertIndex(connection, "idx_financial_journal_provider_event");
+            assertIndex(connection, "uk_users_username_case_insensitive");
             assertConstraint(connection, "chk_reservations_date_range");
+            assertConstraint(connection, "chk_users_username_not_blank_and_trimmed");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
             assertConstraint(connection, "chk_payment_transactions_provider");
             assertConstraint(connection, "chk_payment_transactions_refund_provider");
@@ -240,7 +242,7 @@ class FlywayPostgresMigrationIT {
         Flyway latest = flyway();
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("28");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo(LATEST_VERSION);
         try (Connection connection = POSTGRES.createConnection("")) {
             assertColumnType(connection, "financial_journal_entries", "currency",
                     "character varying", 3);
@@ -1543,6 +1545,118 @@ class FlywayPostgresMigrationIT {
                     assertThat(resultSet.next()).isTrue();
                     assertThat(resultSet.getLong(1)).isEqualTo(900_001L);
                 }
+            }
+        }
+    }
+
+    @Test
+    void usernameMigrationRemediatesLegacyCollisionsAndEnforcesCaseInsensitiveUniqueness()
+            throws Exception {
+        Flyway v28 = flyway("28");
+        v28.clean();
+        v28.migrate();
+
+        long customerId;
+        long adminId;
+        long blankUsernameId;
+        try (Connection connection = POSTGRES.createConnection("")) {
+            customerId = insertMigrationUser(
+                    connection,
+                    "legacy-customer@example.com",
+                    "Legacy customer",
+                    "CUSTOMER",
+                    "ACTIVE",
+                    " SharedLogin ");
+            adminId = insertMigrationUser(
+                    connection,
+                    "legacy-admin@example.com",
+                    "Legacy admin",
+                    "ADMIN",
+                    "ACTIVE",
+                    "sharedlogin");
+            blankUsernameId = insertMigrationUser(
+                    connection,
+                    "legacy-blank@example.com",
+                    "Legacy blank",
+                    "CUSTOMER",
+                    "ACTIVE",
+                    "   ");
+        }
+
+        Flyway latest = flyway();
+        latest.migrate();
+
+        try (Connection connection = POSTGRES.createConnection("")) {
+            assertThat(queryUsername(connection, adminId)).isEqualTo("sharedlogin");
+            assertThat(queryUsername(connection, customerId))
+                    .startsWith("SharedLogin__legacy_" + customerId);
+            assertThat(queryUsername(connection, blankUsernameId))
+                    .startsWith("user__legacy_" + blankUsernameId);
+
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    SELECT count(*)
+                    FROM reservation_audit_logs
+                    WHERE action_code = 'USERNAME_CONFLICT_REMEDIATED'
+                      AND target_type = 'USER'
+                      AND target_id IN (?, ?)
+                    """)) {
+                statement.setString(1, String.valueOf(customerId));
+                statement.setString(2, String.valueOf(blankUsernameId));
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    assertThat(resultSet.next()).isTrue();
+                    assertThat(resultSet.getLong(1)).isEqualTo(2L);
+                }
+            }
+        }
+
+        assertThatThrownBy(() -> executeSql("""
+                INSERT INTO users(email, email_verified, full_name, status, type, username)
+                VALUES ('duplicate-case@example.com', TRUE, 'Duplicate case',
+                        'ACTIVE', 'CUSTOMER', 'SharedLogin')
+                """))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("uk_users_username_case_insensitive");
+
+        assertThatThrownBy(() -> executeSql("""
+                INSERT INTO users(email, email_verified, full_name, status, type, username)
+                VALUES ('padded-username@example.com', TRUE, 'Padded username',
+                        'ACTIVE', 'CUSTOMER', ' padded-login ')
+                """))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("chk_users_username_not_blank_and_trimmed");
+    }
+
+    private long insertMigrationUser(
+            Connection connection,
+            String email,
+            String fullName,
+            String type,
+            String status,
+            String username) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO users(email, email_verified, full_name, status, type, username)
+                VALUES (?, TRUE, ?, ?, ?, ?)
+                RETURNING id
+                """)) {
+            statement.setString(1, email);
+            statement.setString(2, fullName);
+            statement.setString(3, status);
+            statement.setString(4, type);
+            statement.setString(5, username);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                assertThat(resultSet.next()).isTrue();
+                return resultSet.getLong(1);
+            }
+        }
+    }
+
+    private String queryUsername(Connection connection, long userId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT username FROM users WHERE id = ?")) {
+            statement.setLong(1, userId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                assertThat(resultSet.next()).isTrue();
+                return resultSet.getString(1);
             }
         }
     }
