@@ -1124,7 +1124,11 @@ public class ReservationServiceImpl implements ReservationService {
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
         ensureCanAccessReservation(currentUser, reservation, guestToken);
 
-        return responseAssembler.withRoomTypeDetailsAndRefundSummary(reservation);
+        ReservationResponse response = responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
+        response.setRooms(responseAssembler.assignedRooms(reservation));
+        response.setPaidAmount(BigDecimal.valueOf(getNetPaidAmount(reservation.getId())));
+        return response;
     }
 
     @Override

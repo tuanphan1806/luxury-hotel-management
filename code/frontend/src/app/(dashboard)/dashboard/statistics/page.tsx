@@ -927,6 +927,14 @@ export default function BusinessStatisticsPage() {
         loading={detailLoading}
         error={detailError}
         localeTag={localeTag}
+        periodLabel={selectedMoneyReservation?.period && selectedMoneyReservation.periodEndExclusive
+          ? reportPeriodLabel(
+            selectedMoneyReservation.period,
+            selectedMoneyReservation.periodEndExclusive,
+            granularity,
+            localeTag,
+          )
+          : dateSummary}
         onClose={closeReservationDetail}
         onRetry={() => {
           if (selectedMoneyReservation) void openReservationDetail(selectedMoneyReservation);
