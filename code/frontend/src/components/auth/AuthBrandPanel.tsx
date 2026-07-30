@@ -35,11 +35,11 @@ export default function AuthBrandPanel({ mode }: AuthBrandPanelProps) {
   return (
     <aside className="relative hidden min-h-[100dvh] overflow-hidden border-r border-[#0F2A43]/10 bg-[#D9D8D1] lg:block lg:w-[48%] xl:w-[52%]">
       <ProgressiveImage
-        src="/hotel-lobby.png"
+        src="/media/auth/auth-lobby.webp"
         alt=""
         fill
         priority
-        quality={92}
+        quality={82}
         sizes="(min-width: 1280px) 52vw, 48vw"
         className="object-cover object-center"
       />

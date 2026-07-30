@@ -26,6 +26,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -254,7 +255,7 @@ public class CheckoutReconciliationRequestService {
      * refund or fee operation has already made the canonical reconciliation
      * MATCHED. No ledger, fee, debt or reservation status is changed here.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int resolvePendingAutomatically(Long reservationId, String source) {
         return resolvePendingAutomaticallyInternal(reservationId, source, null);
     }

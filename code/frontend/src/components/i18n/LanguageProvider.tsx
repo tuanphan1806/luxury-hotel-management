@@ -1,7 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { NextIntlClientProvider, useTranslations } from "next-intl";
 import type { AbstractIntlMessages } from "next-intl";
 import {
@@ -36,26 +35,21 @@ type LanguageContextValue = {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
-function CompatibilityLanguageProvider({ children, locale }: { children: React.ReactNode; locale: Locale }) {
-  const router = useRouter();
+const messageLoaders: Record<Locale, () => Promise<{ default: AbstractIntlMessages }>> = {
+  vi: () => import("@/i18n/messages/vi.json"),
+  en: () => import("@/i18n/messages/en.json"),
+};
+
+function CompatibilityLanguageProvider({
+  children,
+  locale,
+  setLocale,
+}: {
+  children: React.ReactNode;
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+}) {
   const translate = useTranslations();
-
-  useEffect(() => {
-    document.documentElement.lang = locale;
-    if (document.cookie.split("; ").some((item) => item.startsWith(`${localeCookieName}=`))) return;
-    const legacyLocale = localStorage.getItem(localeCookieName);
-    if (!isAppLocale(legacyLocale) || legacyLocale === locale) return;
-    document.cookie = `${localeCookieName}=${legacyLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
-    router.refresh();
-  }, [locale, router]);
-
-  const setLocale = useCallback((nextLocale: Locale) => {
-    if (!isAppLocale(nextLocale) || nextLocale === locale) return;
-    document.cookie = `${localeCookieName}=${nextLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
-    localStorage.setItem(localeCookieName, nextLocale);
-    document.documentElement.lang = nextLocale;
-    router.refresh();
-  }, [locale, router]);
 
   const localize = useCallback((vi?: string | null, en?: string | null) => {
     const primary = locale === "vi" ? vi : en;
@@ -83,10 +77,43 @@ export function LanguageProvider({
   initialLocale?: string;
   messages: AbstractIntlMessages;
 }) {
-  const locale = isAppLocale(initialLocale) ? initialLocale : defaultLocale;
+  const initial = isAppLocale(initialLocale) ? initialLocale : defaultLocale;
+  const [locale, setActiveLocale] = useState<Locale>(initial);
+  const [activeMessages, setActiveMessages] = useState<AbstractIntlMessages>(messages);
+  const localeRequestId = useRef(0);
+
+  const applyLocale = useCallback((nextLocale: Locale) => {
+    if (!isAppLocale(nextLocale) || nextLocale === locale) return;
+    const requestId = ++localeRequestId.current;
+
+    void messageLoaders[nextLocale]().then((module) => {
+      if (requestId !== localeRequestId.current) return;
+      document.cookie = `${localeCookieName}=${nextLocale}; Path=/; Max-Age=31536000; SameSite=Lax`;
+      localStorage.setItem(localeCookieName, nextLocale);
+      document.documentElement.lang = nextLocale;
+      setActiveMessages(module.default);
+      setActiveLocale(nextLocale);
+    });
+  }, [locale]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    const storedLocale = localStorage.getItem(localeCookieName);
+    const cookieLocale = document.cookie
+      .split("; ")
+      .find((item) => item.startsWith(`${localeCookieName}=`))
+      ?.split("=")[1];
+    const preferredLocale = isAppLocale(storedLocale)
+      ? storedLocale
+      : isAppLocale(cookieLocale)
+        ? cookieLocale
+        : defaultLocale;
+    if (preferredLocale !== locale) applyLocale(preferredLocale);
+  }, [applyLocale, locale]);
+
   return (
-    <NextIntlClientProvider locale={locale} messages={messages} timeZone="Asia/Ho_Chi_Minh">
-      <CompatibilityLanguageProvider locale={locale}>{children}</CompatibilityLanguageProvider>
+    <NextIntlClientProvider key={locale} locale={locale} messages={activeMessages} timeZone="Asia/Ho_Chi_Minh">
+      <CompatibilityLanguageProvider locale={locale} setLocale={applyLocale}>{children}</CompatibilityLanguageProvider>
     </NextIntlClientProvider>
   );
 }

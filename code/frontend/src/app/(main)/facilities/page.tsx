@@ -157,8 +157,8 @@ export default function FacilitiesPage() {
                 fallbackSrc={FACILITIES_CONTENT.hero.bg}
                 alt={name}
                 fill
-                loading={index < 6 ? "eager" : "lazy"}
-                fetchPriority={index < 2 ? "high" : "auto"}
+                loading="lazy"
+                fetchPriority="auto"
                 sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
                 className="object-cover group-hover:scale-105"
               />
