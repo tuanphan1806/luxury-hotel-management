@@ -8,6 +8,7 @@ import EditGuestModal from "@/components/modals/EditGuestModal";
 import DeleteGuestModal from "@/components/modals/DeleteGuestModal";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
+import { matchesUserSearch } from "@/lib/user-search";
 import {
   DashboardFilterPanel,
   DashboardSearchField,
@@ -20,8 +21,8 @@ interface UserItem {
   fullName: string;
   username: string;
   email: string;
-  phone: string;
-  address: string;
+  phone?: string | null;
+  address?: string | null;
   type: "CUSTOMER" | "STAFF" | "ADMIN";
   status: "ACTIVE" | "INACTIVE";
   imageUrl?: string;
@@ -80,11 +81,7 @@ export default function UsersManagement() {
 
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
-      const matchesSearch =
-        u.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        u.phone.includes(searchQuery) ||
-        (u.address && u.address.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesSearch = matchesUserSearch(u, searchQuery);
 
       let matchesFilter = true;
       if (selectedFilter !== "All") {
