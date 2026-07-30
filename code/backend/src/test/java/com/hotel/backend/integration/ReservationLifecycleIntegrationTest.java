@@ -4,6 +4,7 @@ import com.hotel.backend.constant.*;
 import com.hotel.backend.dto.request.*;
 import com.hotel.backend.dto.response.ReservationInvoiceResponse;
 import com.hotel.backend.dto.response.ReservationResponse;
+import com.hotel.backend.dto.response.ReservationRoomResponse;
 import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.Room;
@@ -28,6 +29,7 @@ import java.time.LocalDateTime;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -36,6 +38,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -227,6 +230,15 @@ class ReservationLifecycleIntegrationTest {
         assertEquals(3, checkedInDetail.getRoomTypes().stream()
                 .mapToInt(item -> item.getQuantity()).sum());
         assertEquals(2, checkedInDetail.getRoomTypes().size());
+        assertEquals(3, checkedInDetail.getRooms().size());
+        assertEquals(0,
+                reservation.getTotalAmount().multiply(BigDecimal.valueOf(0.5))
+                        .compareTo(checkedInDetail.getPaidAmount()));
+        assertEquals(
+                Set.of(standardOne.getRoomName(), standardTwo.getRoomName(), suiteOne.getRoomName()),
+                checkedInDetail.getRooms().stream()
+                        .map(ReservationRoomResponse::getRoomName)
+                        .collect(Collectors.toSet()));
     }
 
     @Test
