@@ -56,6 +56,7 @@ type Props = {
   loading: boolean;
   error: string;
   localeTag: string;
+  periodLabel: string;
   onClose: () => void;
   onRetry: () => void;
 };
@@ -101,12 +102,14 @@ export default function FinanceReservationDetailModal({
   loading,
   error,
   localeTag,
+  periodLabel,
   onClose,
   onRetry,
 }: Props) {
   const amounts = selected?.amounts;
   const obligation = Number(detail?.actualTotalAmount ?? detail?.totalAmount ?? 0);
-  const paid = Number(detail?.paidAmount ?? amounts?.totalIncome ?? 0);
+  const paid = detail?.paidAmount == null ? null : Number(detail.paidAmount);
+  const isCancelled = detail?.status === "CANCELLED";
 
   return (
     <ViewportModal
@@ -131,6 +134,9 @@ export default function FinanceReservationDetailModal({
               </span>
             )}
           </div>
+          <p className="mt-1 text-xs font-semibold text-[#66727C]">
+            Phát sinh trong kỳ: {periodLabel}
+          </p>
         </div>
         <button
           type="button"
@@ -223,7 +229,7 @@ export default function FinanceReservationDetailModal({
                         <div>
                           <p className="font-bold text-[#0F2A43]">{roomType.roomTypeName}</p>
                           <p className="mt-1 text-xs text-[#66727C]">
-                            {roomNames.length > 0 ? roomNames.join(", ") : "Chưa gán số phòng"}
+                            {roomNames.length > 0 ? roomNames.map((roomName) => `#${roomName}`).join(", ") : "Chưa gán số phòng"}
                           </p>
                         </div>
                         <span className="rounded-full bg-[#F1F0EA] px-2 py-1 text-[10px] font-bold text-[#0F2A43]">
@@ -242,16 +248,17 @@ export default function FinanceReservationDetailModal({
             <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
               <article className="overflow-hidden rounded-xl border border-[#0F2A43]/10 bg-white">
                 <div className="border-b border-[#0F2A43]/10 px-4 py-3">
-                  <h3 className="font-bold text-[#0F2A43]">Thu và hoàn tiền</h3>
+                  <h3 className="font-bold text-[#0F2A43]">Phát sinh trong kỳ đang xem</h3>
+                  <p className="mt-1 text-xs text-[#66727C]">{periodLabel}</p>
                 </div>
                 <dl className="grid grid-cols-2 gap-px bg-[#0F2A43]/10 text-sm sm:grid-cols-3">
                   {[
                     ["Thu tiền mặt", amounts.cashIncome, "text-emerald-700"],
                     ["Thu chuyển khoản", amounts.transferIncome, "text-emerald-700"],
-                    ["Tổng đã thu", amounts.totalIncome, "text-emerald-800"],
+                    ["Tổng thu trong kỳ", amounts.totalIncome, "text-emerald-800"],
                     ["Hoàn tiền mặt", amounts.cashRefund, "text-rose-700"],
                     ["Hoàn chuyển khoản", amounts.transferRefund, "text-rose-700"],
-                    ["Doanh thu thực nhận", amounts.netRevenue, "text-[#0F2A43]"],
+                    ["Thực nhận trong kỳ", amounts.netRevenue, "text-[#0F2A43]"],
                   ].map(([label, value, color]) => (
                     <div key={String(label)} className="bg-white p-3">
                       <dt className="text-xs text-[#66727C]">{label}</dt>
@@ -262,20 +269,20 @@ export default function FinanceReservationDetailModal({
               </article>
 
               <article className="rounded-xl border border-[#0F2A43]/10 bg-[#0F2A43] p-4 text-white">
-                <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#D8C398]">Nghĩa vụ thanh toán</p>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#D8C398]">Toàn bộ đơn</p>
                 <dl className="mt-3 space-y-3 text-sm">
                   <div className="flex justify-between gap-3">
-                    <dt className="text-white/70">Tổng cần thanh toán</dt>
+                    <dt className="text-white/70">{isCancelled ? "Giá trị đơn trước hủy" : "Tổng cần thanh toán"}</dt>
                     <dd className="font-bold">{vnd(obligation, localeTag)}</dd>
                   </div>
                   <div className="flex justify-between gap-3">
-                    <dt className="text-white/70">Đã ghi nhận thanh toán</dt>
-                    <dd className="font-bold">{vnd(paid, localeTag)}</dd>
+                    <dt className="text-white/70">Đã thu sau hoàn tiền</dt>
+                    <dd className="font-bold">{paid == null ? "Chưa tải được" : vnd(paid, localeTag)}</dd>
                   </div>
                   <div className="flex justify-between gap-3 border-t border-white/15 pt-3">
-                    <dt className="font-bold">Còn cần thu</dt>
+                    <dt className="font-bold">{isCancelled ? "Trạng thái thu" : "Còn cần thu"}</dt>
                     <dd className="font-serif text-xl font-bold text-[#D8C398]">
-                      {vnd(Math.max(0, obligation - paid), localeTag)}
+                      {isCancelled ? "Đã dừng thu" : paid == null ? "—" : vnd(Math.max(0, obligation - paid), localeTag)}
                     </dd>
                   </div>
                 </dl>
