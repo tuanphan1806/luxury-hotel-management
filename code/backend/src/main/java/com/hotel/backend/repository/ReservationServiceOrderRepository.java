@@ -52,6 +52,8 @@ public interface ReservationServiceOrderRepository
             Long reservationId,
             Collection<ReservationServiceStatus> statuses);
 
+    long countByStatusIn(Collection<ReservationServiceStatus> statuses);
+
     @Query("""
             select coalesce(sum(orderLine.totalPrice), 0)
             from ReservationServiceOrder orderLine
