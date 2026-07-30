@@ -242,7 +242,7 @@ class FlywayPostgresMigrationIT {
         Flyway latest = flyway();
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("28");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo(LATEST_VERSION);
         try (Connection connection = POSTGRES.createConnection("")) {
             assertColumnType(connection, "financial_journal_entries", "currency",
                     "character varying", 3);
