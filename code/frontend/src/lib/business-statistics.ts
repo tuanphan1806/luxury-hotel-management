@@ -1,5 +1,51 @@
 export type StatisticsGranularity = "day" | "week" | "month";
-export type FinanceWorkspaceView = "overview" | "cashier" | "close";
+export type FinanceWorkspaceView = "overview" | "cashier";
+
+export type MoneyBreakdown = {
+  cashIncome: number;
+  transferIncome: number;
+  totalIncome: number;
+  cashRefund: number;
+  transferRefund: number;
+  totalRefund: number;
+  netRevenue: number;
+  paymentCount: number;
+  refundCount: number;
+};
+
+export type MoneyPeriod = {
+  period: string;
+  periodEndExclusive: string;
+  amounts: MoneyBreakdown;
+};
+
+export type MoneyReport = {
+  from: string;
+  to: string;
+  timezone: string;
+  granularity: StatisticsGranularity;
+  totals: MoneyBreakdown;
+  periods: MoneyPeriod[];
+  unmatchedTransferCount: number;
+  unmatchedTransferAmount: number;
+  generatedAtUtc: string;
+};
+
+export type ReservationMoneyEntry = {
+  reservationId: number;
+  reservationCode: string;
+  reservationStatus: string;
+  amounts: MoneyBreakdown;
+  lastMovementAtUtc: string;
+};
+
+export type ReservationMoneyPage = {
+  content: ReservationMoneyEntry[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
 
 export type StatisticsKpi = {
   current: number;
@@ -217,11 +263,9 @@ export const suggestedStatisticsGranularity = (
 };
 
 export const financeWorkspaceFromQuery = (value: string | null): FinanceWorkspaceView =>
-  value === "close"
-    ? "close"
-    : value === "cashier" || value === "operations"
-      ? "cashier"
-      : "overview";
+  value === "cashier" || value === "operations"
+    ? "cashier"
+    : "overview";
 
 export const apiData = <T>(response: { data?: { data?: T } }): T => {
   if (response.data?.data === undefined) {

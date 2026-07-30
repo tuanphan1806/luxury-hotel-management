@@ -18,6 +18,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -216,9 +217,10 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Database uniqueness constraints are part of the idempotency boundary for
-     * payment/refund references. Return a conflict instead of leaking a 500
-     * when two operators submit the same bank transfer reference concurrently.
+     * Database uniqueness constraints are the final race-safe boundary for
+     * identities as well as payment/refund references. Return a useful conflict
+     * instead of leaking a 500 when concurrent requests pass the application
+     * pre-check at the same time.
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
@@ -229,9 +231,33 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.builder()
                         .status(HttpStatus.CONFLICT.value())
                         .error("Conflict")
-                        .message("Dữ liệu đã được cập nhật hoặc mã giao dịch đã được sử dụng")
+                        .message(resolveIntegrityConflictMessage(ex))
                         .path(request.getRequestURI())
                         .build());
+    }
+
+    private String resolveIntegrityConflictMessage(DataIntegrityViolationException ex) {
+        StringBuilder causeMessages = new StringBuilder();
+        Throwable cause = ex;
+        while (cause != null) {
+            if (cause.getMessage() != null) {
+                causeMessages.append(' ').append(cause.getMessage());
+            }
+            cause = cause.getCause();
+        }
+        String details = causeMessages.toString().toLowerCase(Locale.ROOT);
+
+        if (details.contains("uk_users_username_case_insensitive")
+                || details.contains("ukr43af9ap4edm43mmtq01oddj6")) {
+            return "Tên đăng nhập đã được sử dụng";
+        }
+        if (details.contains("uk6dotkott2kjsp8vw4d0m25fb7")) {
+            return "Email đã được sử dụng";
+        }
+        if (details.contains("ukdu5v5sr43g5bfnji4vb8hg5s3")) {
+            return "Số điện thoại đã được sử dụng";
+        }
+        return "Dữ liệu đã được cập nhật hoặc mã giao dịch đã được sử dụng";
     }
 
     // Multipart bị Spring chặn trước khi request đi vào FileStorageService.

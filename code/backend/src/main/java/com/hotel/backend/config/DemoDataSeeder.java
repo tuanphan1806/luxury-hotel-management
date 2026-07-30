@@ -31,13 +31,15 @@ public class DemoDataSeeder implements CommandLineRunner {
                 scenarioSeedService.seed();
         log.info(
                 "Demo scenarios ready: created={}, skipped={}, payments={}, "
-                        + "refunds={}, invoices={}, journals={}, cashShiftOpened={}",
+                        + "refunds={}, invoices={}, journals={}, "
+                        + "cashShiftOpened={}, cashShiftClosed={}",
                 summary.createdReservations(),
                 summary.skippedReservations(),
                 summary.createdPayments(),
                 summary.createdRefunds(),
                 summary.createdInvoices(),
                 summary.createdJournalEntries(),
-                summary.cashShiftOpened());
+                summary.cashShiftOpened(),
+                summary.cashShiftClosed());
     }
 }

@@ -7,6 +7,10 @@ import { apiClient, getApiErrorMessage } from '@/lib/api';
 import SocialAuthOptions from '@/components/auth/SocialAuthOptions';
 import { useLanguage } from '@/components/i18n/LanguageProvider';
 import {
+  inferUserIdentityConflictField,
+  isValidUsername,
+} from '@/lib/user-identity';
+import {
   LABEL_FULL_NAME,
   PLACEHOLDER_FULL_NAME,
   LABEL_EMAIL,
@@ -162,7 +166,7 @@ export default function SignupForm() {
 
     const nameRegex = /^[a-zA-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠàáâãèéêìíòóôõùúăđĩũơƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂưăạảấẩẫậắằẳẵặẹẻẽềềểỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪễệỉịọỏốồổỗộớờởỡợụủứừỬỮỰỲÝỴÝỶỸửữựỳýỵỷỹ\s]{2,50}$/;
     if (trimmedFullName && !nameRegex.test(trimmedFullName)) nextErrors.fullName = localize("Họ và tên cần 2–50 ký tự và chỉ gồm chữ cái.", ERROR_INVALID_FULL_NAME);
-    if (trimmedUsername && !/^[A-Za-z0-9._-]{3,30}$/.test(trimmedUsername)) nextErrors.username = localize("Tên đăng nhập cần 3–30 ký tự, chỉ dùng chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.", "Use 3–30 letters, numbers, dots, underscores, or hyphens.");
+    if (trimmedUsername && !isValidUsername(trimmedUsername)) nextErrors.username = localize("Tên đăng nhập cần 3–30 ký tự, chỉ dùng chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.", "Use 3–30 letters, numbers, dots, underscores, or hyphens.");
     const emailFormatRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (trimmedEmail && !emailFormatRegex.test(trimmedEmail)) nextErrors.email = localize("Email không đúng định dạng.", "Enter a valid email address.");
     if (trimmedPhone && !/^\d{9,11}$/.test(trimmedPhone.replace(/[\s.-]/g, ""))) nextErrors.phone = localize("Số điện thoại cần từ 9 đến 11 chữ số.", "Use a phone number with 9 to 11 digits.");
@@ -217,7 +221,23 @@ export default function SignupForm() {
       setStep(3);
     } catch (err: unknown) {
       console.error(err);
-      setError(getApiErrorMessage(err, "Đăng ký không thành công. Vui lòng kiểm tra lại."));
+      const message = getApiErrorMessage(err, "Đăng ký không thành công. Vui lòng kiểm tra lại.");
+      const conflictField = inferUserIdentityConflictField(message);
+      if (conflictField) {
+        const conflictErrors: SignupFieldErrors = {
+          [conflictField]: conflictField === "username"
+            ? localize("Tên đăng nhập này đã được sử dụng.", "This username is already in use.")
+            : conflictField === "email"
+              ? localize("Email này đã được sử dụng.", "This email is already in use.")
+              : localize("Số điện thoại này đã được sử dụng.", "This phone number is already in use."),
+        };
+        setStep(1);
+        setFieldErrors(conflictErrors);
+        setError('');
+        focusFirstInvalidField(conflictErrors);
+      } else {
+        setError(message);
+      }
     } finally {
       setIsLoading(false);
     }

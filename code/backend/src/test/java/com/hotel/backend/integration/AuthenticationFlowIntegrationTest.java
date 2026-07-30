@@ -56,6 +56,44 @@ class AuthenticationFlowIntegrationTest {
     }
 
     @Test
+    void registrationRejectsUsernameThatOnlyDiffersByLetterCase() throws Exception {
+        String suffix = suffix();
+        String username = "qa_unique_" + suffix;
+
+        mockMvc.perform(post("/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fullName": "QA First Identity",
+                                  "username": "%s",
+                                  "email": "first-%s@example.test",
+                                  "phone": "071%s",
+                                  "password": "QaPassword123!"
+                                }
+                                """.formatted(username, suffix, suffix)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "fullName": "QA Duplicate Identity",
+                                  "username": "%s",
+                                  "email": "second-%s@example.test",
+                                  "phone": "072%s",
+                                  "password": "QaPassword123!"
+                                }
+                                """.formatted(username.toUpperCase(), suffix, suffix)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        "User đã tồn tại với username: '" + username.toUpperCase() + "'"));
+
+        assertThat(userRepository.findAll().stream()
+                .filter(user -> user.getUsername().equalsIgnoreCase(username)))
+                .hasSize(1);
+    }
+
+    @Test
     void pendingAccountCannotLoginAndUsesTheSameSafeUnauthorizedContract() throws Exception {
         RegisteredAccount account = registerPendingAccount();
 

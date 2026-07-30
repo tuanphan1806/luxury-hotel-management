@@ -3,6 +3,10 @@
 import React, { useState, useEffect } from "react";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { getApiErrorMessage } from "@/lib/api";
+import {
+  inferUserIdentityConflictField,
+  isValidUsername,
+} from "@/lib/user-identity";
 import Button from "@/components/UI/Button";
 import ViewportModal from "@/components/UI/ViewportModal";
 
@@ -79,6 +83,7 @@ export default function EditGuestModal({ isOpen, onClose, user, onConfirm }: Edi
     const nextErrors: Partial<Record<EditUserField, string>> = {};
     if (!formData.fullName.trim()) nextErrors.fullName = localize("Vui lòng nhập họ và tên.", "Enter the full name.");
     if (!formData.username.trim()) nextErrors.username = localize("Vui lòng nhập tên đăng nhập.", "Enter the username.");
+    else if (!isValidUsername(formData.username)) nextErrors.username = localize("Tên đăng nhập cần 3–30 ký tự, chỉ dùng chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.", "Use 3–30 letters, numbers, dots, underscores, or hyphens.");
     if (!formData.email.trim()) nextErrors.email = localize("Vui lòng nhập email.", "Enter the email address.");
     if (!formData.phone.trim()) nextErrors.phone = localize("Vui lòng nhập số điện thoại.", "Enter the phone number.");
     if (formData.password && (formData.password.length < 8 || formData.password.length > 72)) nextErrors.password = localize("Mật khẩu mới cần từ 8 đến 72 ký tự.", "New password must contain 8–72 characters.");
@@ -97,7 +102,24 @@ export default function EditGuestModal({ isOpen, onClose, user, onConfirm }: Edi
       await onConfirm(user.id, formData);
       onClose();
     } catch (err: unknown) {
-      setErrorMsg(getApiErrorMessage(err, "Không thể cập nhật thông tin người dùng."));
+      const message = getApiErrorMessage(err, "Không thể cập nhật thông tin người dùng.");
+      const conflictField = inferUserIdentityConflictField(message);
+      if (conflictField) {
+        setFieldErrors((current) => ({
+          ...current,
+          [conflictField]: conflictField === "username"
+            ? localize("Tên đăng nhập này đã được sử dụng.", "This username is already in use.")
+            : conflictField === "email"
+              ? localize("Email này đã được sử dụng.", "This email is already in use.")
+              : localize("Số điện thoại này đã được sử dụng.", "This phone number is already in use."),
+        }));
+        setErrorMsg("");
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>(`#edit-user-${conflictField}`)?.focus();
+        });
+      } else {
+        setErrorMsg(message);
+      }
     } finally {
       setIsSubmitting(false);
     }

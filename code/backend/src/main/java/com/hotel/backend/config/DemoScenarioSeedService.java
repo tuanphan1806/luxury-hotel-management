@@ -19,8 +19,10 @@ import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.ReservationServiceStatus;
 import com.hotel.backend.constant.ReservationStatus;
 import com.hotel.backend.constant.RoomStatus;
+import com.hotel.backend.dto.request.CloseCashierShiftRequest;
 import com.hotel.backend.dto.request.OpenCashierShiftRequest;
 import com.hotel.backend.dto.request.ServiceOrderRequest;
+import com.hotel.backend.dto.response.CashierShiftResponse;
 import com.hotel.backend.entity.CustomerProfile;
 import com.hotel.backend.entity.Guest;
 import com.hotel.backend.entity.PaymentRefund;
@@ -143,15 +145,19 @@ public class DemoScenarioSeedService {
                 cancelledCashRefundScenario(today, now)));
         scenarios.addAll(completedAccountingScenarios(today));
 
-        for (ScenarioSpec scenario : scenarios) {
-            if (reservationRepository.existsByReservationCode(
-                    scenario.code())) {
-                summary.skippedReservations++;
-                continue;
-            }
+        List<ScenarioSpec> pendingScenarios = scenarios.stream()
+                .filter(scenario -> !reservationRepository
+                        .existsByReservationCode(scenario.code()))
+                .toList();
+        summary.skippedReservations =
+                scenarios.size() - pendingScenarios.size();
+        prepareCashierShift(context.staff(), pendingScenarios, summary);
+
+        for (ScenarioSpec scenario : pendingScenarios) {
             createScenario(context, scenario, summary);
             summary.createdReservations++;
         }
+        closeSeedCashierShift(context.staff(), summary);
         entityManager.flush();
         return summary.snapshot();
     }
@@ -563,14 +569,75 @@ public class DemoScenarioSeedService {
     private void ensureCashierShift(
             User staff,
             MutableSummary summary) {
-        if (cashierShiftService.current(staff) != null) return;
+        CashierShiftResponse current = cashierShiftService.current(staff);
+        if (current != null) {
+            if (!isSeedCashierShift(current)) {
+                throw activeCashierShiftConflict(current);
+            }
+            summary.managedCashShiftId = current.id();
+            return;
+        }
         OpenCashierShiftRequest request =
                 new OpenCashierShiftRequest();
-        request.setOpeningCashAmount(new BigDecimal("1000000"));
         request.setNote(
-                "Ca demo local tự mở để kiểm thử thu/hoàn tiền mặt");
-        cashierShiftService.open(request, staff);
+                "Ca dữ liệu mẫu tự động cho kiểm thử thu và hoàn tiền mặt");
+        CashierShiftResponse opened =
+                cashierShiftService.open(request, staff);
+        summary.managedCashShiftId = opened.id();
         summary.cashShiftOpened = true;
+    }
+
+    private void prepareCashierShift(
+            User staff,
+            List<ScenarioSpec> pendingScenarios,
+            MutableSummary summary) {
+        CashierShiftResponse current = cashierShiftService.current(staff);
+        if (current != null && isSeedCashierShift(current)) {
+            summary.managedCashShiftId = current.id();
+            return;
+        }
+        boolean requiresCashDrawer = pendingScenarios.stream()
+                .anyMatch(this::usesCashDrawer);
+        if (requiresCashDrawer && current != null) {
+            throw activeCashierShiftConflict(current);
+        }
+    }
+
+    private void closeSeedCashierShift(
+            User staff,
+            MutableSummary summary) {
+        if (summary.managedCashShiftId == null) return;
+        CloseCashierShiftRequest request =
+                new CloseCashierShiftRequest();
+        request.setNote(
+                "Tự động kết thúc ca sau khi hoàn tất dữ liệu mẫu");
+        cashierShiftService.close(
+                summary.managedCashShiftId,
+                request,
+                staff);
+        summary.cashShiftClosed = true;
+    }
+
+    private boolean usesCashDrawer(ScenarioSpec scenario) {
+        return scenario.paymentProvider() == PaymentProvider.CASH
+                || scenario.refundChannel()
+                == RefundChannel.CASH_AT_COUNTER;
+    }
+
+    private boolean isSeedCashierShift(CashierShiftResponse shift) {
+        if (shift.note() == null) return false;
+        return shift.note().startsWith("Ca dữ liệu mẫu tự động")
+                || shift.note().startsWith(
+                "Ca demo local tự mở để kiểm thử");
+    }
+
+    private IllegalStateException activeCashierShiftConflict(
+            CashierShiftResponse shift) {
+        return new IllegalStateException(
+                "Cannot seed demo cash scenarios while cashier shift "
+                        + shift.shiftCode()
+                        + " is active for staff1. Close the real shift "
+                        + "before running demo seed.");
     }
 
     private void createHoldIfRelevant(
@@ -1390,7 +1457,8 @@ public class DemoScenarioSeedService {
             int createdRefunds,
             int createdInvoices,
             int createdJournalEntries,
-            boolean cashShiftOpened) {
+            boolean cashShiftOpened,
+            boolean cashShiftClosed) {
     }
 
     private static final class MutableSummary {
@@ -1401,6 +1469,8 @@ public class DemoScenarioSeedService {
         private int createdInvoices;
         private int createdJournalEntries;
         private boolean cashShiftOpened;
+        private boolean cashShiftClosed;
+        private Long managedCashShiftId;
 
         private DemoSeedSummary snapshot() {
             return new DemoSeedSummary(
@@ -1410,7 +1480,8 @@ public class DemoScenarioSeedService {
                     createdRefunds,
                     createdInvoices,
                     createdJournalEntries,
-                    cashShiftOpened);
+                    cashShiftOpened,
+                    cashShiftClosed);
         }
     }
 }

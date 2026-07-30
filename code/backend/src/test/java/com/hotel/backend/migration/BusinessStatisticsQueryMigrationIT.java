@@ -45,6 +45,18 @@ class BusinessStatisticsQueryMigrationIT {
                 .isEmpty();
         assertThat(repository.cashFlow(
                 period, StatisticsGranularity.DAY, null)).isEmpty();
+        assertThat(repository.moneyFlow(
+                period, StatisticsGranularity.DAY)).isEmpty();
+        assertThat(repository.moneyWindow(
+                period.fromUtc(), period.toUtcExclusive()))
+                .satisfies(row -> {
+                    assertThat(row.cashIncome()).isZero();
+                    assertThat(row.transferIncome()).isZero();
+                    assertThat(row.cashRefund()).isZero();
+                    assertThat(row.transferRefund()).isZero();
+                });
+        assertThat(repository.reservationMoney(
+                period, null, 0, 20).content()).isEmpty();
         assertThat(repository.bookings(period, StatisticsGranularity.DAY))
                 .isEmpty();
         assertThat(repository.dailyOccupancy(period)).hasSize(31);
@@ -302,6 +314,49 @@ class BusinessStatisticsQueryMigrationIT {
         assertThat(cashFlow.get(1).unclassifiedCashOutCount()).isEqualTo(1);
         assertThat(repository.cashFlow(
                 period, StatisticsGranularity.DAY, "CASH")).isEmpty();
+
+        List<BusinessStatisticsQueryRepository.MoneyFlowRow> moneyFlow =
+                repository.moneyFlow(period, StatisticsGranularity.DAY);
+        assertThat(moneyFlow).extracting(
+                        BusinessStatisticsQueryRepository.MoneyFlowRow::period)
+                .containsExactly(
+                        LocalDate.of(2026, 7, 10),
+                        LocalDate.of(2026, 7, 11));
+        assertThat(moneyFlow.get(0).cashIncome()).isZero();
+        assertThat(moneyFlow.get(0).transferIncome())
+                .isEqualByComparingTo("200000");
+        assertThat(moneyFlow.get(0).unmatchedTransferCount()).isEqualTo(1);
+        assertThat(moneyFlow.get(0).unmatchedTransferAmount())
+                .isEqualByComparingTo("45000");
+        assertThat(moneyFlow.get(1).transferRefund())
+                .isEqualByComparingTo("35000");
+        assertThat(moneyFlow.get(1).refundCount()).isEqualTo(2);
+        assertThat(repository.moneyWindow(
+                period.fromUtc(), period.toUtcExclusive()))
+                .satisfies(row -> {
+                    assertThat(row.cashIncome()).isZero();
+                    assertThat(row.transferIncome())
+                            .isEqualByComparingTo("200000");
+                    assertThat(row.cashRefund()).isZero();
+                    assertThat(row.transferRefund())
+                            .isEqualByComparingTo("35000");
+                });
+        assertThat(repository.reservationMoney(
+                period, "stats-1", 0, 20).content())
+                .singleElement()
+                .satisfies(entry -> {
+                    assertThat(entry.reservationCode())
+                            .isEqualTo("RES-STATS-1");
+                    assertThat(entry.amounts().cashIncome()).isZero();
+                    assertThat(entry.amounts().transferIncome())
+                            .isEqualByComparingTo("200000");
+                    assertThat(entry.amounts().transferRefund())
+                            .isEqualByComparingTo("35000");
+                    assertThat(entry.amounts().netRevenue())
+                            .isEqualByComparingTo("165000");
+                    assertThat(entry.amounts().paymentCount()).isEqualTo(1);
+                    assertThat(entry.amounts().refundCount()).isEqualTo(2);
+                });
 
         List<BusinessStatisticsQueryRepository.DailyOccupancyRow> occupancy =
                 repository.dailyOccupancy(period);
