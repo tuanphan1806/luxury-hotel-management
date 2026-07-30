@@ -6,22 +6,22 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 
 const galleryCards = [
   {
-    src: "/backend_proxy/galeries/g-1.jpg?v=20260722-about-story",
+    src: "/media/heroes/g-1.webp",
     vi: "Sảnh đón ngập ánh sáng",
     en: "A light-filled arrival lobby",
   },
   {
-    src: "/backend_proxy/galeries/g-6.jpg?v=20260722-about-story",
+    src: "/media/heroes/g-6.webp",
     vi: "Khoảng nghỉ bên hồ bơi",
     en: "A quiet poolside retreat",
   },
   {
-    src: "/backend_proxy/galeries/g-8.jpg?v=20260722-about-story",
+    src: "/media/heroes/g-8.webp",
     vi: "Sân trong xanh mát",
     en: "A calm garden courtyard",
   },
   {
-    src: "/backend_proxy/galeries/g-11.jpg?v=20260722-about-story",
+    src: "/media/heroes/g-11.webp",
     vi: "Không gian chung gần thiên nhiên",
     en: "Shared spaces close to nature",
   },
@@ -60,7 +60,6 @@ export default function AboutGalleryStack() {
                   src={card.src}
                   alt={title}
                   fill
-                  priority={index === 0}
                   sizes="(min-width: 1024px) 34vw, (min-width: 640px) 55vw, 70vw"
                   className="object-cover"
                 />

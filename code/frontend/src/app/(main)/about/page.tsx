@@ -56,7 +56,7 @@ export default function AboutPage() {
   return (
     <div className="home-color-story">
       <GuestPageHero
-        imageSrc="/backend_proxy/galeries/about-courtyard-v2.webp"
+        imageSrc="/media/heroes/about-courtyard-v2.webp"
         imageAlt={localize("Sân vườn và hồ nước ngập nắng tại Luxury Hotel", "The sunlit garden courtyard and pool at Luxury Hotel")}
         eyebrow={localize("Về Luxury Hotel", "About Luxury Hotel")}
         title={localize("Sự sang trọng bắt đầu từ cảm giác được chuẩn bị chu đáo.", "Luxury begins with feeling thoughtfully prepared for.")}
@@ -103,13 +103,13 @@ export default function AboutPage() {
         <div className="mx-auto grid max-w-[1400px] gap-12 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
           <div className="about-collage grid min-h-[32rem] grid-cols-12 grid-rows-12 gap-3 md:min-h-[38rem] md:gap-4">
             <figure className="about-collage-card about-collage-card-top relative col-span-5 row-span-6 overflow-hidden rounded-[1.5rem] bg-[#E5E9ED]">
-              <ProgressiveImage src="/backend_proxy/galeries/g-8.jpg?v=20260722-about" alt={localize("Sảnh xanh và chi tiết kiến trúc tại Luxury Hotel", "Green lobby and architectural details at Luxury Hotel")} fill sizes="(min-width: 1024px) 19vw, 42vw" className="object-cover" />
+              <ProgressiveImage src="/media/heroes/g-8.webp" alt={localize("Sảnh xanh và chi tiết kiến trúc tại Luxury Hotel", "Green lobby and architectural details at Luxury Hotel")} fill sizes="(min-width: 1024px) 19vw, 42vw" className="object-cover" />
             </figure>
             <figure className="about-collage-card about-collage-card-main relative col-span-7 col-start-6 row-span-12 overflow-hidden rounded-[2rem] bg-[#E5E9ED]">
               <ProgressiveImage src={FACILITIES_CONTENT.hero.bg} alt={localize("Không gian tiện nghi và hồ bơi của khách sạn", "Hotel facilities and pool space")} fill sizes="(min-width: 1024px) 29vw, 56vw" className="object-cover" />
             </figure>
             <figure className="about-collage-card about-collage-card-bottom relative col-span-5 row-span-6 row-start-7 overflow-hidden rounded-[1.5rem] bg-[#E5E9ED]">
-              <ProgressiveImage src="/backend_proxy/galeries/g-11.jpg?v=20260722-about" alt={localize("Không gian thư giãn giàu ánh sáng tại Luxury Hotel", "A bright relaxation space at Luxury Hotel")} fill sizes="(min-width: 1024px) 19vw, 42vw" className="object-cover" />
+              <ProgressiveImage src="/media/heroes/g-11.webp" alt={localize("Không gian thư giãn giàu ánh sáng tại Luxury Hotel", "A bright relaxation space at Luxury Hotel")} fill sizes="(min-width: 1024px) 19vw, 42vw" className="object-cover" />
             </figure>
           </div>
 
@@ -158,7 +158,7 @@ export default function AboutPage() {
             </ol>
           </div>
           <figure className="guest-media-lift relative min-h-[28rem] overflow-hidden rounded-[2rem] bg-[#E5E9ED]">
-            <ProgressiveImage src="/backend_proxy/galeries/g-12.jpg?v=20260722-about" alt={localize("Không gian nghỉ dưỡng và tiện nghi", "Hotel facilities and leisure space")} fill sizes="(min-width: 1024px) 45vw, 100vw" className="object-cover" />
+            <ProgressiveImage src="/media/heroes/g-12.webp" alt={localize("Không gian nghỉ dưỡng và tiện nghi", "Hotel facilities and leisure space")} fill sizes="(min-width: 1024px) 45vw, 100vw" className="object-cover" />
           </figure>
         </div>
       </section>
