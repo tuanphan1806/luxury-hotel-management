@@ -129,6 +129,24 @@ class CashierShiftServiceTest {
     }
 
     @Test
+    void recordCashPaymentAllowsAdminWithoutOpeningCashierShift() {
+        User admin = User.builder()
+                .fullName("Quản trị viên")
+                .username("admin")
+                .email("admin@example.com")
+                .type(UserType.ADMIN)
+                .status(UserStatus.ACTIVE)
+                .build();
+        admin.setId(8L);
+        when(shiftRepository.findActiveByUserIdForUpdate(eq(8L), any()))
+                .thenReturn(Optional.empty());
+
+        service.recordCashPayment(cashPayment(92L, 135_000L), admin);
+
+        verify(movementRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void recordCashPaymentAppendsReceivedAmountExactlyOnce() {
         CashierShift shift = openShift();
         PaymentTransaction payment = cashPayment(91L, 120_000L);

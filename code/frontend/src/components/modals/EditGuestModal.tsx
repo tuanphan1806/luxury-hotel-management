@@ -25,8 +25,8 @@ interface UserItem {
   fullName: string;
   username: string;
   email: string;
-  phone: string;
-  address: string;
+  phone?: string | null;
+  address?: string | null;
   type: UserRole;
   status: "ACTIVE" | "INACTIVE";
   imageUrl?: string;

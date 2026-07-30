@@ -6,6 +6,27 @@
 
 ## Production release candidate — 2026-07-26
 
+- Production verification was refreshed on 2026-07-30 at deployed ref
+  `87e9b3c`: ADMIN/STAFF role boundaries, cash walk-in/check-out, invoice,
+  audit and financial journal were checked directly in the deployed UI.
+- Reservation `RES-18557480` is the cash UAT evidence: 70,000 VND is identical
+  across payment, checkout reconciliation, invoice, `CASH_IN`,
+  `REVENUE_RECOGNIZED` and audit trail.
+- The live finance dashboard and checkout-exception page currently show zero
+  unresolved cash-flow/checkout exceptions. The earlier 2,000 VND SePay item
+  is no longer in the active review queue.
+- A bounded 24-request read-only smoke returned HTTP 200 throughout (p95 home
+  1,625 ms, rooms 560 ms, backend health 278 ms). Keep the production-like
+  load gate PARTIAL until it is run against an approved staging/Neon clone.
+- Neon restore rehearsal is complete on child branch
+  `pre-go-live-20260730`: reset from `production` succeeded and all ten
+  `post-cutover-validate.sql` statements passed, including FK, identity,
+  constraint and 28-migration checks. The expiring clone auto-deletes on
+  2026-07-31 at 00:42 GMT+7.
+- Remaining release evidence: coordinated real-bank SePay incoming/outgoing,
+  sustained staging load, monitoring-email receipt and final operator
+  sign-off.
+
 - Active checkout remains `C:\Users\admin\Downloads\hotelmanagement-new`; the
   OneDrive checkout is not the release source.
 - Backend SOLID refactor preserves the existing REST/database contracts and
@@ -25,7 +46,8 @@
 - Remaining external evidence is intentionally tracked as PARTIAL in
   `docs/qa/full-system-test-report.md`: SendGrid inbox deliverability and plan
   continuity, a coordinated real SePay incoming/outgoing transfer, production
-  backup/restore and load/operator UAT.
+  load/operator UAT and monitoring alert receipt. Neon restore validation is
+  complete.
 
 ## PostgreSQL database cutover — 2026-07-19
 

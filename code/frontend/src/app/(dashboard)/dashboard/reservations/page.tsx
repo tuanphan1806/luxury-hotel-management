@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { apiClient, cachedGet, getApiErrorStatus } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
 import ViewportModal from "@/components/UI/ViewportModal";
@@ -381,6 +382,14 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
   return typeof responseData.message === "string" ? responseData.message : fallback;
 };
 
+const getApiErrorCode = (error: unknown) => {
+  if (!isRecord(error) || !("response" in error) || !isRecord(error.response)) return undefined;
+  const responseData = error.response.data;
+  return isRecord(responseData) && typeof responseData.code === "number"
+    ? responseData.code
+    : undefined;
+};
+
 const getApiValidationMessages = (error: unknown): string[] => {
   if (!isRecord(error) || !("response" in error) || !isRecord(error.response)) return [];
   const responseData = error.response.data;
@@ -534,6 +543,7 @@ export default function ReservationsManagement() {
   const [availableRooms, setAvailableRooms] = useState<RoomItem[]>([]);
   const [selectedReservation, setSelectedReservation] = useState<ReservationItem | null>(null);
   const [finalPayment, setFinalPayment] = useState<FinalPayment | null>(null);
+  const [cashierShiftRequired, setCashierShiftRequired] = useState(false);
   const [checkInDrafts, setCheckInDrafts] = useState<CheckInRoomDraft[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [linkedReservationCode, setLinkedReservationCode] = useState("");
@@ -865,6 +875,7 @@ export default function ReservationsManagement() {
   const closeReservationModal = () => {
     setSelectedReservation(null);
     setFinalPayment(null);
+    setCashierShiftRequired(false);
     setCheckInDrafts([]);
     setAvailableRooms([]);
   };
@@ -1523,6 +1534,7 @@ export default function ReservationsManagement() {
 
   const openFinalPayment = useCallback(async (reservation: ReservationItem) => {
     setSelectedReservation(reservation);
+    setCashierShiftRequired(false);
     setCheckInDrafts([]);
     setAvailableRooms([]);
     setIsActionLoading(true);
@@ -1595,6 +1607,22 @@ export default function ReservationsManagement() {
     const operationScope = `payment:${selectedReservation.id}:CASH_FINAL`;
     setIsActionLoading(true);
     try {
+      if (!isAdmin) {
+        const currentShiftResponse = await apiClient.get("/api/accounting/cashier-shifts/current");
+        const currentShift = toData<{ id: number; status: string } | null>(currentShiftResponse);
+        if (!currentShift || currentShift.status !== "OPEN") {
+          setCashierShiftRequired(true);
+          showToast(
+            localize(
+              "Cần mở ca thu ngân của chính bạn trước khi nhận tiền mặt.",
+              "Open your own cashier shift before collecting cash.",
+            ),
+            "error",
+          );
+          return;
+        }
+      }
+      setCashierShiftRequired(false);
       await apiClient.post("/api/payments/cash", {
         bookingId: selectedReservation.id,
       }, {
@@ -1606,6 +1634,7 @@ export default function ReservationsManagement() {
       showToast("Đã ghi nhận thanh toán tiền mặt", "success");
       await openFinalPayment(selectedReservation);
     } catch (error: unknown) {
+      if (getApiErrorCode(error) === 5090) setCashierShiftRequired(true);
       showToast(getApiErrorMessage(error, "Không thể ghi nhận tiền mặt"), "error");
     } finally {
       setIsActionLoading(false);
@@ -3207,7 +3236,31 @@ export default function ReservationsManagement() {
                   {(finalPayment.paymentPending || finalPayment.refundPending) && <button type="button" disabled={isActionLoading} onClick={() => void openFinalPayment(selectedReservation)} className="min-h-10 rounded-lg border border-[#0F2A43]/20 bg-white px-4 text-xs font-bold text-[#0F2A43] hover:border-[#B8944F] disabled:opacity-50">{localize("Kiểm tra lại trạng thái", "Refresh status")}</button>}
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {finalPayment.remainingAmount > 0 && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4"><p className="text-sm font-bold text-rose-800">{localize("Còn thiếu tiền", "Outstanding balance")}: {formatVND(finalPayment.remainingAmount)}</p><p className="mt-1 text-xs leading-5 text-rose-700">{localize("Thu đúng số còn thiếu bằng tiền mặt hoặc tạo QR thanh toán cuối.", "Collect the exact balance in cash or create a final-payment QR.")}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={isActionLoading} onClick={handleCashPayment} className="min-h-10 rounded-lg bg-[#B8944F] px-4 text-xs font-bold text-[#0F2A43] disabled:opacity-60">{localize("Thu tiền mặt", "Collect cash")}</button><button type="button" disabled={isActionLoading} onClick={handleOnlinePayment} className="min-h-10 rounded-lg border border-[#0F2A43] bg-white px-4 text-xs font-bold text-[#0F2A43] hover:bg-[#0F2A43] hover:text-white disabled:opacity-60">{localize("Tạo QR", "Create QR")}</button></div></div>}
+                  {finalPayment.remainingAmount > 0 && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                      <p className="text-sm font-bold text-rose-800">{localize("Còn thiếu tiền", "Outstanding balance")}: {formatVND(finalPayment.remainingAmount)}</p>
+                      <p className="mt-1 text-xs leading-5 text-rose-700">{localize("Thu đúng số còn thiếu bằng tiền mặt hoặc tạo QR thanh toán cuối.", "Collect the exact balance in cash or create a final-payment QR.")}</p>
+                      {cashierShiftRequired ? (
+                        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                          <p className="text-xs font-bold text-amber-900">{localize("Chưa có ca thu ngân đang mở", "No open cashier shift")}</p>
+                          <p className="mt-1 text-xs leading-5 text-amber-800">{localize("Mở ca của chính người đang thao tác để khoản thu được ghi đúng vào sổ tiền mặt. Sau đó quay lại đơn và nhấn Thu tiền mặt.", "Open a shift for the current operator so the collection is recorded in the correct cash ledger. Then return and collect cash again.")}</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Link href="/dashboard/cashier-shifts" className="inline-flex min-h-10 items-center rounded-lg bg-[#0F2A43] px-4 text-xs font-bold text-white transition hover:bg-[#173D5F]">
+                              {localize("Mở ca thu ngân", "Open cashier shift")}
+                            </Link>
+                            <button type="button" disabled={isActionLoading} onClick={handleCashPayment} className="min-h-10 rounded-lg border border-amber-400 bg-white px-4 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60">
+                              {localize("Đã mở ca · thử lại", "Shift opened · retry")}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button type="button" disabled={isActionLoading} onClick={handleCashPayment} className="min-h-10 rounded-lg bg-[#B8944F] px-4 text-xs font-bold text-[#0F2A43] disabled:opacity-60">{localize("Thu tiền mặt", "Collect cash")}</button>
+                          <button type="button" disabled={isActionLoading} onClick={handleOnlinePayment} className="min-h-10 rounded-lg border border-[#0F2A43] bg-white px-4 text-xs font-bold text-[#0F2A43] hover:bg-[#0F2A43] hover:text-white disabled:opacity-60">{localize("Tạo QR", "Create QR")}</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {(finalPayment.refundableAmount || 0) > 0 && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-bold text-emerald-800">{localize("Cần tạo khoản hoàn", "Refund must be created")}: {formatVND(finalPayment.refundableAmount)}</p><p className="mt-1 text-xs leading-5 text-emerald-700">{localize("Tạo refund đúng số tiền; chỉ khớp sau khi refund hoàn tất.", "Create the exact refund; matching occurs only after completion.")}</p><button type="button" disabled={isActionLoading} onClick={handleCheckoutRefund} className="mt-3 min-h-10 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{localize("Xử lý hoàn tiền", "Process refund")}</button></div>}
                   {finalPayment.paymentPending && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4"><p className="text-sm font-bold text-sky-900">{localize("Payment đang chờ xác nhận", "Payment is pending")}</p><p className="mt-1 text-xs leading-5 text-sky-800">{localize("Không tạo giao dịch trùng. Chờ webhook hoặc kiểm tra giao dịch SePay đang chờ.", "Do not create a duplicate. Wait for the webhook or review the pending SePay transaction.")}</p></div>}
                   {finalPayment.reservedRefundAmount > 0 && <div className="rounded-xl border border-sky-200 bg-sky-50 p-4"><p className="text-sm font-bold text-sky-900">{localize("Refund chưa hoàn tất", "Refund is incomplete")}: {formatVND(finalPayment.reservedRefundAmount)}</p><p className="mt-1 text-xs leading-5 text-sky-800">{localize("Hoàn tất giao tiền/đối soát ngân hàng; không được checkout khi còn nghĩa vụ hoàn.", "Complete the handover or bank reconciliation; checkout stays blocked while a refund is due.")}</p></div>}

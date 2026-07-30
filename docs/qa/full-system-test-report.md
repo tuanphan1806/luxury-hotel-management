@@ -1,9 +1,48 @@
 # Full-system QA report
 
-Status: LOCAL AUTOMATED QA COMPLETE; PRODUCTION EXTERNAL GATES PARTIAL
+Status: AUTOMATED QA + PRODUCTION CASH UAT + NEON RESTORE COMPLETE; REAL-BANK/LOAD/EMAIL GATES PARTIAL
 Baseline date: 2026-07-26
 Audited branch/ref: `release/2026-07-26-system-hardening`, based on
 `main` / `476f9c656c86af234706acbfff116530e0d5b7e3`
+
+## Production verification update — 2026-07-30
+
+- Deployed frontend ref: `87e9b3c` (PR #36). GitHub quality gates and the
+  Vercel production deployment passed.
+- Pricing V2 is enabled in the production blueprint for all six canonical room
+  type codes: `STANDARD`, `DELUXE`, `EXECUTIVE`, `SUITE`, `FAMILY` and
+  `PRESIDENTIAL`.
+- The ADMIN finance dashboard reports **no unmatched incoming or unclassified
+  outgoing cash-flow exception** in the active reporting window. The earlier
+  2,000 VND SePay review item is no longer present in the live exception queue;
+  normal SePay and refund entries remain visible in the read-only journal.
+- The checkout-exception queue contains zero pending requests.
+- Production cash operator UAT is evidenced by reservation `RES-18557480`:
+  atomic walk-in/check-in, 70,000 VND CASH payment, MATCHED checkout,
+  immutable invoice `INV-RES-18557480`, `CASH_IN` and
+  `REVENUE_RECOGNIZED` journal rows, plus STAFF-attributed audit entries all
+  agree on 70,000 VND.
+- Authorization UAT after PR #36 confirms STAFF cannot see reservation history,
+  while ADMIN can; the dashboard greeting also resolves the authoritative
+  server role instead of stale browser storage.
+- A bounded read-only production smoke (8 requests per target, concurrency 4)
+  returned 24/24 HTTP 200. Observed p95: home 1,625 ms, rooms 560 ms and proxied
+  backend health 278 ms. This is a safe latency smoke, not a replacement for a
+  sustained production-like load test.
+- Neon restore rehearsal completed on the expiring child branch
+  `pre-go-live-20260730` (parent `production`, PostgreSQL 16, Singapore). Neon
+  successfully reset the clone from the latest production state; production
+  itself was not mutated. `post-cutover-validate.sql` then completed all ten
+  statements without error: generic FK and identity-sequence checks passed,
+  four deferred constraints validated, and all 28 Flyway migrations reported
+  success. The restored clone contained 23 reservations across six lifecycle
+  states, 19 successful payment rows totalling 8,350,000 VND and three
+  successful refunds totalling 475,000 VND. The disposable clone is configured
+  to auto-delete on 2026-07-31 at 00:42 GMT+7.
+
+Still external/partial after this update: one coordinated real-bank SePay
+incoming/outgoing run, sustained load/concurrency at an approved staging
+volume, monitoring-email receipt and final operator sign-off.
 
 ## 1. Baseline identity and safety
 
@@ -113,9 +152,9 @@ business ordering was changed by these QA-harness fixes.
 3. **Real SePay transfer:** automated and security contracts pass, but an
    operator still needs to execute one coordinated real incoming and one real
    outgoing transfer on production and reconcile both against the ledger.
-4. **Release operations:** production backup/restore drill, load/concurrency
-   test with production-like volume, operator UAT and monitoring alert receipt
-   remain release gates.
+4. **Release operations:** the production-clone restore/validation drill is
+   complete. Sustained load/concurrency at production-like volume, final
+   operator sign-off and monitoring alert receipt remain release gates.
 
 ## 8. Conclusion
 
@@ -123,4 +162,4 @@ The local application, PostgreSQL schema, backend tests, frontend tests/build
 and critical browser workflows are green at the audited revision plus the
 current dirty refactor changes. This is strong local release evidence, but it
 is not yet a production-complete DoD because SendGrid deliverability/continuity,
-real SePay transfer evidence and operator/load gates remain PARTIAL.
+real SePay transfer evidence and operator/load/monitoring gates remain PARTIAL.
