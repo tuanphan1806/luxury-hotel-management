@@ -51,7 +51,25 @@ public final class MoneyReportResponse {
             String reservationCode,
             String reservationStatus,
             Breakdown amounts,
-            Instant lastMovementAtUtc) {
+            Instant lastMovementAtUtc,
+            LocalDate period,
+            LocalDate periodEndExclusive) {
+
+        public ReservationMoney(
+                Long reservationId,
+                String reservationCode,
+                String reservationStatus,
+                Breakdown amounts,
+                Instant lastMovementAtUtc) {
+            this(
+                    reservationId,
+                    reservationCode,
+                    reservationStatus,
+                    amounts,
+                    lastMovementAtUtc,
+                    null,
+                    null);
+        }
     }
 
     public record ReservationMoneyPage(

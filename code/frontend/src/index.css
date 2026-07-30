@@ -1158,18 +1158,4 @@ html.hotel-reduce-motion *::after {
   .finance-report-print-root header,
   .finance-report-print-root section,
   .finance-report-print-root article { break-inside: avoid; }
-  .finance-report-print-root .finance-period-mobile { display: none !important; }
-  .finance-report-print-root .finance-period-table {
-    display: block !important;
-    overflow: visible !important;
-  }
-  .finance-report-print-root .finance-period-table table {
-    min-width: 0 !important;
-    width: 100% !important;
-    font-size: 8pt !important;
-  }
-  .finance-report-print-root .finance-period-table th,
-  .finance-report-print-root .finance-period-table td {
-    padding: 6px 8px !important;
-  }
 }

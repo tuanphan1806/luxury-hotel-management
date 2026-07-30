@@ -177,6 +177,28 @@ class MoneyReportServiceTest {
         assertThat(result).isSameAs(expected);
     }
 
+    @Test
+    void reservationMoneyUsesPeriodReadModelWhenGranularityIsProvided() {
+        var expected = new MoneyReportResponse.ReservationMoneyPage(
+                List.of(), 0, 100, 0, 0);
+        when(queryRepository.reservationMoneyByPeriod(
+                any(StatisticsPeriod.class),
+                eq(StatisticsGranularity.WEEK),
+                eq("res-01"),
+                eq(0),
+                eq(100))).thenReturn(expected);
+
+        var result = service.reservationMoney(
+                LocalDate.of(2026, 7, 1),
+                LocalDate.of(2026, 7, 30),
+                "res-01",
+                -3,
+                500,
+                "week");
+
+        assertThat(result).isSameAs(expected);
+    }
+
     private BigDecimal bd(long value) {
         return BigDecimal.valueOf(value);
     }

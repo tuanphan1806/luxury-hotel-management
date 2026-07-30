@@ -37,6 +37,8 @@ export type ReservationMoneyEntry = {
   reservationStatus: string;
   amounts: MoneyBreakdown;
   lastMovementAtUtc: string;
+  period?: string;
+  periodEndExclusive?: string;
 };
 
 export type ReservationMoneyPage = {
