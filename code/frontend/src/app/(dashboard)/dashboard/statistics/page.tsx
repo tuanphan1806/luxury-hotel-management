@@ -132,11 +132,15 @@ function MoneyCard({
   value,
   detail,
   tone = "navy",
+  breakdown = [],
+  featured = false,
 }: {
   label: string;
   value: string;
   detail: string;
   tone?: "navy" | "green" | "red" | "gold";
+  breakdown?: Array<{ label: string; value: string }>;
+  featured?: boolean;
 }) {
   const styles = {
     navy: "border-[#0F2A43]/10 bg-white text-[#0F2A43]",
@@ -145,61 +149,23 @@ function MoneyCard({
     gold: "border-[#B8944F]/25 bg-[#F8F3E8] text-[#0F2A43]",
   }[tone];
   return (
-    <article className={`rounded-2xl border p-5 ${styles}`}>
-      <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] opacity-70">
+    <article className={`flex min-h-44 flex-col rounded-2xl border p-5 ${featured ? "border-[#B8944F]/45 bg-[#0F2A43] text-white shadow-[0_16px_38px_rgba(15,42,67,0.18)]" : styles}`}>
+      <p className={`text-[10px] font-extrabold uppercase tracking-[0.18em] ${featured ? "text-[#D8C398]" : "opacity-70"}`}>
         {label}
       </p>
-      <p className="mt-3 font-serif text-2xl font-bold sm:text-3xl">{value}</p>
-      <p className="mt-2 text-xs leading-5 opacity-70">{detail}</p>
+      <p className={`mt-3 font-serif font-bold ${featured ? "text-3xl text-white sm:text-4xl" : "text-2xl sm:text-3xl"}`}>{value}</p>
+      <p className={`mt-2 text-xs leading-5 ${featured ? "text-white/70" : "opacity-70"}`}>{detail}</p>
+      {breakdown.length > 0 && (
+        <dl className="mt-4 grid grid-cols-2 gap-2 border-t border-current/10 pt-3">
+          {breakdown.map((item) => (
+            <div key={item.label} className="min-w-0">
+              <dt className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] opacity-60">{item.label}</dt>
+              <dd className="mt-1 truncate text-sm font-extrabold tabular-nums">{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </article>
-  );
-}
-
-function BreakdownGrid({
-  totals,
-  localeTag,
-}: {
-  totals: MoneyBreakdown;
-  localeTag: string;
-}) {
-  const items = [
-    {
-      label: "Thu bằng tiền mặt",
-      value: totals.cashIncome,
-      detail: "Tiền mặt đã thu và ghi nhận vào đơn",
-      tone: "green" as const,
-    },
-    {
-      label: "Thu bằng chuyển khoản",
-      value: totals.transferIncome,
-      detail: "Chuyển khoản SePay đã ghép đúng đơn",
-      tone: "green" as const,
-    },
-    {
-      label: "Hoàn bằng tiền mặt",
-      value: totals.cashRefund,
-      detail: "Tiền mặt đã hoàn cho khách",
-      tone: "red" as const,
-    },
-    {
-      label: "Hoàn bằng chuyển khoản",
-      value: totals.transferRefund,
-      detail: "Chuyển khoản hoàn đã được xác nhận",
-      tone: "red" as const,
-    },
-  ];
-  return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Chi tiết nguồn tiền">
-      {items.map((item) => (
-        <MoneyCard
-          key={item.label}
-          label={item.label}
-          value={vnd(item.value, localeTag)}
-          detail={item.detail}
-          tone={item.tone}
-        />
-      ))}
-    </section>
   );
 }
 
@@ -669,24 +635,29 @@ export default function BusinessStatisticsPage() {
                   value={vnd(totals.totalIncome, localeTag)}
                   detail={`${totals.paymentCount.toLocaleString(localeTag)} giao dịch đã ghi nhận vào đơn`}
                   tone="green"
+                  breakdown={[
+                    { label: "Tiền mặt", value: vnd(totals.cashIncome, localeTag) },
+                    { label: "Chuyển khoản", value: vnd(totals.transferIncome, localeTag) },
+                  ]}
                 />
                 <MoneyCard
                   label="Tổng hoàn tiền"
                   value={vnd(totals.totalRefund, localeTag)}
                   detail={`${totals.refundCount.toLocaleString(localeTag)} khoản hoàn đã hoàn tất`}
                   tone="red"
+                  breakdown={[
+                    { label: "Tiền mặt", value: vnd(totals.cashRefund, localeTag) },
+                    { label: "Chuyển khoản", value: vnd(totals.transferRefund, localeTag) },
+                  ]}
                 />
                 <MoneyCard
                   label="Doanh thu thực nhận"
                   value={vnd(totals.netRevenue, localeTag)}
                   detail="Tổng thu trừ tổng hoàn trong kỳ"
                   tone={totals.netRevenue < 0 ? "red" : "gold"}
+                  featured={totals.netRevenue >= 0}
                 />
               </section>
-
-              <div className="mt-4">
-                <BreakdownGrid totals={totals} localeTag={localeTag} />
-              </div>
 
               {report.unmatchedTransferCount > 0 && (
                 <aside className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
