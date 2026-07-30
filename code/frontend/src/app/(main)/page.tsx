@@ -65,6 +65,7 @@ export default function HomePage() {
   const [facilities, setFacilities] = useState<FacilityItem[]>([]);
   const [rooms, setRooms] = useState<RoomTypeItem[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
   const [galleryStart, setGalleryStart] = useState(0);
   const [galleryDirection, setGalleryDirection] = useState<"previous" | "next">("next");
   const [checkIn, setCheckIn] = useState("");
@@ -110,7 +111,7 @@ export default function HomePage() {
       if (galleryRes.status === "fulfilled") {
         setGallery(galleryRes.value);
       }
-    });
+    }).finally(() => setIsCatalogLoading(false));
   }, []);
 
   const visibleFacilities = useMemo(
@@ -228,7 +229,7 @@ export default function HomePage() {
           alt={localize("Không gian sảnh Luxury Hotel", "Luxury Hotel lobby")}
           fill
           priority
-          quality={92}
+          quality={82}
           sizes="100vw"
           className="object-cover"
           loaderClassName="hero-image-loading-surface"
@@ -368,6 +369,9 @@ export default function HomePage() {
               aria-label={localize("Thư viện ảnh, vuốt sang trái hoặc phải để xem thêm", "Photo gallery, swipe left or right to see more")}
               className="guest-horizontal-scroller flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain scroll-smooth touch-pan-x rounded-[1.5rem] outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-4 motion-reduce:scroll-auto md:hidden"
             >
+              {isCatalogLoading && (
+                <div aria-hidden="true" className="skeleton-surface aspect-[4/3] w-full shrink-0 rounded-[1.5rem]" />
+              )}
               {galleryImages.map((image, index) => {
                 const src = image.imageUrl || image.image;
                 if (!src) return null;
@@ -382,7 +386,7 @@ export default function HomePage() {
                   </figure>
                 );
               })}
-              {!galleryImages.length && (
+              {!isCatalogLoading && !galleryImages.length && (
                 <div className="flex aspect-[4/3] w-full shrink-0 items-center justify-center rounded-[1.5rem] border border-dashed border-[#0F2A43]/15 bg-[#F1F0EA] px-6 text-center text-sm font-semibold text-[#66727C]">
                   {localize("Chưa có ảnh trong thư viện.", "No gallery images are available yet.")}
                 </div>
@@ -390,6 +394,13 @@ export default function HomePage() {
             </div>
 
             <div className="hidden gap-5 md:grid md:grid-cols-12 md:grid-rows-2" aria-live="polite">
+              {isCatalogLoading && (
+                <>
+                  <div aria-hidden="true" className="skeleton-surface min-h-[36rem] rounded-[2rem] md:col-span-7 md:row-span-2 lg:col-span-8 lg:min-h-[39rem]" />
+                  <div aria-hidden="true" className="skeleton-surface min-h-[17.5rem] rounded-[1.5rem] md:col-span-5 lg:col-span-4 lg:min-h-[19rem]" />
+                  <div aria-hidden="true" className="skeleton-surface min-h-[17.5rem] rounded-[1.5rem] md:col-span-5 lg:col-span-4 lg:min-h-[19rem]" />
+                </>
+              )}
               {visibleGalleryImages.map((image, index) => {
                 const src = image.imageUrl || image.image;
                 if (!src) return null;
@@ -408,7 +419,7 @@ export default function HomePage() {
                   </figure>
                 );
               })}
-              {!galleryImages.length && (
+              {!isCatalogLoading && !galleryImages.length && (
                 <div className="flex min-h-[24rem] items-center justify-center rounded-[1.75rem] border border-dashed border-[#0F2A43]/15 bg-[#F1F0EA] text-sm font-semibold text-[#66727C] md:col-span-12">
                   {localize("Chưa có ảnh trong thư viện.", "No gallery images are available yet.")}
                 </div>
@@ -432,6 +443,9 @@ export default function HomePage() {
         <div data-testid="home-facilities-frame" className="relative md:px-12">
           <div ref={facilityScrollerRef} tabIndex={0} aria-label={localize("Danh sách tiện nghi nổi bật", "Featured facilities carousel")} className="guest-horizontal-scroller scroll-smooth overflow-x-auto pb-5 outline-none">
             <div className="motion-stagger flex snap-x snap-mandatory items-stretch gap-6">
+            {isCatalogLoading && [0, 1, 2].map((item) => (
+              <div key={`facility-skeleton-${item}`} aria-hidden="true" className="skeleton-surface h-[78vw] w-[78vw] shrink-0 rounded-[1.75rem] sm:h-[21rem] sm:w-[21rem] lg:h-[23rem] lg:w-[23rem]" />
+            ))}
             {visibleFacilities.map((facility, index) => {
               const name = localize(facility.facilityName || facility.name, facility.facilityNameEn) || localize("Tiện nghi khách sạn", "Hotel facility");
               const image = facility.imageUrls?.[0] || facility.imageUrl || facility.image || facility.icon;
@@ -446,7 +460,7 @@ export default function HomePage() {
                   onClick={() => setSelectedFacility(facility)}
                   className="group relative h-[78vw] w-[78vw] shrink-0 snap-start overflow-hidden rounded-[1.75rem] border border-[#0F2A43]/10 bg-[#E5E9ED] text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] focus-visible:ring-offset-4 sm:h-[21rem] sm:w-[21rem] lg:h-[23rem] lg:w-[23rem]"
                 >
-                  <ProgressiveImage src={image} fallbackSrc={HOME_CONTENT.hero.bg} alt={name} fill loading={index < 4 ? "eager" : "lazy"} sizes="(min-width: 1024px) 23rem, (min-width: 640px) 21rem, 78vw" className="object-cover group-hover:scale-105" />
+                  <ProgressiveImage src={image} fallbackSrc={HOME_CONTENT.hero.bg} alt={name} fill loading="lazy" fetchPriority="auto" sizes="(min-width: 1024px) 23rem, (min-width: 640px) 21rem, 78vw" className="object-cover group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#0F2A43]/88 via-[#0F2A43]/22 to-transparent" />
                   <div className="absolute inset-x-0 bottom-0 flex min-h-[11.5rem] flex-col justify-end p-5 text-white">
                     <div className="flex items-start justify-between gap-3">
@@ -459,7 +473,7 @@ export default function HomePage() {
                 </button>
               );
             })}
-            {!visibleFacilities.length && (
+            {!isCatalogLoading && !visibleFacilities.length && (
               <div className="flex h-[23rem] w-[78vw] shrink-0 items-center justify-center rounded-[1.75rem] border border-dashed border-[#0F2A43]/15 bg-[#FBFAF6] px-6 text-center text-sm font-semibold text-[#66727C] sm:w-[21rem] lg:w-[23rem]">
                 {localize("Chưa có tiện nghi để hiển thị.", "No facilities are available yet.")}
               </div>
@@ -536,6 +550,17 @@ export default function HomePage() {
         </div>
 
         <div className="motion-stagger grid gap-10">
+          {isCatalogLoading && [0, 1].map((item) => (
+            <div key={`room-skeleton-${item}`} aria-hidden="true" className="grid gap-6 md:grid-cols-[4rem_22rem_1fr] md:items-center">
+              <div className="skeleton-surface hidden h-12 rounded-xl md:block" />
+              <div className="skeleton-surface aspect-[8/6] rounded-[2rem]" />
+              <div className="space-y-4">
+                <div className="skeleton-surface h-6 w-32 rounded-lg" />
+                <div className="skeleton-surface h-12 w-3/4 rounded-xl" />
+                <div className="skeleton-surface h-20 rounded-xl" />
+              </div>
+            </div>
+          ))}
           {favoriteRooms.map((room, index) => {
             const title = localize(room.typeName || room.title, room.typeNameEn) || localize("Phòng nghỉ cao cấp", "Luxury room");
             const image = room.imageUrls?.[0] || room.imageUrl || room.image;
@@ -562,7 +587,7 @@ export default function HomePage() {
               </article>
             );
           })}
-          {!favoriteRooms.length && (
+          {!isCatalogLoading && !favoriteRooms.length && (
             <div className="rounded-[1.75rem] border border-dashed border-[#0F2A43]/15 bg-[#FBFAF6] p-8 text-sm font-semibold text-[#66727C]">
               {localize("Chưa có loại phòng để hiển thị.", "No room types are available yet.")}
             </div>

@@ -1,8 +1,8 @@
-const galleryAsset = (filename: string) => `/backend_proxy/galeries/${filename}?v=20260721-stable-hero`;
+const galleryAsset = (filename: string) => `/media/heroes/${filename.replace(/\.[^.]+$/, ".webp")}`;
 
 /**
- * Stable, same-origin hero assets. Keeping these deterministic prevents a page
- * from first painting a remote fallback and then swapping to a gallery image.
+ * Stable, same-origin, pre-sized hero assets. Keeping these deterministic
+ * prevents a remote fallback swap and avoids proxying multi-megabyte originals.
  */
 export const GALLERY_HERO_IMAGES = {
   home: galleryAsset('g-1.jpg'),

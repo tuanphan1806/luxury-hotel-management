@@ -298,7 +298,6 @@ html.hotel-reduce-motion *::after {
 
   .botanical-line-art {
     transform-origin: center;
-    will-change: transform;
   }
 
   .auth-botanical-drift,
@@ -936,7 +935,11 @@ html.hotel-reduce-motion *::after {
     .image-preview-enter,
     .motion-stagger > *,
     .image-loading-surface,
-    .skeleton-surface {
+    .skeleton-surface,
+    .auth-botanical-drift,
+    .auth-botanical-drift-reverse,
+    .guest-botanical-drift,
+    .guest-botanical-drift-reverse {
       animation: none;
     }
 

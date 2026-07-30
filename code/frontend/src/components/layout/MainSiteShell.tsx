@@ -51,6 +51,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
   const { t, localize, locale, setLocale } = useLanguage();
   const { favoriteCount } = useFavorites();
   const [mounted, setMounted] = useState(false);
+  const [chatReady, setChatReady] = useState(false);
   const [user, setUser] = useState<MainAccount | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -69,7 +70,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
       const storedUser = localStorage.getItem("user");
       if (!storedUser) {
         setUser(null);
-        return;
+        return false;
       }
 
       try {
@@ -81,8 +82,10 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
           email: parsed.email,
           phone: parsed.phone,
         });
+        return true;
       } catch {
         setUser(null);
+        return false;
       }
     };
 
@@ -112,10 +115,15 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
       }
     };
 
-    loadCachedUser();
-    void syncCurrentUser();
+    const hasCachedUser = loadCachedUser();
+    if (hasCachedUser) void syncCurrentUser();
     window.addEventListener("storage", loadCachedUser);
     return () => window.removeEventListener("storage", loadCachedUser);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setChatReady(true), 1_200);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -600,7 +608,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
       )}
 
       <div className={mobileMenuOpen ? "hidden" : ""}>
-        <ChatWidget />
+        {chatReady && <ChatWidget />}
       </div>
 
       <footer className="guest-footer relative mt-auto overflow-hidden border-t border-white/8 px-6 pb-28 pt-14 text-white md:px-10 lg:pb-10">

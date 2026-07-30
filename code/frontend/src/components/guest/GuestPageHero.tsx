@@ -61,7 +61,7 @@ export default function GuestPageHero({
         alt={imageAlt}
         fill
         priority
-        quality={92}
+        quality={82}
         sizes="100vw"
         className="guest-hero-media object-cover"
         loaderClassName="hero-image-loading-surface"

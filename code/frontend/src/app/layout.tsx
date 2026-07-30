@@ -1,22 +1,22 @@
 import type { Metadata } from "next";
 import { Be_Vietnam_Pro, Playfair_Display } from "next/font/google";
-import { getLocale, getMessages } from "next-intl/server";
 import "../index.css";
 import { LanguageProvider } from "@/components/i18n/LanguageProvider";
 import { FavoritesProvider } from "@/components/favorites/FavoritesProvider";
 import { AccessibilityProvider } from "@/components/accessibility/AccessibilityProvider";
 import BackToTopButton from "@/components/UI/BackToTopButton";
 import { siteConfig } from "@/lib/siteConfig";
+import viMessages from "@/i18n/messages/vi.json";
 
 const beVietnam = Be_Vietnam_Pro({
   subsets: ["latin", "vietnamese"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+  weight: ["400", "600", "700"],
   variable: "--font-be-vietnam",
+  display: "swap",
 });
 
 const playfair = Playfair_Display({
   subsets: ["latin", "vietnamese"],
-  weight: ["500", "600", "700", "800"],
   variable: "--font-playfair",
   display: "swap",
 });
@@ -54,18 +54,16 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [locale, messages] = await Promise.all([getLocale(), getMessages()]);
-
   return (
-    <html lang={locale} className="scroll-smooth" data-scroll-behavior="smooth">
+    <html lang="vi" className="scroll-smooth" data-scroll-behavior="smooth">
       <body suppressHydrationWarning className={`${beVietnam.variable} ${playfair.variable} bg-[#F1F0EA] font-sans text-text-dark antialiased`}>
         <AccessibilityProvider>
-          <LanguageProvider initialLocale={locale} messages={messages}>
+          <LanguageProvider initialLocale="vi" messages={viMessages}>
             <FavoritesProvider>
               {children}
               <BackToTopButton />

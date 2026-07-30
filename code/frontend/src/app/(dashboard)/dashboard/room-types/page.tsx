@@ -9,7 +9,6 @@ import ImageUploadField from "@/components/UI/ImageUploadField";
 import ViewportModal from "@/components/UI/ViewportModal";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
-import { getPublicRoomTypes, invalidatePublicRoomTypes } from "@/lib/public-catalog";
 import {
   DashboardFilterPanel,
   DashboardSearchField,
@@ -105,11 +104,11 @@ export default function RoomTypesManagement() {
     setIsLoading(true);
     try {
       const [typesRes, facRes] = await Promise.all([
-        getPublicRoomTypes<RoomType>(),
+        cachedGet<{ data?: RoomType[] }>("/api/room-types"),
         cachedGet("/api/facilities"),
       ]);
 
-      setRoomTypes(typesRes);
+      setRoomTypes(Array.isArray(typesRes.data?.data) ? typesRes.data.data : []);
       if (facRes.data && facRes.data.data) {
         setFacilities(facRes.data.data);
       }
@@ -198,7 +197,6 @@ export default function RoomTypesManagement() {
 
       showToast("Thêm room type mới thành công", "success");
       setIsCreateOpen(false);
-      invalidatePublicRoomTypes();
       fetchData();
     } catch (error: unknown) {
       const errMsg = getApiErrorMessage(error, "Không thể tạo loại phòng.");
@@ -254,7 +252,6 @@ export default function RoomTypesManagement() {
 
       showToast("Cập nhật room type thành công", "success");
       setIsEditOpen(false);
-      invalidatePublicRoomTypes();
       fetchData();
     } catch (error: unknown) {
       const errMsg = getApiErrorMessage(error, "Không thể cập nhật room type.");
@@ -275,7 +272,6 @@ export default function RoomTypesManagement() {
       await apiClient.delete(`/api/room-types/${selectedRoomType.id}`);
       showToast("Xóa loại phòng thành công!", "success");
       setIsDeleteOpen(false);
-      invalidatePublicRoomTypes();
       fetchData();
     } catch (error: unknown) {
       const errMsg = getApiErrorMessage(error, "Không thể xóa loại phòng.");
