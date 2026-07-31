@@ -450,10 +450,10 @@ export default function BusinessStatisticsPage() {
             STAFF sử dụng Ca thu ngân để bắt đầu, kết thúc và xem các khoản hệ thống tự ghi nhận trong ca.
           </p>
           <Link
-            href="/dashboard/cashier-shifts"
+            href="/dashboard/work-schedules"
             className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-[#0F2A43] px-5 font-bold text-white transition hover:bg-[#173D5F]"
           >
-            Mở ca thu ngân
+            Check-in ca làm việc
           </Link>
         </section>
       </main>

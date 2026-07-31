@@ -11,6 +11,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
@@ -64,6 +65,10 @@ public class CashierShift {
 
     @Column(name = "opened_at_utc", nullable = false)
     private Instant openedAtUtc;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "work_shift_session_id", unique = true)
+    private WorkShiftSession workShiftSession;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "closed_by")

@@ -6,6 +6,7 @@ public enum AuditCategory {
     REFUND,
     ROOM_HOLD,
     CHECKOUT,
+    WORKFORCE,
     SECURITY,
     SYSTEM,
     BUSINESS

@@ -36,6 +36,7 @@ export interface CashierShift {
   openedByName: string;
   openedByRole: string;
   openedAtUtc: string;
+  workShiftSessionId?: number | null;
   closedById?: number | null;
   closedByName?: string | null;
   closedByRole?: string | null;

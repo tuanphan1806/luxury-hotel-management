@@ -16,6 +16,7 @@ public record CashierShiftResponse(
         String openedByName,
         String openedByRole,
         Instant openedAtUtc,
+        Long workShiftSessionId,
         Long closedById,
         String closedByName,
         String closedByRole,

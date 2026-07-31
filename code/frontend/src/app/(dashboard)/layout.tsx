@@ -282,18 +282,19 @@ export default function DashboardLayout({
         </svg>
       ),
     },
-    ...(user.role === "STAFF" ? [{
-      href: "/dashboard/cashier-shifts",
-      label: localize("Ca thu ngân", "Cashier shifts"),
+    {
+      href: "/dashboard/work-schedules",
+      label: user.role === "ADMIN"
+        ? localize("Lịch làm việc", "Work schedules")
+        : localize("Ca làm việc", "My work shift"),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full">
-          <rect x="3" y="5" width="18" height="14" rx="2" />
-          <path d="M7 9h5" />
-          <path d="M7 13h3" />
-          <circle cx="17" cy="12" r="2" />
+          <rect x="3" y="4" width="18" height="17" rx="2" />
+          <path d="M8 2v4M16 2v4M3 9h18" />
+          <path d="m9 15 2 2 4-5" />
         </svg>
       ),
-    }] : []),
+    },
     {
       href: "/dashboard/users",
       label: t("users"),
@@ -433,7 +434,7 @@ export default function DashboardLayout({
       {/* Main Nav Links */}
       <nav aria-label={localize("Điều hướng dashboard", "Dashboard navigation")} className="lux-scrollbar flex-1 space-y-1.5 overflow-y-auto px-4 py-6">
         {[
-          { title: t("operations"), items: navigationItems.filter((item) => ["/dashboard", "/dashboard/rooms", "/dashboard/reservations", "/dashboard/cashier-shifts", "/dashboard/contact-messages", "/dashboard/guest"].includes(item.href)) },
+          { title: t("operations"), items: navigationItems.filter((item) => ["/dashboard", "/dashboard/rooms", "/dashboard/reservations", "/dashboard/work-schedules", "/dashboard/contact-messages", "/dashboard/guest"].includes(item.href)) },
           { title: t("management"), items: navigationItems.filter((item) => ["/dashboard/users", "/dashboard/facilities", "/dashboard/room-types", "/dashboard/statistics", "/dashboard/services", "/dashboard/audit-logs"].includes(item.href)) },
         ].map((group, groupIndex) => (
           <div key={group.title} className={groupIndex ? "pt-5" : ""}>
