@@ -111,6 +111,11 @@ const ACTION_LABELS: Record<string, string> = {
   WORK_SHIFT_CHECKED_OUT: "Nhân viên check-out ca",
   WORK_SHIFT_AUTO_CHECKED_OUT: "Hệ thống tự checkout ca bị quên",
   WORK_SHIFT_MARKED_ABSENT: "Hệ thống ghi nhận vắng mặt",
+  SHIFT_REQUEST_CREATED: "Nhân viên đăng ký ca",
+  SHIFT_REQUEST_APPROVED: "Duyệt yêu cầu đăng ký ca",
+  SHIFT_REQUEST_REJECTED: "Từ chối yêu cầu đăng ký ca",
+  SHIFT_REQUEST_CANCELLED: "Nhân viên hủy yêu cầu đăng ký ca",
+  SHIFT_REQUIREMENT_UPDATED: "Cập nhật số nhân sự cần cho ca",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -135,6 +140,8 @@ const TARGET_LABELS: Record<string, string> = {
   WORK_SHIFT_TEMPLATE: "Mẫu ca làm việc",
   WORK_SCHEDULE: "Lịch làm việc",
   WORK_SHIFT_SESSION: "Phiên làm việc thực tế",
+  WORK_SHIFT_REQUEST: "Yêu cầu đăng ký ca",
+  WORK_SHIFT_REQUIREMENT: "Định biên nhân sự theo ca",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -177,9 +184,11 @@ const MANAGEMENT_ACTIONS = new Set([
   "SERVICE_CATALOG_DEACTIVATED", "SERVICE_CATALOG_REACTIVATED",
   "WORK_SHIFT_TEMPLATE_CREATED", "WORK_SHIFT_TEMPLATE_UPDATED",
   "WORK_SCHEDULE_CREATED", "WORK_SCHEDULE_UPDATED", "WORK_SCHEDULE_CANCELLED",
+  "SHIFT_REQUEST_CREATED", "SHIFT_REQUEST_APPROVED", "SHIFT_REQUEST_REJECTED",
+  "SHIFT_REQUEST_CANCELLED", "SHIFT_REQUIREMENT_UPDATED",
 ]);
 
-const MANAGEMENT_TARGETS = new Set(["USER", "ROOM", "ROOM_TYPE", "FACILITY", "GALLERY", "ADD_ON_SERVICE", "WORK_SHIFT_TEMPLATE", "WORK_SCHEDULE"]);
+const MANAGEMENT_TARGETS = new Set(["USER", "ROOM", "ROOM_TYPE", "FACILITY", "GALLERY", "ADD_ON_SERVICE", "WORK_SHIFT_TEMPLATE", "WORK_SCHEDULE", "WORK_SHIFT_REQUEST", "WORK_SHIFT_REQUIREMENT"]);
 
 function belongsToScope(value: string, scope: "" | AuditScope, managementValues: Set<string>) {
   if (!value || !scope) return true;

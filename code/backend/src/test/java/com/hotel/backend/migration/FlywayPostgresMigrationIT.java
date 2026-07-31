@@ -35,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "30";
+    private static final String LATEST_VERSION = "31";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -79,6 +79,8 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "work_shift_templates");
             assertTableExists(connection, "work_schedule_assignments");
             assertTableExists(connection, "work_shift_sessions");
+            assertTableExists(connection, "work_shift_requirements");
+            assertTableExists(connection, "work_shift_registration_requests");
             assertColumn(connection, "room_types", "code");
             assertColumn(connection, "reservations", "pricing_version");
             assertColumn(connection, "reservations", "display_package_summary");
@@ -168,6 +170,10 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_work_shift_session_employee_checkin");
             assertIndex(connection, "idx_work_shift_session_status");
             assertIndex(connection, "uk_cashier_shift_work_session");
+            assertIndex(connection, "idx_work_shift_requirement_date");
+            assertIndex(connection, "uk_work_shift_registration_pending");
+            assertIndex(connection, "idx_work_shift_registration_month");
+            assertIndex(connection, "idx_work_shift_registration_employee");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_users_username_not_blank_and_trimmed");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
@@ -213,6 +219,10 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "chk_work_shift_session_status");
             assertConstraint(connection, "chk_work_shift_session_checkout");
             assertConstraint(connection, "fk_cashier_shift_work_session");
+            assertConstraint(connection, "uk_work_shift_requirement");
+            assertConstraint(connection, "chk_work_shift_required_staff");
+            assertConstraint(connection, "chk_work_shift_registration_status");
+            assertConstraint(connection, "chk_work_shift_registration_review");
             assertConstraintAbsent(connection, "uk_media_assets_owner");
             assertColumnDefault(connection, "rooms", "sellable", "true");
             assertColumnDefault(connection, "stay_policy_versions",

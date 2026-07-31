@@ -93,6 +93,12 @@ public enum ErrorCode {
     WORK_SCHEDULE_ALREADY_ACTIVE(5107, "Nhân viên đang có một ca làm việc khác chưa check-out", HttpStatus.CONFLICT),
     WORK_SCHEDULE_NOT_ACTIVE(5108, "Ca làm việc chưa được check-in hoặc đã kết thúc", HttpStatus.CONFLICT),
     WORK_SCHEDULE_FORBIDDEN(5109, "Bạn không có quyền thao tác lịch làm việc này", HttpStatus.FORBIDDEN),
+    WORK_SHIFT_REGISTRATION_NOT_FOUND(5110, "Không tìm thấy yêu cầu đăng ký ca", HttpStatus.NOT_FOUND),
+    WORK_SHIFT_REGISTRATION_DUPLICATE(5111, "Bạn đã có lịch hoặc yêu cầu cho ca này", HttpStatus.CONFLICT),
+    WORK_SHIFT_REGISTRATION_FULL(5112, "Ca này đã đủ nhân sự", HttpStatus.CONFLICT),
+    WORK_SHIFT_REGISTRATION_CANNOT_MODIFY(5113, "Yêu cầu đăng ký ca đã được xử lý", HttpStatus.CONFLICT),
+    WORK_SHIFT_REGISTRATION_PAST_DATE(5114, "Không thể đăng ký hoặc điều chỉnh ca đã qua", HttpStatus.BAD_REQUEST),
+    WORK_SHIFT_REQUIREMENT_BELOW_ASSIGNED(5115, "Số nhân sự cần không thể thấp hơn số đã phân ca", HttpStatus.CONFLICT),
 
 
     ;
