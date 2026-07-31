@@ -37,6 +37,7 @@ public class CashierShiftController {
     private final IdempotencyService idempotencyService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<CashierShiftResponse> open(
             @Valid @RequestBody OpenCashierShiftRequest request,
             @RequestHeader("Idempotency-Key") String idempotencyKey,

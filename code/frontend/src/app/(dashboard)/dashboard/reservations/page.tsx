@@ -3242,11 +3242,11 @@ export default function ReservationsManagement() {
                       <p className="mt-1 text-xs leading-5 text-rose-700">{localize("Thu đúng số còn thiếu bằng tiền mặt hoặc tạo QR thanh toán cuối.", "Collect the exact balance in cash or create a final-payment QR.")}</p>
                       {cashierShiftRequired ? (
                         <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-                          <p className="text-xs font-bold text-amber-900">{localize("Chưa có ca thu ngân đang mở", "No open cashier shift")}</p>
-                          <p className="mt-1 text-xs leading-5 text-amber-800">{localize("Mở ca của chính người đang thao tác để khoản thu được ghi đúng vào sổ tiền mặt. Sau đó quay lại đơn và nhấn Thu tiền mặt.", "Open a shift for the current operator so the collection is recorded in the correct cash ledger. Then return and collect cash again.")}</p>
+                          <p className="text-xs font-bold text-amber-900">{localize("Bạn chưa check-in ca làm việc", "You have not checked in")}</p>
+                          <p className="mt-1 text-xs leading-5 text-amber-800">{localize("STAFF cần check-in lịch được phân công; hệ thống sẽ mở ca thu ngân đúng người tự động. Sau đó quay lại đơn và nhấn Thu tiền mặt.", "STAFF must check in to an assigned work schedule; the system then opens the correct cashier shift automatically. Return and collect cash again.")}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
-                            <Link href="/dashboard/cashier-shifts" className="inline-flex min-h-10 items-center rounded-lg bg-[#0F2A43] px-4 text-xs font-bold text-white transition hover:bg-[#173D5F]">
-                              {localize("Mở ca thu ngân", "Open cashier shift")}
+                            <Link href="/dashboard/work-schedules" className="inline-flex min-h-10 items-center rounded-lg bg-[#0F2A43] px-4 text-xs font-bold text-white transition hover:bg-[#173D5F]">
+                              {localize("Check-in ca làm việc", "Check in to work shift")}
                             </Link>
                             <button type="button" disabled={isActionLoading} onClick={handleCashPayment} className="min-h-10 rounded-lg border border-amber-400 bg-white px-4 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60">
                               {localize("Đã mở ca · thử lại", "Shift opened · retry")}

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,6 +25,7 @@ import java.time.LocalDateTime;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -195,6 +197,62 @@ class AuthorizationMatrixIntegrationTest {
         mockMvc.perform(get("/api/accounting/cashier-shifts/current")
                         .header("Authorization", bearer(customerToken)))
                 .andExpect(status().isForbidden());
+    }
+
+    /** STAFF phải check-in WorkShiftSession; không được mở ca thu ngân độc lập. */
+    @Test
+    void staffCannotOpenStandaloneCashierShift() throws Exception {
+        mockMvc.perform(post("/api/accounting/cashier-shifts")
+                        .header("Authorization", bearer(staffToken))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    /** Lịch làm việc tách quyền quản lý ADMIN và điểm danh STAFF. */
+    @Test
+    void workScheduleEndpointsEnforceRoleBoundaryAndIdempotencyHeader() throws Exception {
+        mockMvc.perform(get("/api/work-schedules/assignments")
+                        .header("Authorization", bearer(staffToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/work-schedules/assignments")
+                        .header("Authorization", bearer(customerToken)))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/work-schedules/current")
+                        .header("Authorization", bearer(staffToken)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/work-schedules/current")
+                        .header("Authorization", bearer(adminToken)))
+                .andExpect(status().isForbidden());
+
+        String templateRequest = """
+                {
+                  "code": "TEST_CA",
+                  "name": "Ca kiểm thử",
+                  "startTime": "07:00:00",
+                  "endTime": "15:00:00",
+                  "checkInEarlyMinutes": 30,
+                  "lateToleranceMinutes": 15,
+                  "color": "#0F2A43",
+                  "sortOrder": 99,
+                  "active": true
+                }
+                """;
+        mockMvc.perform(post("/api/work-schedules/templates")
+                        .header("Authorization", bearer(staffToken))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(templateRequest))
+                .andExpect(status().isForbidden());
+
+        // ADMIN được phép quản lý nhưng mutation thiếu Idempotency-Key phải bị từ chối.
+        mockMvc.perform(post("/api/work-schedules/templates")
+                        .header("Authorization", bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(templateRequest))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

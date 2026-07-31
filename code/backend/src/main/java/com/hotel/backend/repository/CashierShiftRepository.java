@@ -36,6 +36,14 @@ public interface CashierShiftRepository extends JpaRepository<CashierShift, Long
     @Query("select shift from CashierShift shift where shift.id = :id")
     Optional<CashierShift> findByIdForUpdate(@Param("id") Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select shift from CashierShift shift
+            where shift.workShiftSession.id = :sessionId
+            """)
+    Optional<CashierShift> findByWorkShiftSessionIdForUpdate(
+            @Param("sessionId") Long sessionId);
+
     Page<CashierShift> findAllByOpenedById(Long userId, Pageable pageable);
 
     long countByBusinessDateAndStatusIn(

@@ -9,6 +9,7 @@ import com.hotel.backend.constant.RefundChannel;
 import com.hotel.backend.constant.RefundStatus;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserType;
+import com.hotel.backend.constant.WorkShiftSessionStatus;
 import com.hotel.backend.dto.request.CashMovementRequest;
 import com.hotel.backend.dto.request.CloseCashierShiftRequest;
 import com.hotel.backend.dto.request.OpenCashierShiftRequest;
@@ -20,6 +21,7 @@ import com.hotel.backend.entity.CashierShift;
 import com.hotel.backend.entity.PaymentRefund;
 import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.entity.WorkShiftSession;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.CashMovementRepository;
@@ -135,6 +137,73 @@ public class CashierShiftService {
         return toResponse(shift, true);
     }
 
+    /**
+     * Opens (or adopts) the employee's drawer in the same transaction as
+     * attendance check-in. Adopting a manually opened shift keeps the rollout
+     * backward compatible without ever creating two active drawers.
+     */
+    @Transactional
+    public CashierShiftResponse openForWorkSession(
+            WorkShiftSession session,
+            User currentUser) {
+        User actor = requireStaff(currentUser);
+        ensureOwnerOfSession(actor, session);
+        var assignment = session.getAssignment();
+        CashierShift active = shiftRepository
+                .findActiveByUserIdForUpdate(actor.getId(), ACTIVE_STATUSES)
+                .orElse(null);
+        if (active != null) {
+            WorkShiftSession linked = active.getWorkShiftSession();
+            if (linked != null && !linked.getId().equals(session.getId())) {
+                throw new AppException(ErrorCode.CASHIER_SHIFT_ALREADY_OPEN);
+            }
+            if (linked == null) {
+                active.setWorkShiftSession(session);
+                active.setNote(appendNote(
+                        active.getNote(),
+                        "Liên kết tự động khi check-in "
+                                + assignment.getShiftNameSnapshot()));
+                active = shiftRepository.saveAndFlush(active);
+            }
+            session.setCashierShift(active);
+            return toResponse(active, true);
+        }
+
+        Instant now = clock.instant();
+        CashierShift shift = CashierShift.builder()
+                .shiftCode(generateShiftCode(actor, now))
+                .businessDate(LocalDate.ofInstant(now, HOTEL_ZONE))
+                .status(CashierShiftStatus.OPEN)
+                .openedBy(actor)
+                .openedByName(displayName(actor))
+                .openedByRole(actor.getType().name())
+                .openedAtUtc(now)
+                .workShiftSession(session)
+                .openingCashAmount(BigDecimal.ZERO)
+                .note("Tự động mở khi check-in " + assignment.getShiftNameSnapshot())
+                .build();
+        try {
+            shift = shiftRepository.saveAndFlush(shift);
+        } catch (DataIntegrityViolationException duplicate) {
+            throw new AppException(ErrorCode.CASHIER_SHIFT_ALREADY_OPEN);
+        }
+        session.setCashierShift(shift);
+
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("businessDate", shift.getBusinessDate());
+        detail.put("trackingMode", "WORK_SHIFT_SESSION_AUTOMATIC");
+        detail.put("workShiftSessionId", session.getId());
+        detail.put("workScheduleAssignmentId", assignment.getId());
+        auditService.recordTargetForUser(
+                actor,
+                "CASHIER_SHIFT",
+                String.valueOf(shift.getId()),
+                ReservationAuditAction.CASHIER_SHIFT_OPENED,
+                "Tự động mở ca thu ngân khi check-in " + assignment.getShiftNameSnapshot(),
+                detail);
+        return toResponse(shift, true);
+    }
+
     @Transactional(readOnly = true)
     public CashierShiftResponse current(User currentUser) {
         User actor = requireOperator(currentUser);
@@ -229,7 +298,70 @@ public class CashierShiftService {
         CashierShift shift = shiftRepository.findByIdForUpdate(shiftId)
                 .orElseThrow(() -> new AppException(ErrorCode.CASHIER_SHIFT_NOT_FOUND));
         ensureOwner(actor, shift);
+        if (shift.getWorkShiftSession() != null
+                && shift.getWorkShiftSession().getStatus() == WorkShiftSessionStatus.ACTIVE) {
+            throw new AppException(
+                    ErrorCode.CASHIER_SHIFT_FORBIDDEN,
+                    "Hãy check-out ca làm việc để đóng ca thu ngân nguyên tử");
+        }
         ensureOpen(shift);
+
+        return closeLocked(shift, actor, trimToNull(request.getNote()), "AUTOMATIC");
+    }
+
+    /** Closes the linked drawer atomically with attendance check-out. */
+    @Transactional
+    public CashierShiftResponse closeForWorkSession(
+            WorkShiftSession session,
+            User currentUser,
+            String note) {
+        User actor = requireStaff(currentUser);
+        ensureOwnerOfSession(actor, session);
+        var assignment = session.getAssignment();
+        CashierShift shift = shiftRepository
+                .findByWorkShiftSessionIdForUpdate(session.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.CASHIER_SHIFT_NOT_FOUND));
+        ensureOwner(actor, shift);
+        WorkShiftSession linked = shift.getWorkShiftSession();
+        if (linked == null || !linked.getId().equals(session.getId())) {
+            throw new AppException(ErrorCode.CASHIER_SHIFT_FORBIDDEN);
+        }
+        if (shift.getStatus() == CashierShiftStatus.CLOSED) {
+            return toResponse(shift, true);
+        }
+        ensureOpen(shift);
+        return closeLocked(
+                shift,
+                actor,
+                appendNote(
+                        "Tự động đóng khi check-out " + assignment.getShiftNameSnapshot(),
+                        note),
+                "WORK_SHIFT_SESSION_AUTOMATIC");
+    }
+
+    /** System fallback for an employee who forgot to check out. */
+    @Transactional
+    public CashierShiftResponse closeForWorkSessionAutomatically(
+            WorkShiftSession session) {
+        CashierShift shift = shiftRepository
+                .findByWorkShiftSessionIdForUpdate(session.getId())
+                .orElseThrow(() -> new AppException(ErrorCode.CASHIER_SHIFT_NOT_FOUND));
+        if (shift.getStatus() == CashierShiftStatus.CLOSED) {
+            return toResponse(shift, true);
+        }
+        ensureOpen(shift);
+        return closeLocked(
+                shift,
+                null,
+                "Hệ thống tự động đóng vì nhân viên chưa checkout sau thời gian ân hạn",
+                "WORK_SCHEDULE_AUTO_CHECKOUT");
+    }
+
+    private CashierShiftResponse closeLocked(
+            CashierShift shift,
+            User actor,
+            String closeNote,
+            String trackingMode) {
 
         BigDecimal expected = expectedCash(shift.getId());
 
@@ -240,22 +372,29 @@ public class CashierShiftService {
         shift.setCountedCashAmount(expected);
         shift.setVarianceAmount(BigDecimal.ZERO);
         shift.setClosedBy(actor);
-        shift.setClosedByName(displayName(actor));
-        shift.setClosedByRole(actor.getType().name());
+        shift.setClosedByName(actor != null ? displayName(actor) : "Hệ thống");
+        shift.setClosedByRole(actor != null ? actor.getType().name() : "SYSTEM");
         shift.setClosedAtUtc(now);
-        shift.setCloseNote(trimToNull(request.getNote()));
+        shift.setCloseNote(trimToNull(closeNote));
         shift.setStatus(CashierShiftStatus.CLOSED);
         shift = shiftRepository.saveAndFlush(shift);
 
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("cashNetAmount", expected);
-        detail.put("trackingMode", "AUTOMATIC");
+        detail.put("trackingMode", trackingMode);
+        if (shift.getWorkShiftSession() != null) {
+            detail.put("workShiftSessionId", shift.getWorkShiftSession().getId());
+            detail.put("workScheduleAssignmentId",
+                    shift.getWorkShiftSession().getAssignment().getId());
+        }
         auditService.recordTargetForUser(
                 actor,
                 "CASHIER_SHIFT",
                 String.valueOf(shift.getId()),
                 ReservationAuditAction.CASHIER_SHIFT_CLOSED,
-                "Kết thúc ca thu ngân " + shift.getShiftCode(),
+                actor != null
+                        ? "Kết thúc ca thu ngân " + shift.getShiftCode()
+                        : "Hệ thống tự động kết thúc ca thu ngân " + shift.getShiftCode(),
                 detail);
         return toResponse(shift, true);
     }
@@ -452,6 +591,21 @@ public class CashierShiftService {
         return user;
     }
 
+    private User requireStaff(User user) {
+        User actor = requireOperator(user);
+        if (actor.getType() != UserType.STAFF) {
+            throw new AppException(ErrorCode.CASHIER_SHIFT_FORBIDDEN);
+        }
+        return actor;
+    }
+
+    private void ensureOwnerOfSession(User actor, WorkShiftSession session) {
+        if (session == null || session.getEmployee() == null
+                || !actor.getId().equals(session.getEmployee().getId())) {
+            throw new AppException(ErrorCode.CASHIER_SHIFT_FORBIDDEN);
+        }
+    }
+
     private void ensureCanView(User actor, CashierShift shift) {
         if (actor.getType() != UserType.ADMIN
                 && !actor.getId().equals(shift.getOpenedBy().getId())) {
@@ -544,6 +698,9 @@ public class CashierShiftService {
                 shift.getOpenedByName(),
                 shift.getOpenedByRole(),
                 shift.getOpenedAtUtc(),
+                shift.getWorkShiftSession() != null
+                        ? shift.getWorkShiftSession().getId()
+                        : null,
                 shift.getClosedBy() != null ? shift.getClosedBy().getId() : null,
                 shift.getClosedByName(),
                 shift.getClosedByRole(),
@@ -611,6 +768,14 @@ public class CashierShiftService {
 
     private String trimToNull(String value) {
         return hasText(value) ? value.trim() : null;
+    }
+
+    private String appendNote(String existing, String addition) {
+        String normalized = trimToNull(addition);
+        if (normalized == null) return trimToNull(existing);
+        String base = trimToNull(existing);
+        String combined = base == null ? normalized : base + "\n" + normalized;
+        return combined.substring(0, Math.min(combined.length(), 1000));
     }
 
     private boolean hasText(String value) {

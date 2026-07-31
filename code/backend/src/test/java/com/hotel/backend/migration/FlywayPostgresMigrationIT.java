@@ -3,7 +3,9 @@ package com.hotel.backend.migration;
 import com.hotel.backend.entity.IdempotencyRequest;
 import com.hotel.backend.entity.PricingQuote;
 import com.hotel.backend.entity.ReservationInvoice;
+import com.hotel.backend.entity.WorkShiftTemplate;
 import jakarta.persistence.Column;
+import jakarta.persistence.EntityManager;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -20,6 +22,7 @@ import java.sql.SQLException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalTime;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "29";
+    private static final String LATEST_VERSION = "30";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -73,6 +76,9 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "financial_journal_lines");
             assertTableExists(connection, "business_day_closes");
             assertTableExists(connection, "business_day_close_locks");
+            assertTableExists(connection, "work_shift_templates");
+            assertTableExists(connection, "work_schedule_assignments");
+            assertTableExists(connection, "work_shift_sessions");
             assertColumn(connection, "room_types", "code");
             assertColumn(connection, "reservations", "pricing_version");
             assertColumn(connection, "reservations", "display_package_summary");
@@ -106,6 +112,11 @@ class FlywayPostgresMigrationIT {
             assertColumn(connection, "reservation_invoices", "add_on_service_amount");
             assertColumn(connection, "reservation_invoices", "extra_guest_charge");
             assertColumn(connection, "reservation_invoices", "pricing_version");
+            assertColumn(connection, "work_shift_sessions", "actual_check_in_utc");
+            assertColumn(connection, "work_shift_sessions", "actual_check_out_utc");
+            assertColumn(connection, "cashier_shifts", "work_shift_session_id");
+            assertColumnAbsent(connection, "work_schedule_assignments", "auto_check_out");
+            assertColumnAbsent(connection, "cashier_shifts", "work_schedule_assignment_id");
             assertColumnType(connection, "idempotency_requests", "request_hash", "character", 64);
             assertColumnType(connection, "reservation_invoices", "currency", "character", 3);
             assertColumnType(connection, "financial_journal_entries", "currency",
@@ -151,6 +162,12 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_financial_journal_invoice");
             assertIndex(connection, "idx_financial_journal_provider_event");
             assertIndex(connection, "uk_users_username_case_insensitive");
+            assertIndex(connection, "idx_work_schedule_employee_window");
+            assertIndex(connection, "idx_work_schedule_status_start");
+            assertIndex(connection, "uk_work_shift_session_active_employee");
+            assertIndex(connection, "idx_work_shift_session_employee_checkin");
+            assertIndex(connection, "idx_work_shift_session_status");
+            assertIndex(connection, "uk_cashier_shift_work_session");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_users_username_not_blank_and_trimmed");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
@@ -191,12 +208,20 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "uk_pricing_quote_commitment_reservation");
             assertConstraint(connection, "uk_cash_movement_source");
             assertConstraint(connection, "chk_cash_movement_direction_type");
+            assertConstraint(connection, "ex_work_schedule_no_overlap");
+            assertConstraint(connection, "uk_work_shift_session_assignment");
+            assertConstraint(connection, "chk_work_shift_session_status");
+            assertConstraint(connection, "chk_work_shift_session_checkout");
+            assertConstraint(connection, "fk_cashier_shift_work_session");
             assertConstraintAbsent(connection, "uk_media_assets_owner");
             assertColumnDefault(connection, "rooms", "sellable", "true");
             assertColumnDefault(connection, "stay_policy_versions",
                     "early_morning_overnight_minimum_minutes", "120");
             assertColumnDefault(connection, "stay_policy_versions",
                     "remainder_cycle_starts_at_boundary", "true");
+            assertScalar(connection,
+                    "SELECT count(*)::text FROM work_shift_templates WHERE active = true",
+                    "3");
         }
 
         assertCanonicalFixedWidthMappings();
@@ -1699,6 +1724,18 @@ class FlywayPostgresMigrationIT {
 
         try {
             entityManagerFactory.afterPropertiesSet();
+            EntityManager entityManager = entityManagerFactory.getObject().createEntityManager();
+            try {
+                WorkShiftTemplate morningShift = entityManager.createQuery(
+                                "select template from WorkShiftTemplate template where template.code = :code",
+                                WorkShiftTemplate.class)
+                        .setParameter("code", "SANG")
+                        .getSingleResult();
+                assertThat(morningShift.getStartTime()).isEqualTo(LocalTime.of(6, 0));
+                assertThat(morningShift.getEndTime()).isEqualTo(LocalTime.of(14, 0));
+            } finally {
+                entityManager.close();
+            }
         } finally {
             entityManagerFactory.destroy();
         }

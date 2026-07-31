@@ -148,7 +148,13 @@ class ReservationAuditServiceTest {
         assertEquals(AuditScope.OPERATION, ReservationAuditAction.CHECK_IN.scope());
         assertEquals(AuditScope.OPERATION, ReservationAuditAction.PAYMENT_RECEIVED.scope());
         assertEquals(AuditScope.OPERATION, ReservationAuditAction.ROOM_HOLD_AUTO_EXPIRED.scope());
+        assertEquals(AuditCategory.WORKFORCE,
+                ReservationAuditAction.WORK_SHIFT_CHECKED_IN.category());
+        assertEquals(AuditScope.OPERATION,
+                ReservationAuditAction.WORK_SHIFT_AUTO_CHECKED_OUT.scope());
         assertEquals(AuditScope.MANAGEMENT, ReservationAuditAction.ROOM_UPDATED.scope());
+        assertEquals(AuditScope.MANAGEMENT,
+                ReservationAuditAction.WORK_SCHEDULE_UPDATED.scope());
         assertEquals(AuditScope.MANAGEMENT, ReservationAuditAction.USER_ROLE_CHANGED.scope());
     }
 

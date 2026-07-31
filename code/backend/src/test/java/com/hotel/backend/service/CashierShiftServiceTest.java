@@ -12,6 +12,7 @@ import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.ReservationStatus;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
+import com.hotel.backend.constant.WorkShiftSessionStatus;
 import com.hotel.backend.dto.request.CloseCashierShiftRequest;
 import com.hotel.backend.dto.request.CashMovementRequest;
 import com.hotel.backend.dto.request.OpenCashierShiftRequest;
@@ -22,6 +23,8 @@ import com.hotel.backend.entity.PaymentRefund;
 import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.User;
+import com.hotel.backend.entity.WorkScheduleAssignment;
+import com.hotel.backend.entity.WorkShiftSession;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.CashMovementRepository;
@@ -109,6 +112,87 @@ class CashierShiftServiceTest {
         verify(auditService).recordTargetForUser(
                 eq(staff), eq("CASHIER_SHIFT"), eq("11"),
                 eq(ReservationAuditAction.CASHIER_SHIFT_OPENED), any(), any());
+    }
+
+    @Test
+    void workSessionCheckInOpensAndLinksCashierShift() {
+        WorkShiftSession session = activeWorkSession();
+        when(shiftRepository.findActiveByUserIdForUpdate(eq(7L), any()))
+                .thenReturn(Optional.empty());
+        when(shiftRepository.saveAndFlush(any(CashierShift.class)))
+                .thenAnswer(invocation -> {
+                    CashierShift shift = invocation.getArgument(0);
+                    shift.setId(11L);
+                    return shift;
+                });
+        when(movementRepository.calculateExpectedCash(11L)).thenReturn(BigDecimal.ZERO);
+        when(movementRepository.findAllByCashierShiftIdOrderByOccurredAtUtcAscIdAsc(11L))
+                .thenReturn(List.of());
+
+        var response = service.openForWorkSession(session, staff);
+
+        assertEquals(CashierShiftStatus.OPEN, response.status());
+        assertEquals(901L, response.workShiftSessionId());
+        assertEquals(session, session.getCashierShift().getWorkShiftSession());
+        verify(auditService).recordTargetForUser(
+                eq(staff), eq("CASHIER_SHIFT"), eq("11"),
+                eq(ReservationAuditAction.CASHIER_SHIFT_OPENED), any(), any());
+    }
+
+    @Test
+    void workSessionCheckInAdoptsExistingManualShiftWithoutOpeningSecondShift() {
+        WorkShiftSession session = activeWorkSession();
+        CashierShift existing = openShift();
+        when(shiftRepository.findActiveByUserIdForUpdate(eq(7L), any()))
+                .thenReturn(Optional.of(existing));
+        when(shiftRepository.saveAndFlush(existing)).thenReturn(existing);
+        when(movementRepository.calculateExpectedCash(11L)).thenReturn(BigDecimal.ZERO);
+        when(movementRepository.findAllByCashierShiftIdOrderByOccurredAtUtcAscIdAsc(11L))
+                .thenReturn(List.of());
+
+        var response = service.openForWorkSession(session, staff);
+
+        assertEquals(901L, response.workShiftSessionId());
+        assertEquals(session, existing.getWorkShiftSession());
+        assertEquals(existing, session.getCashierShift());
+        verify(shiftRepository).saveAndFlush(existing);
+    }
+
+    @Test
+    void workSessionCheckoutClosesItsLinkedCashierShift() {
+        WorkShiftSession session = activeWorkSession();
+        CashierShift shift = openShift();
+        shift.setWorkShiftSession(session);
+        session.setCashierShift(shift);
+        when(shiftRepository.findByWorkShiftSessionIdForUpdate(901L))
+                .thenReturn(Optional.of(shift));
+        when(movementRepository.calculateExpectedCash(11L))
+                .thenReturn(BigDecimal.valueOf(135_000L));
+        when(shiftRepository.saveAndFlush(shift)).thenReturn(shift);
+        when(movementRepository.findAllByCashierShiftIdOrderByOccurredAtUtcAscIdAsc(11L))
+                .thenReturn(List.of());
+
+        var response = service.closeForWorkSession(session, staff, "Bàn giao đủ");
+
+        assertEquals(CashierShiftStatus.CLOSED, response.status());
+        assertEquals(BigDecimal.valueOf(135_000L), response.expectedCashAmount());
+        assertEquals(901L, response.workShiftSessionId());
+    }
+
+    @Test
+    void linkedActiveWorkSessionCannotBeClosedThroughLegacyCashierAction() {
+        WorkShiftSession session = activeWorkSession();
+        CashierShift shift = openShift();
+        shift.setWorkShiftSession(session);
+        session.setCashierShift(shift);
+        when(shiftRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(shift));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> service.close(11L, new CloseCashierShiftRequest(), staff));
+
+        assertEquals(ErrorCode.CASHIER_SHIFT_FORBIDDEN, exception.getErrorCode());
+        verify(shiftRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -375,6 +459,24 @@ class CashierShiftServiceTest {
                 .openedAtUtc(NOW.minusSeconds(3600))
                 .openingCashAmount(BigDecimal.ZERO)
                 .build();
+    }
+
+    private WorkShiftSession activeWorkSession() {
+        WorkScheduleAssignment assignment = WorkScheduleAssignment.builder()
+                .id(81L)
+                .employee(staff)
+                .shiftNameSnapshot("Ca sáng")
+                .build();
+        WorkShiftSession session = WorkShiftSession.builder()
+                .id(901L)
+                .assignment(assignment)
+                .employee(staff)
+                .status(WorkShiftSessionStatus.ACTIVE)
+                .actualCheckInUtc(NOW)
+                .checkInBy(staff)
+                .build();
+        assignment.setWorkShiftSession(session);
+        return session;
     }
 
     private PaymentTransaction cashPayment(Long reservationId, long amount) {
