@@ -43,6 +43,27 @@ describe("work schedule helpers", () => {
     })).toEqual(schedule);
   });
 
+  it("unwraps the legacy paginated user response used by the staff selector", () => {
+    const usersPage = {
+      users: [{
+        id: 7,
+        fullName: "Nhân viên",
+        username: "staff1",
+        email: "staff1@luxstay.vn",
+        type: "STAFF",
+        status: "ACTIVE",
+      }],
+    };
+
+    expect(unwrapWorkScheduleApiData<typeof usersPage>({
+      data: {
+        status: 200,
+        message: "Get user by id successfully",
+        data: usersPage,
+      },
+    })).toEqual(usersPage);
+  });
+
   it("prioritizes the actual attendance session in the display status", () => {
     expect(workScheduleDisplayStatus({ ...schedule, sessionStatus: "ACTIVE", sessionId: 91 }))
       .toBe("Đang làm việc");
