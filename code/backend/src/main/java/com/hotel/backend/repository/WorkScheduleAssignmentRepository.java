@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -65,4 +66,9 @@ public interface WorkScheduleAssignmentRepository
     long countByEmployeeIdAndStatusIn(
             Long employeeId,
             Collection<WorkScheduleStatus> statuses);
+
+    long countByShiftTemplateIdAndWorkDateAndStatusNot(
+            Long shiftTemplateId,
+            LocalDate workDate,
+            WorkScheduleStatus status);
 }

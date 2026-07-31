@@ -3,7 +3,10 @@ import {
   formatShiftTime,
   groupWorkSchedulesByDate,
   isCheckInAvailable,
+  calendarMonthLeadingDays,
+  shiftCalendarMonth,
   shiftWorkDate,
+  staffCalendarSlotLabel,
   type WorkSchedule,
   unwrapWorkScheduleApiData,
   workScheduleDisplayStatus,
@@ -90,5 +93,46 @@ describe("work schedule helpers", () => {
   it("shifts the hotel work date across month and year boundaries", () => {
     expect(shiftWorkDate("2026-07-31", 1)).toBe("2026-08-01");
     expect(shiftWorkDate("2026-01-01", -1)).toBe("2025-12-31");
+  });
+
+  it("shifts calendar months and keeps a Monday-first grid offset", () => {
+    expect(shiftCalendarMonth("2026-12", 1)).toBe("2027-01");
+    expect(shiftCalendarMonth("2026-01", -1)).toBe("2025-12");
+    expect(calendarMonthLeadingDays("2026-08")).toBe(5);
+  });
+
+  it("summarizes a staff slot without exposing other employee details", () => {
+    const slot = {
+      shiftTemplateId: 2,
+      shiftCode: "SANG",
+      shiftName: "Ca sáng",
+      shiftColor: "#B8944F",
+      startTime: "06:00",
+      endTime: "14:00",
+      crossesMidnight: false,
+      requiredStaff: 2,
+      assignedCount: 1,
+      pendingRequestCount: 0,
+      availableSlots: 1,
+      assignments: [],
+      requests: [],
+    };
+    expect(staffCalendarSlotLabel(slot)).toBe("Còn 1 chỗ");
+    expect(staffCalendarSlotLabel(slot, true)).toBe("Đã qua");
+    expect(staffCalendarSlotLabel({ ...slot, availableSlots: 0 })).toBe("Đã đủ nhân sự");
+    expect(staffCalendarSlotLabel({
+      ...slot,
+      currentUserRequest: {
+        id: 9,
+        employeeId: 7,
+        employeeName: "Nhân viên",
+        shiftTemplateId: 2,
+        shiftCode: "SANG",
+        shiftName: "Ca sáng",
+        shiftColor: "#B8944F",
+        workDate: "2026-08-01",
+        status: "PENDING",
+      },
+    })).toBe("Chờ duyệt");
   });
 });

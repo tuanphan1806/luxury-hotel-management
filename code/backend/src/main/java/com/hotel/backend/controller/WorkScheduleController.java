@@ -5,13 +5,20 @@ import com.hotel.backend.dto.request.CancelWorkScheduleRequest;
 import com.hotel.backend.dto.request.WorkAttendanceRequest;
 import com.hotel.backend.dto.request.WorkScheduleAssignmentRequest;
 import com.hotel.backend.dto.request.WorkShiftTemplateRequest;
+import com.hotel.backend.dto.request.WorkShiftRegistrationCreateRequest;
+import com.hotel.backend.dto.request.WorkShiftRegistrationReviewRequest;
+import com.hotel.backend.dto.request.WorkShiftRequirementRequest;
 import com.hotel.backend.dto.response.ApiResponse;
+import com.hotel.backend.dto.response.WorkShiftCalendarSlotResponse;
+import com.hotel.backend.dto.response.WorkShiftMonthCalendarResponse;
+import com.hotel.backend.dto.response.WorkShiftRegistrationResponse;
 import com.hotel.backend.dto.response.WorkScheduleResponse;
 import com.hotel.backend.dto.response.WorkShiftTemplateResponse;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.service.IdempotencyService;
 import com.hotel.backend.service.WorkScheduleService;
 import com.hotel.backend.service.WorkShiftTemplateService;
+import com.hotel.backend.service.WorkforceCalendarService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -28,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +50,7 @@ public class WorkScheduleController {
 
     private final WorkScheduleService workScheduleService;
     private final WorkShiftTemplateService templateService;
+    private final WorkforceCalendarService calendarService;
     private final IdempotencyService idempotencyService;
 
     @GetMapping("/templates")
@@ -49,6 +58,122 @@ public class WorkScheduleController {
             @RequestParam(defaultValue = "false") boolean includeInactive,
             @AuthenticationPrincipal User currentUser) {
         return ApiResponse.success(templateService.list(includeInactive, currentUser));
+    }
+
+    @GetMapping("/calendar")
+    public ApiResponse<WorkShiftMonthCalendarResponse> calendar(
+            @RequestParam(required = false)
+            @DateTimeFormat(pattern = "yyyy-MM") YearMonth month,
+            @AuthenticationPrincipal User currentUser) {
+        YearMonth safeMonth = month != null
+                ? month
+                : YearMonth.now(HOTEL_ZONE);
+        return ApiResponse.success(calendarService.month(safeMonth, currentUser));
+    }
+
+    @PostMapping("/registration-requests")
+    @PreAuthorize("hasRole('STAFF')")
+    public ApiResponse<WorkShiftRegistrationResponse> createRegistrationRequest(
+            @Valid @RequestBody WorkShiftRegistrationCreateRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftRegistrationResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_SHIFT_REGISTRATION_CREATE",
+                idempotencyService.actorScope(currentUser, null),
+                request,
+                "WORK_SHIFT_REQUEST",
+                () -> calendarService.createRequest(request, currentUser),
+                item -> String.valueOf(item.id()),
+                itemId -> calendarService.getRequest(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success("Đã gửi yêu cầu đăng ký ca", response);
+    }
+
+    @PostMapping("/registration-requests/{requestId}/cancel")
+    @PreAuthorize("hasRole('STAFF')")
+    public ApiResponse<WorkShiftRegistrationResponse> cancelRegistrationRequest(
+            @PathVariable Long requestId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftRegistrationResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_SHIFT_REGISTRATION_CANCEL",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of("requestId", requestId),
+                "WORK_SHIFT_REQUEST",
+                () -> calendarService.cancelRequest(requestId, currentUser),
+                item -> String.valueOf(item.id()),
+                itemId -> calendarService.getRequest(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success("Đã hủy yêu cầu đăng ký ca", response);
+    }
+
+    @PostMapping("/registration-requests/{requestId}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftRegistrationResponse> approveRegistrationRequest(
+            @PathVariable Long requestId,
+            @Valid @RequestBody WorkShiftRegistrationReviewRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftRegistrationResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_SHIFT_REGISTRATION_APPROVE",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of("requestId", requestId, "request", request),
+                "WORK_SHIFT_REQUEST",
+                () -> calendarService.approveRequest(requestId, request, currentUser),
+                item -> String.valueOf(item.id()),
+                itemId -> calendarService.getRequest(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success("Đã duyệt và phân ca cho nhân viên", response);
+    }
+
+    @PostMapping("/registration-requests/{requestId}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftRegistrationResponse> rejectRegistrationRequest(
+            @PathVariable Long requestId,
+            @Valid @RequestBody WorkShiftRegistrationReviewRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftRegistrationResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_SHIFT_REGISTRATION_REJECT",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of("requestId", requestId, "request", request),
+                "WORK_SHIFT_REQUEST",
+                () -> calendarService.rejectRequest(requestId, request, currentUser),
+                item -> String.valueOf(item.id()),
+                itemId -> calendarService.getRequest(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success("Đã từ chối yêu cầu đăng ký ca", response);
+    }
+
+    @PutMapping("/requirements/{workDate}/{shiftTemplateId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftCalendarSlotResponse> updateRequirement(
+            @PathVariable
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate workDate,
+            @PathVariable Long shiftTemplateId,
+            @Valid @RequestBody WorkShiftRequirementRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftCalendarSlotResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_SHIFT_REQUIREMENT_UPDATE",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of(
+                        "workDate", workDate,
+                        "shiftTemplateId", shiftTemplateId,
+                        "request", request),
+                "WORK_SHIFT_REQUIREMENT",
+                () -> calendarService.updateRequirement(
+                        workDate,
+                        shiftTemplateId,
+                        request,
+                        currentUser),
+                item -> item.shiftTemplateId() + "@" + workDate,
+                ignored -> calendarService.getSlot(
+                        workDate,
+                        shiftTemplateId,
+                        currentUser));
+        return ApiResponse.success("Đã cập nhật nhu cầu nhân sự", response);
     }
 
     @PostMapping("/templates")
