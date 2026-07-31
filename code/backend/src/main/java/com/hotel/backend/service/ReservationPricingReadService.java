@@ -7,6 +7,7 @@ import com.hotel.backend.dto.response.ReservationResponse;
 import com.hotel.backend.dto.response.ReservationRoomTypeResponse;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.ReservationRateSnapshot;
+import com.hotel.backend.entity.ReservationRoomType;
 import com.hotel.backend.repository.ReservationRateSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,15 @@ public class ReservationPricingReadService {
     public ReservationResponse enrich(
             Reservation reservation,
             ReservationResponse response) {
+        return enrich(reservation, response, null, null);
+    }
+
+    /** Uses list data preloaded in bulk and never re-queries snapshots. */
+    public ReservationResponse enrich(
+            Reservation reservation,
+            ReservationResponse response,
+            List<ReservationRateSnapshot> preloadedSnapshots,
+            List<ReservationRoomType> preloadedRoomTypes) {
         response.setActualTotalAmount(money(reservation.getTotalAmount()));
         if (reservation.getPricingVersion()
                 != PricingAlgorithmVersion.MOTEL_PACKAGE_V2) {
@@ -45,8 +55,9 @@ public class ReservationPricingReadService {
             return response;
         }
 
-        List<ReservationRateSnapshot> snapshots = snapshotRepository
-                .findByReservationIdOrderByLineAndSequence(
+        List<ReservationRateSnapshot> snapshots = preloadedSnapshots != null
+                ? preloadedSnapshots
+                : snapshotRepository.findByReservationIdOrderByLineAndSequence(
                         reservation.getId());
         Map<Long, SnapshotPair> byLine = groupSnapshots(snapshots);
         if (byLine.isEmpty()) {
@@ -86,7 +97,8 @@ public class ReservationPricingReadService {
                 actualRoom.subtract(plannedRoom).max(zero()));
         response.setPlannedAddOnServiceAmount(plannedServices);
         enrichRoomLines(response.getRoomTypes(), byLine);
-        enrichCurrentProjection(reservation, response);
+        enrichCurrentProjection(
+                reservation, response, snapshots, preloadedRoomTypes);
         return response;
     }
 
@@ -97,13 +109,17 @@ public class ReservationPricingReadService {
      */
     private void enrichCurrentProjection(
             Reservation reservation,
-            ReservationResponse response) {
+            ReservationResponse response,
+            List<ReservationRateSnapshot> snapshots,
+            List<ReservationRoomType> roomTypes) {
         if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
             return;
         }
         LocalDateTime projectedAt = LocalDateTime.now();
-        PricingV2LifecycleService.Projection projection =
-                pricingV2LifecycleService.project(
+        PricingV2LifecycleService.Projection projection = roomTypes != null
+                ? pricingV2LifecycleService.project(
+                        reservation, projectedAt, roomTypes, snapshots)
+                : pricingV2LifecycleService.project(
                         reservation, projectedAt);
         response.setProjectedTotalAmount(
                 projection.projectedTotalAmount());

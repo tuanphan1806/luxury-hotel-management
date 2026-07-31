@@ -20,4 +20,15 @@ class RoomPageableFactoryTest {
         assertEquals(0, fallback.getPageNumber());
         assertEquals(Sort.Direction.ASC, fallback.getSort().getOrderFor("id").getDirection());
     }
+
+    @Test
+    void clampsPageSizeAndRejectsUnknownSortProperties() {
+        Pageable oversized = RoomPageableFactory.create("roomType.password:desc", 1, 50_000);
+        assertEquals(100, oversized.getPageSize());
+        assertEquals(Sort.Direction.ASC, oversized.getSort().getOrderFor("id").getDirection());
+
+        Pageable nonPositive = RoomPageableFactory.create("status:asc", 1, 0);
+        assertEquals(1, nonPositive.getPageSize());
+        assertEquals(Sort.Direction.ASC, nonPositive.getSort().getOrderFor("status").getDirection());
+    }
 }

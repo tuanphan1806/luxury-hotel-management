@@ -32,7 +32,8 @@ public class RoomResponse {
     private BigDecimal price;
     private String maintenanceReason;
     private LocalDate maintenanceExpectedCompletedDate;
-    private List<MaintenanceHistoryItem> maintenanceHistory;
+    @Builder.Default
+    private List<MaintenanceHistoryItem> maintenanceHistory = List.of();
 
     @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
     public static class MaintenanceHistoryItem {
@@ -43,6 +44,19 @@ public class RoomResponse {
 
     // Static mapper
     public static RoomResponse from(Room room) {
+        RoomResponse response = summary(room);
+        response.setMaintenanceHistory(room.getMaintenanceHistory().stream()
+                .map(log -> MaintenanceHistoryItem.builder()
+                        .date(log.getCreatedAt())
+                        .action(log.getAction())
+                        .note(log.getNote())
+                        .build())
+                .toList());
+        return response;
+    }
+
+    /** Lightweight list mapper; maintenance history is loaded on demand. */
+    public static RoomResponse summary(Room room) {
         RoomResponseBuilder builder = RoomResponse.builder()
                 .id(room.getId())
                 .roomName(room.getRoomName())
@@ -55,13 +69,7 @@ public class RoomResponse {
 
         builder.maintenanceReason(room.getMaintenanceReason())
                 .maintenanceExpectedCompletedDate(room.getMaintenanceExpectedCompletedDate())
-                .maintenanceHistory(room.getMaintenanceHistory().stream()
-                        .map(log -> MaintenanceHistoryItem.builder()
-                                .date(log.getCreatedAt())
-                                .action(log.getAction())
-                                .note(log.getNote())
-                                .build())
-                        .toList());
+                .maintenanceHistory(List.of());
 
         if (room.getRoomType() != null) {
             builder.roomTypeId(room.getRoomType().getId())

@@ -33,7 +33,19 @@ public class ReservationRefundSummaryEnricher {
     public ReservationResponse apply(ReservationResponse response) {
         if (response == null || response.getId() == null) return response;
         List<PaymentRefund> refunds = refundRepository.findByReservationId(response.getId());
-        if (refunds.isEmpty()) {
+        return apply(response, refunds, null, null);
+    }
+
+    /** Uses payment/refund/recipient rows already loaded for a list response. */
+    public ReservationResponse apply(
+            ReservationResponse response,
+            List<PaymentRefund> refunds,
+            List<PaymentTransaction> preloadedPayments,
+            List<RefundRecipient> preloadedRecipients) {
+        if (response == null || response.getId() == null) return response;
+        List<PaymentRefund> refundRows = refunds == null
+                ? List.of() : refunds;
+        if (refundRows.isEmpty()) {
             boolean mayNeedRefundDestination = response.getStatus() == ReservationStatus.CANCELLATION_PENDING
                     || (response.getStatus() == ReservationStatus.CHECKED_IN
                     && response.getRefundableAmount() != null
@@ -41,7 +53,10 @@ public class ReservationRefundSummaryEnricher {
             if (!mayNeedRefundDestination) {
                 return response;
             }
-            List<PaymentTransaction> paid = transactionRepository.findByReservationId(response.getId()).stream()
+            List<PaymentTransaction> paymentSource = preloadedPayments != null
+                    ? preloadedPayments
+                    : transactionRepository.findByReservationId(response.getId());
+            List<PaymentTransaction> paid = paymentSource.stream()
                     .filter(payment -> List.of(PaymentStatus.SUCCESS,
                                     PaymentStatus.REFUND_PENDING, PaymentStatus.REFUNDED)
                             .contains(payment.getStatus()))
@@ -54,7 +69,9 @@ public class ReservationRefundSummaryEnricher {
             // Kênh hoàn mới không phụ thuộc kênh thu tiền gốc. Khách có thể khai báo
             // tài khoản trước để Staff/Admin chọn chuyển khoản QR khi duyệt hủy/đối soát.
             response.setRefundRoute(RefundRoute.MANUAL_BANK_TRANSFER);
-            RefundRecipient preSubmitted = recipientRepository
+            RefundRecipient preSubmitted = preloadedRecipients != null
+                    ? preloadedRecipients.stream().findFirst().orElse(null)
+                    : recipientRepository
                     .findFirstByReservationIdAndStatusInOrderByCreatedAtDesc(
                             response.getId(), EnumSet.of(RefundRecipientStatus.SUBMITTED,
                                     RefundRecipientStatus.VERIFIED))
@@ -69,14 +86,14 @@ public class ReservationRefundSummaryEnricher {
                     : null);
             return response;
         }
-        response.setRefunds(refunds.stream()
+        response.setRefunds(refundRows.stream()
                 .sorted(Comparator.comparing(PaymentRefund::getRequestedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(ReservationRefundResponse::from)
                 .toList());
-        boolean hasManualBank = refunds.stream().anyMatch(
+        boolean hasManualBank = refundRows.stream().anyMatch(
                 refund -> refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER);
-        boolean hasCash = refunds.stream().anyMatch(
+        boolean hasCash = refundRows.stream().anyMatch(
                 refund -> refund.getChannel() == RefundChannel.CASH_AT_COUNTER);
         response.setRefundRoute(hasManualBank && hasCash
                 ? RefundRoute.MIXED
@@ -86,12 +103,12 @@ public class ReservationRefundSummaryEnricher {
                 ? RefundRoute.CASH_AT_COUNTER
                 : RefundRoute.NONE);
 
-        PaymentRefund manualSummary = refunds.stream()
+        PaymentRefund manualSummary = refundRows.stream()
                 .filter(refund -> refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER
                         && List.of(RefundStatus.AWAITING_CUSTOMER_INFO,
                         RefundStatus.READY_FOR_MANUAL_TRANSFER).contains(refund.getStatus()))
                 .findFirst()
-                .orElseGet(() -> refunds.stream()
+                .orElseGet(() -> refundRows.stream()
                         .filter(refund -> refund.getChannel() == RefundChannel.MANUAL_BANK_TRANSFER)
                         .max(Comparator.comparing(PaymentRefund::getUpdatedAt,
                                 Comparator.nullsLast(Comparator.naturalOrder())))

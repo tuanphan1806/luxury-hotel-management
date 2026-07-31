@@ -31,7 +31,7 @@ import com.hotel.backend.service.PaymentService;
 import com.hotel.backend.service.PaymentSessionExpiryService;
 import com.hotel.backend.service.BusinessMetricService;
 import com.hotel.backend.exception.AppException;
-import com.hotel.backend.util.PaymentUtil;
+import com.hotel.backend.security.ClientIpResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
@@ -60,6 +60,7 @@ public class ReservationController {
     private final PaymentService paymentService;
     private final PaymentSessionExpiryService paymentSessionExpiryService;
     private final BusinessMetricService businessMetrics;
+    private final ClientIpResolver clientIpResolver;
 
     // ── Public: kiểm tra phòng trống ─────────────────────────────────────────
     @Operation(summary = "Check room availability", description = "API check available room types for the selected check-in and check-out time")
@@ -156,7 +157,7 @@ public ApiResponse<List<AvailabilityResponse>> checkAvailability(
             com.hotel.backend.entity.User currentUser,
             HttpServletRequest httpRequest) {
         WalkInReservationResponse response = reservationService.createWalkInCheckedIn(
-                request, currentUser, PaymentUtil.getClientIp(httpRequest));
+                request, currentUser, clientIpResolver.resolve(httpRequest));
         if (request.getPaymentOption() != WalkInPaymentOption.SEPAY) {
             return response;
         }

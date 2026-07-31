@@ -27,6 +27,15 @@ public interface ReservationServiceOrderRepository
 
     @Query("""
             select orderLine from ReservationServiceOrder orderLine
+            join fetch orderLine.service
+            where orderLine.reservation.id in :reservationIds
+            order by orderLine.reservation.id, orderLine.createdAt asc, orderLine.id asc
+            """)
+    List<ReservationServiceOrder> findDetailedByReservationIds(
+            @Param("reservationIds") Collection<Long> reservationIds);
+
+    @Query("""
+            select orderLine from ReservationServiceOrder orderLine
             where orderLine.reservation.id = :reservationId
             order by orderLine.id asc
             """)

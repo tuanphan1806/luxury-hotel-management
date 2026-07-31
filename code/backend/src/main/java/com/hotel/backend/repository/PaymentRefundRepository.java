@@ -84,6 +84,20 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, St
     """)
     List<PaymentRefund> findByReservationId(@Param("reservationId") Long reservationId);
 
+    @Query("""
+        SELECT DISTINCT r FROM PaymentRefund r
+        LEFT JOIN FETCH r.paymentTransaction payment
+        LEFT JOIN FETCH payment.reservation paymentReservation
+        LEFT JOIN FETCH r.reservation directReservation
+        LEFT JOIN FETCH r.recipient
+        LEFT JOIN FETCH r.proofAsset
+        WHERE directReservation.id IN :reservationIds
+           OR paymentReservation.id IN :reservationIds
+        ORDER BY r.createdAt, r.id
+    """)
+    List<PaymentRefund> findByReservationIds(
+            @Param("reservationIds") Collection<Long> reservationIds);
+
     List<PaymentRefund> findByStatusAndCompletedAtUtcGreaterThanEqualAndCompletedAtUtcLessThan(
             RefundStatus status,
             Instant from,

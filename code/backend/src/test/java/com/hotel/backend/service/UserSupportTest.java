@@ -30,6 +30,17 @@ class UserSupportTest {
     }
 
     @Test
+    void clampsUserPageSizeAndFallsBackForUnknownSort() {
+        Pageable oversized = UserPageableFactory.create("password:desc", 1, 5_000);
+        assertEquals(100, oversized.getPageSize());
+        assertEquals(Sort.Direction.ASC, oversized.getSort().getOrderFor("id").getDirection());
+
+        Pageable nonPositive = UserPageableFactory.create("email:asc", 1, -1);
+        assertEquals(1, nonPositive.getPageSize());
+        assertEquals(Sort.Direction.ASC, nonPositive.getSort().getOrderFor("email").getDirection());
+    }
+
+    @Test
     void mapsTheExistingUserResponseFields() {
         User user = User.builder()
                 .fullName("Nguyễn Văn A")

@@ -1156,11 +1156,10 @@ public class ReservationServiceImpl implements ReservationService {
       // khôi phục access token đúng cách qua refresh cookie HttpOnly.
       customerProfileClaimService.claimForVerifiedUser(currentUser.getId());
 
-      return reservationRepository.findByLinkedUserIdOrderByCreatedAtDesc(currentUser.getId())
-            .stream()
-            .map(responseAssembler::withRoomTypeDetailsAndRefundSummary)
-            .toList();
-}
+      List<Reservation> reservations = reservationRepository
+            .findByLinkedUserIdOrderByCreatedAtDesc(currentUser.getId());
+      return responseAssembler.withBatchDetailsAndRefundSummary(reservations);
+  }
     // ─────────────────────────────────────────────────────────────────────────
     // Hủy đặt phòng
     // ─────────────────────────────────────────────────────────────────────────
@@ -2210,20 +2209,22 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     @Override
     @Transactional(readOnly = true)
     public List<ReservationResponse> getAllReservations() {
-        return reservationRepository.findAllWithDetails()
-                .stream()
-                .map(reservation -> {
-                    ReservationResponse response = responseAssembler.withRoomTypeDetails(reservation);
-                    response.setRooms(responseAssembler.assignedRooms(reservation));
-                    response.setPaidAmount(BigDecimal.valueOf(getNetPaidAmount(reservation.getId())));
-                    LocalDateTime eligibleAt = noShowEligibleAt(reservation);
-                    response.setNoShowEligibleAt(eligibleAt);
-                    response.setNoShowEligible(reservation.getStatus() == ReservationStatus.CONFIRMED
+        List<Reservation> reservations =
+                reservationRepository.findAllWithDetails();
+        List<ReservationResponse> responses = responseAssembler
+                .withBatchDetailsAndRefundSummary(reservations);
+        LocalDateTime now = LocalDateTime.now();
+        for (int index = 0; index < reservations.size(); index++) {
+            Reservation reservation = reservations.get(index);
+            ReservationResponse response = responses.get(index);
+            LocalDateTime eligibleAt = noShowEligibleAt(reservation);
+            response.setNoShowEligibleAt(eligibleAt);
+            response.setNoShowEligible(
+                    reservation.getStatus() == ReservationStatus.CONFIRMED
                             && reservation.getActualCheckIn() == null
-                            && !LocalDateTime.now().isBefore(eligibleAt));
-                    return responseAssembler.applyRefundSummary(response);
-                })
-                .toList();
+                            && !now.isBefore(eligibleAt));
+        }
+        return responses;
     }
 
     @Override

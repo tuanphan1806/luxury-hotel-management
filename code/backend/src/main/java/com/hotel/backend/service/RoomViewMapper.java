@@ -19,7 +19,7 @@ public final class RoomViewMapper {
 
     public static RoomPageResponse toPage(int page, int size, Page<Room> rooms) {
         List<RoomResponse> roomList = rooms.stream()
-                .map(RoomResponse::from)
+                .map(RoomResponse::summary)
                 .toList();
 
         RoomPageResponse response = new RoomPageResponse();

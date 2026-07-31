@@ -20,12 +20,14 @@ import com.hotel.backend.repository.PaymentTransactionRepository;
 import com.hotel.backend.repository.ReservationRepository;
 import com.hotel.backend.repository.ReservationRoomTypeRepository;
 import com.hotel.backend.repository.RoomHoldRepository;
+import com.hotel.backend.security.ClientIpResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
@@ -54,6 +56,7 @@ class PaymentServiceTest {
     @Mock PaymentBalanceCalculator balanceCalculator;
     @Mock CashierShiftService cashierShiftService;
     @Mock FinancialJournalService financialJournalService;
+    @Mock ClientIpResolver clientIpResolver;
     @InjectMocks PaymentService paymentService;
 
     @Test
@@ -109,6 +112,8 @@ class PaymentServiceTest {
         request.setBookingId(8L);
         request.setProvider(PaymentProvider.CASH);
         request.setPurpose(PaymentPurpose.FINAL_PAYMENT);
+        MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+        when(clientIpResolver.resolve(httpRequest)).thenReturn("198.51.100.8");
         when(reservationRepository.findByIdForUpdate(8L)).thenReturn(Optional.of(reservation));
         when(balanceCalculator.resolve(reservation))
                 .thenReturn(new PaymentBalanceCalculator.PaymentBalance(50_000L, 50_000L));
@@ -116,7 +121,7 @@ class PaymentServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         PaymentResponse response = paymentService.createCashPayment(
-                request, new org.springframework.mock.web.MockHttpServletRequest(), staff);
+                request, httpRequest, staff);
 
         assertEquals(50_000L, response.getAmount());
         assertEquals(50_000L, response.getExpectedAmount());
@@ -126,6 +131,9 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.SUCCESS, response.getStatus());
         verify(reservationRepository).findByIdForUpdate(8L);
         verify(reservationRepository, never()).findById(8L);
+        verify(clientIpResolver).resolve(httpRequest);
+        verify(transactionRepository).save(argThat(transaction ->
+                "198.51.100.8".equals(transaction.getIpAddress())));
         verify(reservationService).convertHoldsAfterPayment(8L);
         verify(cashierShiftService).recordCashPayment(any(PaymentTransaction.class), eq(staff));
         verify(financialJournalService).postPayment(any(PaymentTransaction.class));

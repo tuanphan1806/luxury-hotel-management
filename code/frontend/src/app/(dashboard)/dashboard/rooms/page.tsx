@@ -516,9 +516,23 @@ export default function RoomsManagement() {
     setMaintenanceFormOpen(true);
   };
 
-  const handleOpenMaintenanceDetail = (room: RoomItem) => {
+  const handleOpenMaintenanceDetail = async (room: RoomItem) => {
     setMaintenanceDetailRoom(room);
     setMaintenanceDetailOpen(true);
+    try {
+      const response = await apiClient.get(`/api/rooms/${room.id}`);
+      const detail = response.data?.data ?? response.data;
+      setMaintenanceDetailRoom({
+        ...room,
+        ...detail,
+        maintenanceHistory: detail?.maintenanceHistory || [],
+      });
+    } catch (error: unknown) {
+      showToast(
+        getApiErrorMessage(error, "Không thể tải lịch sử bảo trì của phòng."),
+        "error",
+      );
+    }
   };
 
   // Metrics
