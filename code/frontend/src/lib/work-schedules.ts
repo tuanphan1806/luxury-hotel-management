@@ -1,5 +1,6 @@
 export type WorkScheduleStatus = "SCHEDULED" | "FULFILLED" | "CANCELLED" | "ABSENT";
 export type WorkShiftSessionStatus = "ACTIVE" | "CLOSED" | "AUTO_CLOSED";
+export type WorkShiftRegistrationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
 export interface WorkShiftTemplate {
   id: number;
@@ -73,6 +74,69 @@ export interface WorkShiftTemplateForm {
   active: boolean;
 }
 
+export interface WorkShiftRegistration {
+  id: number;
+  employeeId: number;
+  employeeName: string;
+  shiftTemplateId: number;
+  shiftCode: string;
+  shiftName: string;
+  shiftColor: string;
+  workDate: string;
+  status: WorkShiftRegistrationStatus;
+  staffNote?: string | null;
+  adminReason?: string | null;
+  reviewedById?: number | null;
+  reviewedByName?: string | null;
+  reviewedAtUtc?: string | null;
+  assignmentId?: number | null;
+  createdAtUtc?: string | null;
+  updatedAtUtc?: string | null;
+}
+
+export interface WorkShiftCalendarAssignment {
+  id: number;
+  employeeId: number;
+  employeeName: string;
+  status: WorkScheduleStatus;
+  sessionStatus?: WorkShiftSessionStatus | null;
+  late: boolean;
+  lateMinutes: number;
+}
+
+export interface WorkShiftCalendarSlot {
+  shiftTemplateId: number;
+  shiftCode: string;
+  shiftName: string;
+  shiftColor: string;
+  startTime: string;
+  endTime: string;
+  crossesMidnight: boolean;
+  requiredStaff: number;
+  assignedCount: number;
+  pendingRequestCount: number;
+  availableSlots: number;
+  requirementNote?: string | null;
+  currentUserAssignment?: WorkShiftCalendarAssignment | null;
+  currentUserRequest?: WorkShiftRegistration | null;
+  assignments: WorkShiftCalendarAssignment[];
+  requests: WorkShiftRegistration[];
+}
+
+export interface WorkShiftCalendarDay {
+  date: string;
+  past: boolean;
+  today: boolean;
+  slots: WorkShiftCalendarSlot[];
+}
+
+export interface WorkShiftMonthCalendar {
+  month: string;
+  from: string;
+  to: string;
+  days: WorkShiftCalendarDay[];
+}
+
 /**
  * Opens the backend ApiResponse envelope without turning an omitted nullable
  * `data` field into a truthy object. Jackson omits null properties, so
@@ -144,4 +208,26 @@ export function shiftWorkDate(value: string, days: number) {
   const [year, month, day] = value.split("-").map(Number);
   const shifted = new Date(Date.UTC(year, month - 1, day + days));
   return shifted.toISOString().slice(0, 10);
+}
+
+export function shiftCalendarMonth(value: string, months: number) {
+  const [year, month] = value.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1 + months, 1));
+  return shifted.toISOString().slice(0, 7);
+}
+
+export function calendarMonthLeadingDays(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  const sundayFirst = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  return (sundayFirst + 6) % 7;
+}
+
+export function staffCalendarSlotLabel(slot: WorkShiftCalendarSlot, past = false) {
+  if (slot.currentUserAssignment) return "Ca của bạn";
+  if (slot.currentUserRequest?.status === "PENDING") return "Chờ duyệt";
+  if (slot.currentUserRequest?.status === "APPROVED") return "Đã duyệt";
+  if (slot.currentUserRequest?.status === "REJECTED") return "Đã từ chối";
+  if (past) return "Đã qua";
+  if (slot.availableSlots > 0) return `Còn ${slot.availableSlots} chỗ`;
+  return "Đã đủ nhân sự";
 }
