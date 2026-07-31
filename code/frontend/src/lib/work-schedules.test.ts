@@ -119,6 +119,10 @@ describe("work schedule helpers", () => {
     };
     expect(staffCalendarSlotLabel(slot)).toBe("Còn 1 chỗ");
     expect(staffCalendarSlotLabel(slot, true)).toBe("Đã qua");
+    expect(staffCalendarSlotLabel({
+      ...slot,
+      registrationOpen: false,
+    })).toBe("Đã qua");
     expect(staffCalendarSlotLabel({ ...slot, availableSlots: 0 })).toBe("Đã đủ nhân sự");
     expect(staffCalendarSlotLabel({
       ...slot,

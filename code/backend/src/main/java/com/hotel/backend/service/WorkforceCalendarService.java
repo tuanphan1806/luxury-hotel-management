@@ -191,6 +191,8 @@ public class WorkforceCalendarService {
                         ? requirement.getRequiredStaff()
                         : DEFAULT_REQUIRED_STAFF;
                 int assignedCount = slotAssignments.size();
+                boolean registrationOpen =
+                        clock.instant().isBefore(window(template, date).endUtc());
                 int pendingCount = actor.getType() == UserType.ADMIN
                         ? (int) slotRequests.stream()
                                 .filter(item -> item.getStatus()
@@ -218,6 +220,7 @@ public class WorkforceCalendarService {
                         assignedCount,
                         pendingCount,
                         Math.max(0, requiredStaff - assignedCount),
+                        registrationOpen,
                         requirement != null ? requirement.getNote() : null,
                         ownAssignment != null ? toAssignmentResponse(ownAssignment) : null,
                         ownRequest != null ? toRegistrationResponse(ownRequest) : null,
@@ -446,6 +449,9 @@ public class WorkforceCalendarService {
         }
         WorkShiftTemplate template = templateRepository.findByIdForUpdate(shiftTemplateId)
                 .orElseThrow(() -> new AppException(ErrorCode.WORK_SHIFT_TEMPLATE_NOT_FOUND));
+        if (!clock.instant().isBefore(window(template, workDate).endUtc())) {
+            throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_PAST_DATE);
+        }
         long assignedCount = assignmentRepository
                 .countByShiftTemplateIdAndWorkDateAndStatusNot(
                         template.getId(),
@@ -498,6 +504,8 @@ public class WorkforceCalendarService {
                 assignedCount,
                 0,
                 Math.max(0, requirement.getRequiredStaff() - assignedCount),
+                clock.instant().isBefore(
+                        window(template, requirement.getWorkDate()).endUtc()),
                 requirement.getNote(),
                 null,
                 null,

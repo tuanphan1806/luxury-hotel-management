@@ -79,7 +79,7 @@ function Chevron({ direction }: { direction: "left" | "right" }) {
   );
 }
 
-function slotTone(slot: WorkShiftCalendarSlot, isAdmin: boolean) {
+function slotTone(slot: WorkShiftCalendarSlot, isAdmin: boolean, past = false) {
   if (!isAdmin && slot.currentUserAssignment) {
     return "border-emerald-300 bg-emerald-50 text-emerald-900";
   }
@@ -88,6 +88,9 @@ function slotTone(slot: WorkShiftCalendarSlot, isAdmin: boolean) {
   }
   if (isAdmin && slot.pendingRequestCount > 0) {
     return "border-amber-300 bg-amber-50 text-amber-900";
+  }
+  if (past || slot.registrationOpen === false) {
+    return "border-slate-200 bg-slate-50 text-slate-500";
   }
   if (slot.availableSlots > 0) {
     return "border-[#B8944F]/45 bg-[#FBF7EE] text-[#0F2A43]";
@@ -105,10 +108,11 @@ export default function WorkforceMonthCalendar({
   const [month, setMonth] = useState(currentMonthKey);
   const [calendar, setCalendar] = useState<WorkShiftMonthCalendar | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [selectedKey, setSelectedKey] = useState<SlotKey | null>(null);
   const [staffNote, setStaffNote] = useState("");
-  const [reviewReason, setReviewReason] = useState("");
+  const [reviewReasons, setReviewReasons] = useState<Record<number, string>>({});
   const [directEmployeeId, setDirectEmployeeId] = useState(0);
   const [directNote, setDirectNote] = useState("");
   const [requiredStaff, setRequiredStaff] = useState(1);
@@ -116,7 +120,11 @@ export default function WorkforceMonthCalendar({
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const loadCalendar = useCallback(async (showLoading = false) => {
-    if (showLoading) setLoading(true);
+    if (showLoading) {
+      setLoading(true);
+      setCalendar(null);
+      setLoadError(null);
+    }
     try {
       const response = await cachedGet(
         `/api/work-schedules/calendar?month=${month}`,
@@ -124,9 +132,14 @@ export default function WorkforceMonthCalendar({
       );
       setCalendar(unwrapWorkScheduleApiData<WorkShiftMonthCalendar>(response));
     } catch (error) {
+      const message = getApiErrorMessage(error, "Không thể tải lịch tháng");
+      if (showLoading) {
+        setCalendar(null);
+        setLoadError(message);
+      }
       setToast({
         type: "error",
-        message: getApiErrorMessage(error, "Không thể tải lịch tháng"),
+        message,
       });
     } finally {
       setLoading(false);
@@ -149,8 +162,8 @@ export default function WorkforceMonthCalendar({
   const openSlot = (day: WorkShiftCalendarDay, slot: WorkShiftCalendarSlot) => {
     setSelectedKey({ date: day.date, shiftTemplateId: slot.shiftTemplateId });
     setStaffNote(slot.currentUserRequest?.staffNote || "");
-    setReviewReason("");
-    setDirectEmployeeId(employees[0]?.id || 0);
+    setReviewReasons({});
+    setDirectEmployeeId(0);
     setDirectNote("");
     setRequiredStaff(slot.requiredStaff);
     setRequirementNote(slot.requirementNote || "");
@@ -215,20 +228,25 @@ export default function WorkforceMonthCalendar({
     request: WorkShiftRegistration,
     decision: "approve" | "reject",
   ) => {
-    if (decision === "reject" && !reviewReason.trim()) {
+    const reviewReason = reviewReasons[request.id]?.trim() || "";
+    if (decision === "reject" && !reviewReason) {
       setToast({ type: "error", message: "Vui lòng nhập lý do từ chối." });
       return;
     }
-    const scope = `work-shift-request:${decision}:${request.id}:${reviewReason.trim()}`;
+    const scope = `work-shift-request:${decision}:${request.id}:${reviewReason}`;
     setSubmitting(true);
     try {
       await apiClient.post(
         `/api/work-schedules/registration-requests/${request.id}/${decision}`,
-        { reason: reviewReason.trim() || null },
+        { reason: reviewReason || null },
         { headers: { "Idempotency-Key": getOrCreateIdempotencyKey(scope) } },
       );
       clearIdempotencyKey(scope);
-      setReviewReason("");
+      setReviewReasons((current) => {
+        const next = { ...current };
+        delete next[request.id];
+        return next;
+      });
       await completeMutation(
         decision === "approve"
           ? `Đã duyệt ca cho ${request.employeeName}`
@@ -359,6 +377,21 @@ export default function WorkforceMonthCalendar({
               <div key={index} className="h-36 animate-pulse rounded-xl bg-[#0F2A43]/6" />
             ))}
           </div>
+        ) : loadError ? (
+          <div className="flex min-h-64 flex-col items-center justify-center px-5 py-10 text-center" role="alert">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-lg font-bold text-rose-700" aria-hidden="true">
+              !
+            </div>
+            <h3 className="mt-3 text-base font-bold text-[#0F2A43]">Chưa tải được lịch tháng</h3>
+            <p className="mt-1 max-w-lg text-sm leading-6 text-[#66727C]">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => void loadCalendar(true)}
+              className="mt-4 min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#173D5F] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B8944F]"
+            >
+              Thử tải lại
+            </button>
+          </div>
         ) : calendar ? (
           <>
             <div className="hidden p-4 lg:block xl:p-5">
@@ -394,7 +427,7 @@ export default function WorkforceMonthCalendar({
                           key={slot.shiftTemplateId}
                           type="button"
                           onClick={() => openSlot(day, slot)}
-                          className={`w-full rounded-lg border px-2 py-2 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin)}`}
+                          className={`w-full rounded-lg border px-2 py-2 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
                         >
                           <span className="flex items-center justify-between gap-2">
                             <strong className="truncate text-[11px]">{slot.shiftName}</strong>
@@ -435,7 +468,7 @@ export default function WorkforceMonthCalendar({
                         key={slot.shiftTemplateId}
                         type="button"
                         onClick={() => openSlot(day, slot)}
-                        className={`min-h-14 rounded-lg border px-3 py-2 text-left transition active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin)}`}
+                          className={`min-h-14 rounded-lg border px-3 py-2 text-left transition active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
                       >
                         <span className="flex items-center gap-2">
                           <i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: slot.shiftColor }} />
@@ -524,7 +557,7 @@ export default function WorkforceMonthCalendar({
                           min={selected.slot.assignedCount}
                           max={100}
                           value={requiredStaff}
-                          disabled={selected.day.past}
+                          disabled={selected.day.past || selected.slot.registrationOpen === false}
                           onChange={(event) => setRequiredStaff(Number(event.target.value))}
                           className={inputClass}
                         />
@@ -534,7 +567,7 @@ export default function WorkforceMonthCalendar({
                         <input
                           value={requirementNote}
                           maxLength={500}
-                          disabled={selected.day.past}
+                          disabled={selected.day.past || selected.slot.registrationOpen === false}
                           onChange={(event) => setRequirementNote(event.target.value)}
                           placeholder="Ví dụ: cuối tuần cần tăng cường"
                           className={inputClass}
@@ -543,7 +576,7 @@ export default function WorkforceMonthCalendar({
                     </div>
                     <button
                       type="button"
-                      disabled={submitting || selected.day.past}
+                      disabled={submitting || selected.day.past || selected.slot.registrationOpen === false}
                       onClick={() => void saveRequirement()}
                       className="mt-3 min-h-11 w-full rounded-lg border border-[#B8944F] bg-[#FFF9EA] px-4 text-xs font-bold text-[#0F2A43] transition hover:bg-[#F4E7C6] disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -568,15 +601,19 @@ export default function WorkforceMonthCalendar({
                         </div>
                         <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                           <input
-                            value={reviewReason}
+                            value={reviewReasons[request.id] || ""}
                             maxLength={500}
-                            onChange={(event) => setReviewReason(event.target.value)}
+                            onChange={(event) => setReviewReasons((current) => ({
+                              ...current,
+                              [request.id]: event.target.value,
+                            }))}
+                            aria-label={`Ghi chú xử lý yêu cầu của ${request.employeeName}`}
                             placeholder="Ghi chú duyệt hoặc lý do từ chối"
                             className={inputClass}
                           />
                           <button
                             type="button"
-                            disabled={submitting || selected.day.past || selected.slot.availableSlots <= 0}
+                            disabled={submitting || selected.day.past || selected.slot.registrationOpen === false || selected.slot.availableSlots <= 0}
                             onClick={() => void reviewRegistration(request, "approve")}
                             className="min-h-11 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:opacity-45"
                           >
@@ -599,7 +636,7 @@ export default function WorkforceMonthCalendar({
                 </section>
               )}
 
-              {isAdmin && !selected.day.past && (
+              {isAdmin && !selected.day.past && selected.slot.registrationOpen !== false && (
                 <section className="mt-5 rounded-xl border border-[#0F2A43]/10 bg-[#FBFAF6] p-4">
                   <h3 className="text-sm font-bold text-[#0F2A43]">Phân ca trực tiếp</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
@@ -679,7 +716,7 @@ export default function WorkforceMonthCalendar({
                           value={staffNote}
                           maxLength={500}
                           rows={3}
-                          disabled={selected.day.past || selected.slot.availableSlots <= 0}
+                          disabled={selected.day.past || selected.slot.registrationOpen === false || selected.slot.availableSlots <= 0}
                           onChange={(event) => setStaffNote(event.target.value)}
                           placeholder="Ví dụ: Tôi có thể nhận ca này"
                           className={`${inputClass} resize-y`}
@@ -687,13 +724,13 @@ export default function WorkforceMonthCalendar({
                       </label>
                       <button
                         type="button"
-                        disabled={submitting || selected.day.past || selected.slot.availableSlots <= 0}
+                        disabled={submitting || selected.day.past || selected.slot.registrationOpen === false || selected.slot.availableSlots <= 0}
                         onClick={() => void createRegistration()}
                         className="mt-3 min-h-11 w-full rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#173D5F] disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         {submitting
                           ? "Đang gửi..."
-                          : selected.day.past
+                          : selected.day.past || selected.slot.registrationOpen === false
                             ? "Ca đã qua"
                             : selected.slot.availableSlots <= 0
                               ? "Ca đã đủ nhân sự"
