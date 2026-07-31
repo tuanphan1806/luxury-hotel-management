@@ -116,6 +116,7 @@ export interface WorkShiftCalendarSlot {
   assignedCount: number;
   pendingRequestCount: number;
   availableSlots: number;
+  registrationOpen?: boolean;
   requirementNote?: string | null;
   currentUserAssignment?: WorkShiftCalendarAssignment | null;
   currentUserRequest?: WorkShiftRegistration | null;
@@ -227,7 +228,7 @@ export function staffCalendarSlotLabel(slot: WorkShiftCalendarSlot, past = false
   if (slot.currentUserRequest?.status === "PENDING") return "Chờ duyệt";
   if (slot.currentUserRequest?.status === "APPROVED") return "Đã duyệt";
   if (slot.currentUserRequest?.status === "REJECTED") return "Đã từ chối";
-  if (past) return "Đã qua";
+  if (past || slot.registrationOpen === false) return "Đã qua";
   if (slot.availableSlots > 0) return `Còn ${slot.availableSlots} chỗ`;
   return "Đã đủ nhân sự";
 }

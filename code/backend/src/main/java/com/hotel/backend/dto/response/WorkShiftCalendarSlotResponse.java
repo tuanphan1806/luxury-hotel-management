@@ -14,6 +14,7 @@ public record WorkShiftCalendarSlotResponse(
         int assignedCount,
         int pendingRequestCount,
         int availableSlots,
+        boolean registrationOpen,
         String requirementNote,
         WorkShiftCalendarAssignmentResponse currentUserAssignment,
         WorkShiftRegistrationResponse currentUserRequest,

@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -127,6 +128,7 @@ class WorkforceCalendarServiceTest {
         assertEquals(2, slot.assignedCount());
         assertEquals(1, slot.availableSlots());
         assertEquals(0, slot.pendingRequestCount());
+        assertTrue(slot.registrationOpen());
         assertNotNull(slot.currentUserAssignment());
         assertEquals(7L, slot.currentUserAssignment().employeeId());
         assertNotNull(slot.currentUserRequest());
@@ -166,6 +168,38 @@ class WorkforceCalendarServiceTest {
         assertEquals("Nhân viên B", slot.requests().get(0).employeeName());
         assertNull(slot.currentUserAssignment());
         assertNull(slot.currentUserRequest());
+    }
+
+    @Test
+    void calendarClosesOnlyTheSlotsWhoseEndTimeHasPassed() {
+        service = new WorkforceCalendarService(
+                requirementRepository,
+                registrationRepository,
+                templateRepository,
+                assignmentRepository,
+                workScheduleService,
+                auditService,
+                Clock.fixed(Instant.parse("2026-08-01T08:00:00Z"), ZoneOffset.UTC));
+        when(templateRepository.findAllByOrderBySortOrderAscStartTimeAscIdAsc())
+                .thenReturn(List.of(morning));
+        when(requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31)))
+                .thenReturn(List.of());
+        when(assignmentRepository.findInWindow(any(), any(), eq(null), eq(null)))
+                .thenReturn(List.of());
+        when(registrationRepository.findInWindow(
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31),
+                7L))
+                .thenReturn(List.of());
+
+        var response = service.month(YearMonth.of(2026, 8), staff);
+        var endedToday = response.days().get(0).slots().get(0);
+        var future = response.days().get(1).slots().get(0);
+
+        assertFalse(endedToday.registrationOpen());
+        assertTrue(future.registrationOpen());
     }
 
     @Test
@@ -248,6 +282,34 @@ class WorkforceCalendarServiceTest {
 
         assertEquals(
                 ErrorCode.WORK_SHIFT_REQUIREMENT_BELOW_ASSIGNED,
+                exception.getErrorCode());
+        verify(requirementRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void requirementCannotChangeAfterTheShiftHasEndedToday() {
+        service = new WorkforceCalendarService(
+                requirementRepository,
+                registrationRepository,
+                templateRepository,
+                assignmentRepository,
+                workScheduleService,
+                auditService,
+                Clock.fixed(Instant.parse("2026-08-01T08:00:00Z"), ZoneOffset.UTC));
+        LocalDate endedDate = LocalDate.of(2026, 8, 1);
+        when(templateRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(morning));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> service.updateRequirement(
+                        endedDate,
+                        10L,
+                        new WorkShiftRequirementRequest(2, null),
+                        admin));
+
+        assertEquals(
+                ErrorCode.WORK_SHIFT_REGISTRATION_PAST_DATE,
                 exception.getErrorCode());
         verify(requirementRepository, never()).saveAndFlush(any());
     }
