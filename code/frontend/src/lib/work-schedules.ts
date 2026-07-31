@@ -80,7 +80,7 @@ export interface WorkShiftTemplateForm {
  */
 export function unwrapWorkScheduleApiData<T>(response: unknown): T {
   const payload = (response as { data?: unknown } | null | undefined)?.data;
-  if (payload && typeof payload === "object" && "success" in payload) {
+  if (payload && typeof payload === "object" && ("success" in payload || "data" in payload)) {
     return ("data" in payload
       ? (payload as { data: T }).data
       : null) as T;
