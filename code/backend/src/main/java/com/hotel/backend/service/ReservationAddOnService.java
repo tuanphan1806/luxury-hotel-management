@@ -384,8 +384,18 @@ public class ReservationAddOnService {
     @Transactional(readOnly = true)
     public ReservationResponse enrich(ReservationResponse response) {
         if (response == null || response.getId() == null) return response;
-        List<ReservationServiceResponse> services = orderRepository
-                .findDetailedByReservationId(response.getId())
+        return enrich(response, orderRepository
+                .findDetailedByReservationId(response.getId()));
+    }
+
+    /** Uses rows preloaded by the reservation list read model. */
+    public ReservationResponse enrich(
+            ReservationResponse response,
+            List<ReservationServiceOrder> orderLines) {
+        if (response == null || response.getId() == null) return response;
+        List<ReservationServiceResponse> services = (orderLines == null
+                ? List.<ReservationServiceOrder>of()
+                : orderLines)
                 .stream()
                 .map(ReservationServiceResponse::from)
                 .toList();

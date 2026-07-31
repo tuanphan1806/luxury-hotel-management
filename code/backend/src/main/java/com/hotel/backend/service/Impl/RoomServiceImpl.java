@@ -103,9 +103,12 @@ public class RoomServiceImpl implements RoomService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public RoomResponse getById(Long id) {
         log.info("Fetching roomId={}", id);
-        return RoomResponse.from(getRoomById(id));
+        Room room = roomRepository.findDetailById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Room not found"));
+        return RoomResponse.from(room);
     }
 
     @Override
@@ -113,7 +116,7 @@ public class RoomServiceImpl implements RoomService {
         log.info("Fetching all rooms");
         List<RoomResponse> result = roomRepository.findAll()
                 .stream()
-                .map(RoomResponse::from)
+                .map(RoomResponse::summary)
                 .toList();
         log.info("Found {} rooms", result.size());
         return result;
@@ -124,7 +127,7 @@ public class RoomServiceImpl implements RoomService {
         log.info("Searching rooms keyword={}, status={}, cleaningStatus={}", keyword, status, cleaningStatus);
         List<RoomResponse> result = roomRepository.search(keyword, status, cleaningStatus)
                 .stream()
-                .map(RoomResponse::from)
+                .map(RoomResponse::summary)
                 .toList();
         log.info("Search found {} rooms", result.size());
         return result;
@@ -157,7 +160,7 @@ public class RoomServiceImpl implements RoomService {
                                 reservation.getCheckIn(),
                                 availabilityEnd(reservation))
                         .stream())
-                .map(RoomResponse::from)
+                .map(RoomResponse::summary)
                 .toList();
 
         log.info("Found {} available rooms for reservationId={}, roomTypeId={}",
@@ -373,7 +376,8 @@ public class RoomServiceImpl implements RoomService {
                 : roomRepository.findAll(pageable);
 
         log.info("Found {} rooms", entityPage.getTotalElements());
-        return RoomViewMapper.toPage(pageNo, size, entityPage);
+        return RoomViewMapper.toPage(
+                pageNo, pageable.getPageSize(), entityPage);
     }
 
 

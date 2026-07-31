@@ -1133,6 +1133,15 @@ public class PaymentRefundService {
         return refundSummaryEnricher.apply(response);
     }
 
+    public ReservationResponse applyReservationRefundSummary(
+            ReservationResponse response,
+            List<PaymentRefund> refunds,
+            List<PaymentTransaction> payments,
+            List<RefundRecipient> recipients) {
+        return refundSummaryEnricher.apply(
+                response, refunds, payments, recipients);
+    }
+
     @Transactional(readOnly = true)
     public RefundChannel latestChannelForPayment(String paymentTransactionId) {
         return refundRepository.findByPaymentTransactionId(paymentTransactionId).stream()
@@ -1157,11 +1166,22 @@ public class PaymentRefundService {
 
     @Transactional(readOnly = true)
     public long getNetPaidAmount(Long reservationId) {
-        List<PaymentTransaction> payments = transactionRepository.findByReservationId(reservationId).stream()
+        return getNetPaidAmount(
+                transactionRepository.findByReservationId(reservationId),
+                refundRepository.findByReservationId(reservationId));
+    }
+
+    public long getNetPaidAmount(
+            List<PaymentTransaction> paymentRows,
+            List<PaymentRefund> refundRows) {
+        List<PaymentTransaction> payments = (paymentRows == null
+                ? List.<PaymentTransaction>of()
+                : paymentRows).stream()
                 .filter(payment -> List.of(PaymentStatus.SUCCESS, PaymentStatus.REFUND_PENDING,
                         PaymentStatus.REFUNDED).contains(payment.getStatus()))
                 .toList();
-        List<PaymentRefund> refunds = refundRepository.findByReservationId(reservationId);
+        List<PaymentRefund> refunds = refundRows == null
+                ? List.of() : refundRows;
         return ledgerCalculator.getNetPaidAmount(payments, refunds, NET_DEDUCTED_STATUSES);
     }
 

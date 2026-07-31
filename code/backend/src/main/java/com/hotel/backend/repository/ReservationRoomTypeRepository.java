@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -24,6 +25,20 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
     """)
     List<ReservationRoomType> findDetailsByReservationId(
         @Param("reservationId") Long reservationId
+    );
+
+    @Query("""
+        SELECT DISTINCT rrt
+        FROM ReservationRoomType rrt
+        JOIN FETCH rrt.roomType
+        LEFT JOIN FETCH rrt.roomHold
+        LEFT JOIN FETCH rrt.rooms assignedRoom
+        LEFT JOIN FETCH assignedRoom.room
+        WHERE rrt.reservation.id IN :reservationIds
+        ORDER BY rrt.reservation.id, rrt.roomType.id
+    """)
+    List<ReservationRoomType> findDetailsByReservationIds(
+        @Param("reservationIds") Collection<Long> reservationIds
     );
 
     // Đếm số phòng đã được confirm/check-in trong khoảng ngày (dùng cho availability check)

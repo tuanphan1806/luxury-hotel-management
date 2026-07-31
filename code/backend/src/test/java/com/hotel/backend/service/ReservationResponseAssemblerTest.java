@@ -19,10 +19,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class ReservationResponseAssemblerTest {
@@ -40,6 +43,9 @@ class ReservationResponseAssemblerTest {
     private ReservationRoomTypeRepository
             reservationRoomTypeRepository;
 
+    @Mock
+    private ReservationReadBatchLoader reservationReadBatchLoader;
+
     private ReservationResponseAssembler assembler;
 
     @BeforeEach
@@ -48,7 +54,8 @@ class ReservationResponseAssemblerTest {
                 paymentRefundService,
                 reservationAddOnService,
                 pricingReadService,
-                reservationRoomTypeRepository);
+                reservationRoomTypeRepository,
+                reservationReadBatchLoader);
     }
 
     @Test
@@ -103,6 +110,38 @@ class ReservationResponseAssemblerTest {
 
         assertThat(rooms).extracting(ReservationRoomResponse::getRoomName)
                 .containsExactly("A-101", "B-202", null);
+    }
+
+    @Test
+    void buildsReservationListsFromOnePreloadedBatch() {
+        Reservation reservation = baseReservation();
+        ReservationReadBatchLoader.BatchData batch =
+                new ReservationReadBatchLoader.BatchData(
+                        Map.of(reservation.getId(), List.of()),
+                        Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+        when(reservationReadBatchLoader.load(List.of(reservation)))
+                .thenReturn(batch);
+        when(reservationAddOnService.enrich(
+                any(ReservationResponse.class), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(pricingReadService.enrich(
+                any(Reservation.class), any(ReservationResponse.class),
+                any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
+        when(paymentRefundService.getNetPaidAmount(any(), any()))
+                .thenReturn(0L);
+        when(paymentRefundService.applyReservationRefundSummary(
+                any(ReservationResponse.class), any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        List<ReservationResponse> responses =
+                assembler.withBatchDetailsAndRefundSummary(
+                        List.of(reservation));
+
+        assertThat(responses).hasSize(1);
+        verify(reservationReadBatchLoader).load(List.of(reservation));
+        verify(reservationRoomTypeRepository, never())
+                .findDetailsByReservationId(any());
     }
 
     private Reservation baseReservation() {

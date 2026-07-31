@@ -7,6 +7,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Set;
 
 /**
  * Keeps the existing room list paging and sort interpretation outside the
@@ -15,6 +16,10 @@ import java.util.regex.Pattern;
 public final class RoomPageableFactory {
 
     private static final Pattern SORT_PATTERN = Pattern.compile("^(\\w+?)(:)(.*)");
+    private static final Set<String> ALLOWED_SORTS = Set.of(
+            "id", "roomName", "floor", "status", "cleaningStatus",
+            "createdAt", "updatedAt");
+    private static final int MAX_PAGE_SIZE = 100;
 
     private RoomPageableFactory() {
     }
@@ -23,7 +28,7 @@ public final class RoomPageableFactory {
         Sort.Order order = new Sort.Order(Sort.Direction.ASC, "id");
         if (StringUtils.hasLength(sort)) {
             Matcher matcher = SORT_PATTERN.matcher(sort);
-            if (matcher.find()) {
+            if (matcher.find() && ALLOWED_SORTS.contains(matcher.group(1))) {
                 String columnName = matcher.group(1);
                 order = matcher.group(3).equalsIgnoreCase("asc")
                         ? new Sort.Order(Sort.Direction.ASC, columnName)
@@ -32,6 +37,7 @@ public final class RoomPageableFactory {
         }
 
         int pageNo = page > 0 ? page - 1 : 0;
-        return PageRequest.of(pageNo, size, Sort.by(order));
+        int pageSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        return PageRequest.of(pageNo, pageSize, Sort.by(order));
     }
 }

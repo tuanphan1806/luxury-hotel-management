@@ -24,5 +24,17 @@ public interface RefundRecipientRepository extends JpaRepository<RefundRecipient
             Long reservationId,
             Collection<RefundRecipientStatus> statuses);
 
+    @Query("""
+        SELECT recipient
+        FROM RefundRecipient recipient
+        JOIN FETCH recipient.reservation reservation
+        WHERE reservation.id IN :reservationIds
+          AND recipient.status IN :statuses
+        ORDER BY reservation.id, recipient.createdAt DESC, recipient.id
+    """)
+    List<RefundRecipient> findByReservationIdsAndStatusInOrderByCreatedAtDesc(
+            @Param("reservationIds") Collection<Long> reservationIds,
+            @Param("statuses") Collection<RefundRecipientStatus> statuses);
+
     Optional<RefundRecipient> findByPaymentRefundId(String paymentRefundId);
 }
