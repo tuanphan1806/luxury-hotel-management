@@ -82,6 +82,18 @@ public enum ErrorCode {
     FINANCIAL_POSTING_INVALID(5098, "Nguồn tài chính không cân bằng hoặc thiếu dữ liệu canonical", HttpStatus.CONFLICT),
     BUSINESS_DAY_INVALID(5099, "Chỉ được khóa ngày nghiệp vụ đã kết thúc", HttpStatus.BAD_REQUEST),
 
+    // ── Staff work schedules / attendance ───────────────────
+    WORK_SHIFT_TEMPLATE_NOT_FOUND(5100, "Không tìm thấy mẫu ca làm việc", HttpStatus.NOT_FOUND),
+    WORK_SCHEDULE_NOT_FOUND(5101, "Không tìm thấy lịch làm việc", HttpStatus.NOT_FOUND),
+    WORK_SCHEDULE_OVERLAP(5102, "Nhân viên đã có ca làm việc trùng thời gian", HttpStatus.CONFLICT),
+    WORK_SCHEDULE_INVALID_EMPLOYEE(5103, "Chỉ có thể phân lịch cho tài khoản STAFF đang hoạt động", HttpStatus.BAD_REQUEST),
+    WORK_SCHEDULE_CANNOT_MODIFY(5104, "Không thể thay đổi ca đã bắt đầu hoặc đã kết thúc", HttpStatus.CONFLICT),
+    WORK_SCHEDULE_CHECK_IN_TOO_EARLY(5105, "Chưa đến thời gian được phép check-in ca", HttpStatus.CONFLICT),
+    WORK_SCHEDULE_CHECK_IN_EXPIRED(5106, "Ca làm việc đã qua thời gian check-in", HttpStatus.CONFLICT),
+    WORK_SCHEDULE_ALREADY_ACTIVE(5107, "Nhân viên đang có một ca làm việc khác chưa check-out", HttpStatus.CONFLICT),
+    WORK_SCHEDULE_NOT_ACTIVE(5108, "Ca làm việc chưa được check-in hoặc đã kết thúc", HttpStatus.CONFLICT),
+    WORK_SCHEDULE_FORBIDDEN(5109, "Bạn không có quyền thao tác lịch làm việc này", HttpStatus.FORBIDDEN),
+
 
     ;
 

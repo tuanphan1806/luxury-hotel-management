@@ -102,6 +102,15 @@ const ACTION_LABELS: Record<string, string> = {
   CASH_VARIANCE_RECORDED: "Ghi nhận chênh lệch cuối ca",
   BUSINESS_DAY_CLOSED: "Khóa ngày nghiệp vụ",
   FINANCIAL_LATE_POSTING: "Ghi nhận giao dịch ngân hàng đến muộn",
+  WORK_SHIFT_TEMPLATE_CREATED: "Tạo mẫu ca làm việc",
+  WORK_SHIFT_TEMPLATE_UPDATED: "Cập nhật mẫu ca làm việc",
+  WORK_SCHEDULE_CREATED: "Phân lịch làm việc",
+  WORK_SCHEDULE_UPDATED: "Điều chỉnh lịch làm việc",
+  WORK_SCHEDULE_CANCELLED: "Hủy lịch làm việc",
+  WORK_SHIFT_CHECKED_IN: "Nhân viên check-in ca",
+  WORK_SHIFT_CHECKED_OUT: "Nhân viên check-out ca",
+  WORK_SHIFT_AUTO_CHECKED_OUT: "Hệ thống tự checkout ca bị quên",
+  WORK_SHIFT_MARKED_ABSENT: "Hệ thống ghi nhận vắng mặt",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -123,6 +132,9 @@ const TARGET_LABELS: Record<string, string> = {
   CASH_MOVEMENT: "Bút toán tiền mặt",
   BUSINESS_DAY: "Ngày nghiệp vụ",
   FINANCIAL_JOURNAL_ENTRY: "Bút toán journal",
+  WORK_SHIFT_TEMPLATE: "Mẫu ca làm việc",
+  WORK_SCHEDULE: "Lịch làm việc",
+  WORK_SHIFT_SESSION: "Phiên làm việc thực tế",
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -131,6 +143,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   REFUND: "Hoàn tiền",
   ROOM_HOLD: "Giữ phòng",
   CHECKOUT: "Checkout",
+  WORKFORCE: "Nhân sự & ca làm việc",
   BUSINESS: "Danh mục khách sạn",
   SECURITY: "Quản trị tài khoản",
   SYSTEM: "Tự động hệ thống",
@@ -147,6 +160,7 @@ const CATEGORY_SCOPES: Record<string, AuditScope> = {
   REFUND: "OPERATION",
   ROOM_HOLD: "OPERATION",
   CHECKOUT: "OPERATION",
+  WORKFORCE: "OPERATION",
   SYSTEM: "OPERATION",
   BUSINESS: "MANAGEMENT",
   SECURITY: "MANAGEMENT",
@@ -161,9 +175,11 @@ const MANAGEMENT_ACTIONS = new Set([
   "GALLERY_CREATED", "GALLERY_UPDATED", "GALLERY_DELETED",
   "SERVICE_CATALOG_CREATED", "SERVICE_CATALOG_UPDATED",
   "SERVICE_CATALOG_DEACTIVATED", "SERVICE_CATALOG_REACTIVATED",
+  "WORK_SHIFT_TEMPLATE_CREATED", "WORK_SHIFT_TEMPLATE_UPDATED",
+  "WORK_SCHEDULE_CREATED", "WORK_SCHEDULE_UPDATED", "WORK_SCHEDULE_CANCELLED",
 ]);
 
-const MANAGEMENT_TARGETS = new Set(["USER", "ROOM", "ROOM_TYPE", "FACILITY", "GALLERY", "ADD_ON_SERVICE"]);
+const MANAGEMENT_TARGETS = new Set(["USER", "ROOM", "ROOM_TYPE", "FACILITY", "GALLERY", "ADD_ON_SERVICE", "WORK_SHIFT_TEMPLATE", "WORK_SCHEDULE"]);
 
 function belongsToScope(value: string, scope: "" | AuditScope, managementValues: Set<string>) {
   if (!value || !scope) return true;
