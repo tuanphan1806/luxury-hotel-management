@@ -43,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -96,8 +97,12 @@ class WorkforceCalendarServiceTest {
     @Test
     void staffCalendarShowsAggregateAvailabilityButNeverOtherEmployeeDetails() {
         WorkScheduleAssignment own = assignment(101L, staff);
-        WorkScheduleAssignment other = assignment(102L, anotherStaff);
         WorkShiftRegistrationRequest ownRequest = registration(201L, staff);
+        WorkScheduleAssignmentRepository.SlotAssignmentCount assignmentCount =
+                mock(WorkScheduleAssignmentRepository.SlotAssignmentCount.class);
+        when(assignmentCount.getWorkDate()).thenReturn(WORK_DATE);
+        when(assignmentCount.getShiftTemplateId()).thenReturn(10L);
+        when(assignmentCount.getAssignedCount()).thenReturn(2L);
         when(templateRepository.findAllByOrderBySortOrderAscStartTimeAscIdAsc())
                 .thenReturn(List.of(morning));
         when(requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(
@@ -109,8 +114,12 @@ class WorkforceCalendarServiceTest {
                         .workDate(WORK_DATE)
                         .requiredStaff(3)
                         .build()));
-        when(assignmentRepository.findInWindow(any(), any(), eq(null), eq(null)))
-                .thenReturn(List.of(own, other));
+        when(assignmentRepository.findInWindow(any(), any(), eq(7L), eq(null)))
+                .thenReturn(List.of(own));
+        when(assignmentRepository.countAssignedBySlotInWindow(
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31)))
+                .thenReturn(List.of(assignmentCount));
         when(registrationRepository.findInWindow(
                 LocalDate.of(2026, 8, 1),
                 LocalDate.of(2026, 8, 31),
@@ -134,6 +143,7 @@ class WorkforceCalendarServiceTest {
         assertNotNull(slot.currentUserRequest());
         assertTrue(slot.assignments().isEmpty());
         assertTrue(slot.requests().isEmpty());
+        verify(assignmentRepository).findInWindow(any(), any(), eq(7L), eq(null));
     }
 
     @Test
@@ -186,7 +196,11 @@ class WorkforceCalendarServiceTest {
                 LocalDate.of(2026, 8, 1),
                 LocalDate.of(2026, 8, 31)))
                 .thenReturn(List.of());
-        when(assignmentRepository.findInWindow(any(), any(), eq(null), eq(null)))
+        when(assignmentRepository.findInWindow(any(), any(), eq(7L), eq(null)))
+                .thenReturn(List.of());
+        when(assignmentRepository.countAssignedBySlotInWindow(
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31)))
                 .thenReturn(List.of());
         when(registrationRepository.findInWindow(
                 LocalDate.of(2026, 8, 1),

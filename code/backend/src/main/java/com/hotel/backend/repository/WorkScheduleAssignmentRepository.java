@@ -19,6 +19,14 @@ import java.util.Optional;
 public interface WorkScheduleAssignmentRepository
         extends JpaRepository<WorkScheduleAssignment, Long> {
 
+    interface SlotAssignmentCount {
+        LocalDate getWorkDate();
+
+        Long getShiftTemplateId();
+
+        Long getAssignedCount();
+    }
+
     @EntityGraph(attributePaths = {
             "employee", "shiftTemplate",
             "workShiftSession", "workShiftSession.cashierShift"})
@@ -37,6 +45,19 @@ public interface WorkScheduleAssignmentRepository
             @Param("toUtc") Instant toUtc,
             @Param("employeeId") Long employeeId,
             @Param("status") WorkScheduleStatus status);
+
+    @Query("""
+            select assignment.workDate as workDate,
+                   assignment.shiftTemplate.id as shiftTemplateId,
+                   count(assignment.id) as assignedCount
+            from WorkScheduleAssignment assignment
+            where assignment.workDate between :from and :to
+              and assignment.status <> 'CANCELLED'
+            group by assignment.workDate, assignment.shiftTemplate.id
+            """)
+    List<SlotAssignmentCount> countAssignedBySlotInWindow(
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

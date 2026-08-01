@@ -176,6 +176,7 @@ export default function WorkSchedulesPage() {
   const [viewMode, setViewMode] = useState<WorkScheduleView>("calendar");
   const [calendarRefreshSignal, setCalendarRefreshSignal] = useState(0);
   const lastVisibilityRefreshAt = useRef(0);
+  const latestLoadRequest = useRef(0);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -188,25 +189,27 @@ export default function WorkSchedulesPage() {
     if (from !== expected.from || to !== expected.to) setRangePreset("CUSTOM");
   }, [from, rangePreset, to]);
 
-  const loadData = useCallback(async (showLoading = false) => {
+  const loadData = useCallback(async (showLoading = false, force = false) => {
     if (!role) return;
+    const requestId = ++latestLoadRequest.current;
     if (showLoading) setLoading(true);
     try {
       const params = new URLSearchParams({ from, to });
       if (employeeFilter) params.set("employeeId", String(employeeFilter));
       const shouldLoadSchedules = isStaff || viewMode !== "calendar";
       const [templateResult, scheduleResult, userResult, currentResult] = await Promise.all([
-        cachedGet(`/api/work-schedules/templates?includeInactive=${isAdmin}`, { ttlMs: 60_000 }),
+        cachedGet(`/api/work-schedules/templates?includeInactive=${isAdmin}`, { ttlMs: 60_000, force }),
         shouldLoadSchedules
-          ? cachedGet(`/api/work-schedules/assignments?${params}`, { ttlMs: 5_000, force: true })
+          ? cachedGet(`/api/work-schedules/assignments?${params}`, { ttlMs: 5_000, force })
           : Promise.resolve(null),
         isAdmin
           ? cachedGet("/api/user/list?size=100", { ttlMs: 60_000 })
           : Promise.resolve(null),
         isStaff
-          ? cachedGet("/api/work-schedules/current", { ttlMs: 3_000, force: true })
+          ? cachedGet("/api/work-schedules/current", { ttlMs: 3_000, force })
           : Promise.resolve(null),
       ]) as Array<{ data?: unknown } | null>;
+      if (requestId !== latestLoadRequest.current) return;
       setTemplates(unwrapWorkScheduleApiData<WorkShiftTemplate[]>(templateResult));
       if (scheduleResult) {
         setSchedules(unwrapWorkScheduleApiData<WorkSchedule[]>(scheduleResult));
@@ -219,13 +222,19 @@ export default function WorkSchedulesPage() {
         setCurrentSchedule(unwrapWorkScheduleApiData<WorkSchedule | null>(currentResult));
       }
     } catch (error) {
+      if (requestId !== latestLoadRequest.current) return;
       setToast({ type: "error", message: getApiErrorMessage(error, "Không thể tải lịch làm việc") });
     } finally {
-      setLoading(false);
+      if (requestId === latestLoadRequest.current) setLoading(false);
     }
   }, [employeeFilter, from, isAdmin, isStaff, role, to, viewMode]);
 
-  useEffect(() => { void loadData(true); }, [loadData]);
+  useEffect(() => {
+    void loadData(true);
+    return () => {
+      latestLoadRequest.current += 1;
+    };
+  }, [loadData]);
 
   useEffect(() => {
     if (!role) return;
@@ -241,7 +250,7 @@ export default function WorkSchedulesPage() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [loadData, role]);
+  }, [loadData, role, viewMode]);
 
   const listSchedules = useMemo(() => schedules.filter((schedule) => {
     if (statusFilter === "ALL") return true;
@@ -323,7 +332,7 @@ export default function WorkSchedulesPage() {
       setScheduleModalOpen(false);
       setToast({ type: "success", message: scheduleEditing ? "Đã cập nhật lịch làm việc" : "Đã phân ca làm việc" });
       setCalendarRefreshSignal((current) => current + 1);
-      await loadData();
+      await loadData(false, true);
     } catch (error) { setScheduleError(getApiErrorMessage(error, "Không thể lưu lịch làm việc")); }
     finally { setSubmitting(false); }
   };
@@ -341,7 +350,7 @@ export default function WorkSchedulesPage() {
       setCancelError("");
       setToast({ type: "success", message: "Đã hủy lịch làm việc" });
       setCalendarRefreshSignal((current) => current + 1);
-      await loadData();
+      await loadData(false, true);
     } catch (error) { setCancelError(getApiErrorMessage(error, "Không thể hủy lịch làm việc")); }
     finally { setSubmitting(false); }
   };
@@ -366,7 +375,7 @@ export default function WorkSchedulesPage() {
       clearIdempotencyKey(scope);
       setToast({ type: "success", message: templateEditing ? "Đã cập nhật mẫu ca" : "Đã tạo mẫu ca" });
       openTemplateEditor();
-      await loadData();
+      await loadData(false, true);
     } catch (error) { setTemplateError(getApiErrorMessage(error, "Không thể lưu mẫu ca")); }
     finally { setSubmitting(false); }
   };
@@ -378,7 +387,7 @@ export default function WorkSchedulesPage() {
       await apiClient.post(`/api/work-schedules/assignments/${schedule.id}/check-in`, { note: null }, { headers: { "Idempotency-Key": getOrCreateIdempotencyKey(scope) } });
       clearIdempotencyKey(scope);
       setToast({ type: "success", message: "Đã check-in; ca thu ngân đã mở tự động" });
-      await loadData();
+      await loadData(false, true);
     } catch (error) { setToast({ type: "error", message: getApiErrorMessage(error, "Không thể check-in ca làm việc") }); }
     finally { setSubmitting(false); }
   };
@@ -396,7 +405,7 @@ export default function WorkSchedulesPage() {
       setCheckoutTarget(null);
       setAttendanceNote("");
       setToast({ type: "success", message: "Đã checkout; ca thu ngân đã đóng tự động" });
-      await loadData();
+      await loadData(false, true);
     } catch (error) { setAttendanceError(getApiErrorMessage(error, "Không thể checkout ca làm việc")); }
     finally { setSubmitting(false); }
   };
@@ -426,7 +435,7 @@ export default function WorkSchedulesPage() {
         isStaff={isStaff}
         employees={employees}
         refreshSignal={calendarRefreshSignal}
-        onScheduleChanged={() => loadData()}
+        onScheduleChanged={() => loadData(false, true)}
         onEditAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "edit")}
         onCancelAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "cancel")}
       />

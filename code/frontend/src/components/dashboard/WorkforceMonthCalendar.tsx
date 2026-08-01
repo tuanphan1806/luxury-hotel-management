@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ViewportModal from "@/components/UI/ViewportModal";
 import Toast from "@/components/UI/Toast";
 import { apiClient, cachedGet, getApiErrorMessage } from "@/lib/api";
@@ -217,6 +217,9 @@ export default function WorkforceMonthCalendar({
   const [requiredStaff, setRequiredStaff] = useState(1);
   const [requirementNote, setRequirementNote] = useState("");
   const [toast, setToast] = useState<ToastState | null>(null);
+  const latestLoadRequest = useRef(0);
+  const previousRefreshSignal = useRef(refreshSignal);
+  const lastVisibilityRefreshAt = useRef(0);
 
   const requestedMonthsKey = useMemo(() => {
     const requested = new Set([month]);
@@ -228,7 +231,8 @@ export default function WorkforceMonthCalendar({
     return Array.from(requested).join(",");
   }, [calendarDisplay, focusDate, month]);
 
-  const loadCalendar = useCallback(async (showLoading = false) => {
+  const loadCalendar = useCallback(async (showLoading = false, force = false) => {
+    const requestId = ++latestLoadRequest.current;
     if (showLoading) {
       setLoading(true);
       setCalendar(null);
@@ -238,8 +242,9 @@ export default function WorkforceMonthCalendar({
       const requestedMonths = requestedMonthsKey.split(",");
       const responses = await Promise.all(requestedMonths.map((requestedMonth) => cachedGet(
         `/api/work-schedules/calendar?month=${requestedMonth}`,
-        { ttlMs: 3_000, force: true },
+        { ttlMs: 3_000, force },
       )));
+      if (requestId !== latestLoadRequest.current) return;
       const loadedCalendars = responses.map((response) =>
         unwrapWorkScheduleApiData<WorkShiftMonthCalendar>(response));
       const primaryCalendar = loadedCalendars.find((item) => item.month === month) || loadedCalendars[0];
@@ -248,6 +253,7 @@ export default function WorkforceMonthCalendar({
         .filter((item) => item.month !== primaryCalendar.month)
         .flatMap((item) => item.days));
     } catch (error) {
+      if (requestId !== latestLoadRequest.current) return;
       const message = getApiErrorMessage(error, "Không thể tải lịch làm việc");
       if (showLoading) {
         setCalendar(null);
@@ -258,13 +264,37 @@ export default function WorkforceMonthCalendar({
         message,
       });
     } finally {
-      setLoading(false);
+      if (requestId === latestLoadRequest.current) setLoading(false);
     }
   }, [month, requestedMonthsKey]);
 
   useEffect(() => {
     void loadCalendar(true);
+    return () => {
+      latestLoadRequest.current += 1;
+    };
+  }, [loadCalendar]);
+
+  useEffect(() => {
+    if (previousRefreshSignal.current === refreshSignal) return;
+    previousRefreshSignal.current = refreshSignal;
+    void loadCalendar(false, true);
   }, [loadCalendar, refreshSignal]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      const now = Date.now();
+      if (document.visibilityState !== "visible" || now - lastVisibilityRefreshAt.current < 1_000) return;
+      lastVisibilityRefreshAt.current = now;
+      void loadCalendar(false);
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [loadCalendar]);
 
   useEffect(() => {
     setSelectedDate(null);
@@ -353,7 +383,7 @@ export default function WorkforceMonthCalendar({
   };
 
   const completeMutation = async (message: string) => {
-    await loadCalendar();
+    await loadCalendar(false, true);
     await onScheduleChanged?.();
     setToast({ type: "success", message });
   };
