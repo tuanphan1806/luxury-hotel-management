@@ -138,6 +138,8 @@ export interface WorkShiftMonthCalendar {
   days: WorkShiftCalendarDay[];
 }
 
+export type WorkShiftPeriod = "MORNING" | "AFTERNOON" | "NIGHT";
+
 /**
  * Opens the backend ApiResponse envelope without turning an omitted nullable
  * `data` field into a truthy object. Jackson omits null properties, so
@@ -202,6 +204,52 @@ export function formatWorkDateTime(value?: string | null) {
 
 export function formatShiftTime(value: string) {
   return value.slice(0, 5);
+}
+
+/**
+ * Maps editable shift templates into the three operational periods used by
+ * the compact month calendar. Codes/names are preferred; time is a safe
+ * fallback so renaming a template does not make the calendar unreadable.
+ */
+export function workShiftPeriod(
+  slot: Pick<WorkShiftCalendarSlot, "shiftCode" | "shiftName" | "startTime" | "crossesMidnight">,
+): WorkShiftPeriod {
+  const searchable = `${slot.shiftCode} ${slot.shiftName}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+
+  if (/\b(SANG|MORNING|AM)\b/.test(searchable)) return "MORNING";
+  if (/\b(CHIEU|AFTERNOON|PM)\b/.test(searchable)) return "AFTERNOON";
+  if (/\b(TOI|DEM|NIGHT)\b/.test(searchable) || slot.crossesMidnight) return "NIGHT";
+
+  const startHour = Number(slot.startTime.slice(0, 2));
+  if (startHour < 12) return "MORNING";
+  if (startHour < 18) return "AFTERNOON";
+  return "NIGHT";
+}
+
+export function compactWorkShiftLabel(period: WorkShiftPeriod) {
+  return {
+    MORNING: "S",
+    AFTERNOON: "C",
+    NIGHT: "T",
+  }[period];
+}
+
+/** Three visual segments keep every month cell the same width. */
+export function workShiftStaffingSegments(
+  assignedCount: number,
+  requiredStaff: number,
+  segmentCount = 3,
+) {
+  const safeSegments = Math.max(1, segmentCount);
+  const ratio = requiredStaff > 0
+    ? Math.min(Math.max(assignedCount / requiredStaff, 0), 1)
+    : 0;
+  const rawFilled = Math.round(ratio * safeSegments);
+  const filled = assignedCount > 0 ? Math.max(1, rawFilled) : 0;
+  return Array.from({ length: safeSegments }, (_, index) => index < filled);
 }
 
 /** Adds calendar days without depending on the browser/device timezone. */

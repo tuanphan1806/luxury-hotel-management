@@ -4,12 +4,15 @@ import {
   groupWorkSchedulesByDate,
   isCheckInAvailable,
   calendarMonthLeadingDays,
+  compactWorkShiftLabel,
   shiftCalendarMonth,
   shiftWorkDate,
   staffCalendarSlotLabel,
   type WorkSchedule,
   unwrapWorkScheduleApiData,
   workScheduleDisplayStatus,
+  workShiftPeriod,
+  workShiftStaffingSegments,
 } from "./work-schedules";
 
 const schedule: WorkSchedule = {
@@ -138,5 +141,33 @@ describe("work schedule helpers", () => {
         status: "PENDING",
       },
     })).toBe("Chờ duyệt");
+  });
+
+  it("maps editable templates into stable compact month labels", () => {
+    expect(compactWorkShiftLabel(workShiftPeriod({
+      shiftCode: "SANG",
+      shiftName: "Ca sáng",
+      startTime: "06:00",
+      crossesMidnight: false,
+    }))).toBe("S");
+    expect(compactWorkShiftLabel(workShiftPeriod({
+      shiftCode: "CUSTOM",
+      shiftName: "Ca chiều linh hoạt",
+      startTime: "14:00",
+      crossesMidnight: false,
+    }))).toBe("C");
+    expect(compactWorkShiftLabel(workShiftPeriod({
+      shiftCode: "CUSTOM",
+      shiftName: "Ca trực khuya",
+      startTime: "22:00",
+      crossesMidnight: true,
+    }))).toBe("T");
+  });
+
+  it("normalizes staffing into three compact progress segments", () => {
+    expect(workShiftStaffingSegments(0, 3)).toEqual([false, false, false]);
+    expect(workShiftStaffingSegments(1, 3)).toEqual([true, false, false]);
+    expect(workShiftStaffingSegments(2, 3)).toEqual([true, true, false]);
+    expect(workShiftStaffingSegments(5, 5)).toEqual([true, true, true]);
   });
 });
