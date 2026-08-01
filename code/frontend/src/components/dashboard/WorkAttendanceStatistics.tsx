@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   formatWorkedMinutes,
   summarizeAttendance,
@@ -82,6 +82,7 @@ function AttendanceResult({ schedule }: { schedule: WorkSchedule }) {
 }
 
 export default function WorkAttendanceStatistics({ schedules, isAdmin, periodLabel, now }: WorkAttendanceStatisticsProps) {
+  const [expandedEmployeeIds, setExpandedEmployeeIds] = useState<Set<number>>(() => new Set());
   const summary = useMemo(() => summarizeAttendance(schedules, now), [now, schedules]);
   const employeeGroups = useMemo(() => {
     const schedulesByEmployee = new Map<number, WorkSchedule[]>();
@@ -164,9 +165,20 @@ export default function WorkAttendanceStatistics({ schedules, isAdmin, periodLab
         <div className="space-y-3 bg-[#F4F1E9]/55 p-3 sm:p-4">
           {employeeGroups.map((employee) => {
             const attention = employee.absentShifts + employee.unrecordedShifts;
+            const expanded = expandedEmployeeIds.has(employee.employeeId);
             return (
               <details
                 key={employee.employeeId}
+                open={expanded}
+                onToggle={(event) => {
+                  const isOpen = event.currentTarget.open;
+                  setExpandedEmployeeIds((current) => {
+                    const next = new Set(current);
+                    if (isOpen) next.add(employee.employeeId);
+                    else next.delete(employee.employeeId);
+                    return next;
+                  });
+                }}
                 className="group overflow-hidden rounded-xl border border-[#0F2A43]/10 bg-white"
               >
                 <summary className="grid min-h-20 cursor-pointer list-none items-center gap-3 px-4 py-3 transition duration-200 hover:bg-[#FBFAF6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F] lg:grid-cols-[minmax(15rem,1.3fr)_repeat(5,minmax(5rem,0.55fr))_auto]">
@@ -198,7 +210,7 @@ export default function WorkAttendanceStatistics({ schedules, isAdmin, periodLab
                   </div>
                 </summary>
 
-                <div className="border-t border-[#0F2A43]/10">
+                {expanded && <div className="border-t border-[#0F2A43]/10">
                   <div className="hidden overflow-x-auto md:block">
                     <table className="w-full min-w-[760px] border-collapse text-left">
                       <thead className="bg-[#F7F5EF] text-[9px] font-black uppercase tracking-[0.12em] text-[#66727C]">
@@ -224,7 +236,7 @@ export default function WorkAttendanceStatistics({ schedules, isAdmin, periodLab
                       </article>
                     ))}
                   </div>
-                </div>
+                </div>}
               </details>
             );
           })}
