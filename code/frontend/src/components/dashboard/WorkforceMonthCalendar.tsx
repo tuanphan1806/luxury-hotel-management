@@ -171,24 +171,16 @@ function isWeekend(date: string) {
   return day === 0 || day === 6;
 }
 
-function calendarDaySurface(day: WorkShiftCalendarDay) {
-  const assignments = day.slots.flatMap((slot) => slot.assignments);
-  if (assignments.some((assignment) => assignment.status === "ABSENT")) {
-    return "bg-[linear-gradient(180deg,#FFF1F2_0%,#FFFFFF_42%)]";
-  }
-  if (assignments.some((assignment) => assignment.late) || day.slots.some((slot) => slot.pendingRequestCount > 0)) {
-    return "bg-[linear-gradient(180deg,#FFF8E7_0%,#FFFFFF_42%)]";
-  }
-  if (assignments.some((assignment) => assignment.sessionStatus === "ACTIVE")) {
-    return "bg-[linear-gradient(180deg,#ECFDF5_0%,#FFFFFF_42%)]";
+function calendarDaySurface(day: WorkShiftCalendarDay, selected: boolean) {
+  if (selected) {
+    return "z-[1] bg-[#DBEAFE] ring-2 ring-inset ring-[#2563EB]";
   }
   if (day.today) {
-    return "bg-[linear-gradient(180deg,#EDF5FA_0%,#FFFFFF_44%)]";
+    return "z-[1] bg-[#EFF6FF] ring-1 ring-inset ring-[#3B82F6]";
   }
   if (isWeekend(day.date)) {
-    return "bg-[linear-gradient(180deg,#FAF5E9_0%,#FFFFFF_46%)]";
+    return "bg-[#F7F9FC]";
   }
-  if (day.past) return "bg-slate-50/75";
   return "bg-white";
 }
 
@@ -748,20 +740,20 @@ export default function WorkforceMonthCalendar({
           <div className="p-3 sm:p-4 md:p-5">
             {calendarDisplay === "MONTH" ? (
               <>
-            <div className="grid grid-cols-7 rounded-t-2xl border border-b-0 border-[#0F2A43]/10 bg-[#F3F5F3] px-px pt-px">
+            <div className="grid grid-cols-7 rounded-t-2xl border border-b-0 border-[#D8E0E8] bg-[#F7F9FC] px-px pt-px">
               {weekdays.map((day, index) => (
                 <div
                   key={day}
-                  className={`py-2 text-center text-[9px] font-black uppercase tracking-[0.12em] sm:text-[10px] ${index >= 5 ? "text-[#80632F]" : "text-[#526372]"}`}
+                  className={`py-2 text-center text-[9px] font-black uppercase tracking-[0.12em] sm:text-[10px] ${index >= 5 ? "text-[#496579]" : "text-[#526372]"}`}
                 >
                   {day}
                 </div>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-px overflow-hidden rounded-b-2xl border border-[#0F2A43]/10 bg-[#DDE3E5] p-px">
+            <div className="grid grid-cols-7 gap-px overflow-hidden rounded-b-2xl border border-[#D8E0E8] bg-[#D8E0E8] p-px">
               {Array.from({ length: leadingDays }, (_, index) => (
-                <div key={`empty-${index}`} aria-hidden="true" className="min-h-[104px] bg-[#F3F5F3]/75 sm:min-h-[116px]" />
+                <div key={`empty-${index}`} aria-hidden="true" className="min-h-[104px] bg-[#EEF2F3] opacity-70 sm:min-h-[116px]" />
               ))}
 
               {calendar.days.map((day) => {
@@ -778,17 +770,8 @@ export default function WorkforceMonthCalendar({
                       setFocusDate(day.date);
                       setSelectedDate(day.date);
                     }}
-                    className={`group relative min-h-[104px] overflow-hidden text-left transition duration-200 sm:min-h-[116px] ${
-                      calendarDaySurface(day)
-                    } ${day.past ? "" : "hover:brightness-[0.985]"} ${
-                      selectedDateActive ? "z-[1] ring-2 ring-inset ring-[#0F2A43]" : ""
-                    }`}
+                    className={`group relative min-h-[104px] overflow-hidden text-left transition duration-200 hover:z-[1] hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.24)] sm:min-h-[116px] ${calendarDaySurface(day, selectedDateActive)}`}
                   >
-                    <span className="absolute inset-x-0 top-0 flex h-[3px] opacity-70" aria-hidden="true">
-                      <i className="flex-1 bg-amber-400" />
-                      <i className="flex-1 bg-teal-500" />
-                      <i className="flex-1 bg-indigo-500" />
-                    </span>
                     <div className="relative z-[1] p-1.5 sm:p-2">
                     <button
                       type="button"
@@ -812,7 +795,7 @@ export default function WorkforceMonthCalendar({
                           <span className="h-2 w-2 rounded-full bg-rose-500" title={`${pendingCount} yêu cầu chờ duyệt`} aria-label={`${pendingCount} yêu cầu chờ duyệt`} />
                         ) : null}
                         {day.today ? (
-                          <span className="hidden rounded-full bg-[#B8944F]/15 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide text-[#80632F] xl:inline">Hôm nay</span>
+                          <span className="hidden rounded-full bg-[#DBEAFE] px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide text-[#1D4E89] xl:inline">Hôm nay</span>
                         ) : null}
                       </span>
                     </button>
@@ -860,7 +843,7 @@ export default function WorkforceMonthCalendar({
               })}
 
               {Array.from({ length: trailingDays }, (_, index) => (
-                <div key={`trailing-${index}`} aria-hidden="true" className="min-h-[104px] bg-[#F3F5F3]/75 sm:min-h-[116px]" />
+                <div key={`trailing-${index}`} aria-hidden="true" className="min-h-[104px] bg-[#EEF2F3] opacity-70 sm:min-h-[116px]" />
               ))}
             </div>
 
