@@ -13,6 +13,7 @@ import {
   compactWorkShiftLabel,
   formatShiftTime,
   shiftCalendarMonth,
+  shiftWorkDate,
   unwrapWorkScheduleApiData,
   workShiftCalendarStatus,
   workShiftPeriod,
@@ -34,10 +35,13 @@ interface WorkforceMonthCalendarProps {
   employees: WorkScheduleEmployee[];
   refreshSignal?: number;
   onScheduleChanged?: () => Promise<void> | void;
+  onEditAssignment?: (assignmentId: number) => Promise<void> | void;
+  onCancelAssignment?: (assignmentId: number) => Promise<void> | void;
 }
 
 type SlotKey = { date: string; shiftTemplateId: number };
 type ShiftFilter = "ALL" | WorkShiftPeriod;
+type CalendarDisplayMode = "DAY" | "WEEK" | "MONTH";
 
 const HOTEL_TIME_ZONE = "Asia/Ho_Chi_Minh";
 const weekdays = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
@@ -48,6 +52,11 @@ const shiftFilterOptions: Array<{ value: ShiftFilter; label: string }> = [
   { value: "MORNING", label: "Ca sáng" },
   { value: "AFTERNOON", label: "Ca chiều" },
   { value: "NIGHT", label: "Ca tối" },
+];
+const calendarDisplayOptions: Array<{ value: CalendarDisplayMode; label: string }> = [
+  { value: "DAY", label: "Ngày" },
+  { value: "WEEK", label: "Tuần" },
+  { value: "MONTH", label: "Tháng" },
 ];
 
 const shiftVisuals: Record<WorkShiftPeriod, {
@@ -86,6 +95,13 @@ const currentMonthKey = () => new Intl.DateTimeFormat("en-CA", {
   month: "2-digit",
 }).format(new Date());
 
+const currentDateKey = () => new Intl.DateTimeFormat("en-CA", {
+  timeZone: HOTEL_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date());
+
 const formatMonth = (month: string) => {
   const [year, value] = month.split("-").map(Number);
   return `Tháng ${value}/${year}`;
@@ -98,6 +114,18 @@ const formatDay = (date: string, withWeekday = true) => new Intl.DateTimeFormat(
   year: "numeric",
   timeZone: HOTEL_TIME_ZONE,
 }).format(new Date(`${date}T12:00:00+07:00`));
+
+const startOfWorkWeek = (date: string) => {
+  const sundayFirst = new Date(`${date}T12:00:00+07:00`).getUTCDay();
+  return shiftWorkDate(date, -((sundayFirst + 6) % 7));
+};
+
+const formatCalendarPeriod = (mode: CalendarDisplayMode, month: string, focusDate: string) => {
+  if (mode === "MONTH") return formatMonth(month);
+  if (mode === "DAY") return formatDay(focusDate);
+  const from = startOfWorkWeek(focusDate);
+  return `Tuần ${formatDay(from, false)} – ${formatDay(shiftWorkDate(from, 6), false)}`;
+};
 
 const registrationStatusLabel: Record<WorkShiftRegistration["status"], string> = {
   PENDING: "Chờ ADMIN duyệt",
@@ -162,9 +190,14 @@ export default function WorkforceMonthCalendar({
   employees,
   refreshSignal = 0,
   onScheduleChanged,
+  onEditAssignment,
+  onCancelAssignment,
 }: WorkforceMonthCalendarProps) {
   const [month, setMonth] = useState(currentMonthKey);
+  const [focusDate, setFocusDate] = useState(currentDateKey);
+  const [calendarDisplay, setCalendarDisplay] = useState<CalendarDisplayMode>("MONTH");
   const [calendar, setCalendar] = useState<WorkShiftMonthCalendar | null>(null);
+  const [supplementalDays, setSupplementalDays] = useState<WorkShiftCalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -179,6 +212,16 @@ export default function WorkforceMonthCalendar({
   const [requirementNote, setRequirementNote] = useState("");
   const [toast, setToast] = useState<ToastState | null>(null);
 
+  const requestedMonthsKey = useMemo(() => {
+    const requested = new Set([month]);
+    if (calendarDisplay === "WEEK") {
+      const weekStart = startOfWorkWeek(focusDate);
+      Array.from({ length: 7 }, (_, index) => shiftWorkDate(weekStart, index))
+        .forEach((date) => requested.add(date.slice(0, 7)));
+    }
+    return Array.from(requested).join(",");
+  }, [calendarDisplay, focusDate, month]);
+
   const loadCalendar = useCallback(async (showLoading = false) => {
     if (showLoading) {
       setLoading(true);
@@ -186,13 +229,20 @@ export default function WorkforceMonthCalendar({
       setLoadError(null);
     }
     try {
-      const response = await cachedGet(
-        `/api/work-schedules/calendar?month=${month}`,
+      const requestedMonths = requestedMonthsKey.split(",");
+      const responses = await Promise.all(requestedMonths.map((requestedMonth) => cachedGet(
+        `/api/work-schedules/calendar?month=${requestedMonth}`,
         { ttlMs: 3_000, force: true },
-      );
-      setCalendar(unwrapWorkScheduleApiData<WorkShiftMonthCalendar>(response));
+      )));
+      const loadedCalendars = responses.map((response) =>
+        unwrapWorkScheduleApiData<WorkShiftMonthCalendar>(response));
+      const primaryCalendar = loadedCalendars.find((item) => item.month === month) || loadedCalendars[0];
+      setCalendar(primaryCalendar);
+      setSupplementalDays(loadedCalendars
+        .filter((item) => item.month !== primaryCalendar.month)
+        .flatMap((item) => item.days));
     } catch (error) {
-      const message = getApiErrorMessage(error, "Không thể tải lịch tháng");
+      const message = getApiErrorMessage(error, "Không thể tải lịch làm việc");
       if (showLoading) {
         setCalendar(null);
         setLoadError(message);
@@ -204,7 +254,7 @@ export default function WorkforceMonthCalendar({
     } finally {
       setLoading(false);
     }
-  }, [month]);
+  }, [month, requestedMonthsKey]);
 
   useEffect(() => {
     void loadCalendar(true);
@@ -213,21 +263,77 @@ export default function WorkforceMonthCalendar({
   useEffect(() => {
     setSelectedDate(null);
     setSelectedKey(null);
-  }, [month]);
+  }, [calendarDisplay, month]);
+
+  const loadedDays = useMemo(() => {
+    const byDate = new Map<string, WorkShiftCalendarDay>();
+    calendar?.days.forEach((day) => byDate.set(day.date, day));
+    supplementalDays.forEach((day) => byDate.set(day.date, day));
+    return Array.from(byDate.values()).sort((left, right) => left.date.localeCompare(right.date));
+  }, [calendar, supplementalDays]);
+
+  const displayedDays = useMemo(() => {
+    if (!calendar) return [];
+    if (calendarDisplay === "MONTH") return calendar.days;
+    if (calendarDisplay === "DAY") {
+      const day = loadedDays.find((item) => item.date === focusDate);
+      return day ? [day] : [];
+    }
+    const weekStart = startOfWorkWeek(focusDate);
+    return Array.from({ length: 7 }, (_, index) => shiftWorkDate(weekStart, index))
+      .flatMap((date) => {
+        const day = loadedDays.find((item) => item.date === date);
+        return day ? [day] : [];
+      });
+  }, [calendar, calendarDisplay, focusDate, loadedDays]);
 
   const selectedDay = useMemo(() => {
-    if (!selectedDate || !calendar) return null;
-    return calendar.days.find((item) => item.date === selectedDate) || null;
-  }, [calendar, selectedDate]);
+    if (!selectedDate) return null;
+    return loadedDays.find((item) => item.date === selectedDate) || null;
+  }, [loadedDays, selectedDate]);
 
   const selected = useMemo(() => {
-    if (!selectedKey || !calendar) return null;
-    const day = calendar.days.find((item) => item.date === selectedKey.date);
+    if (!selectedKey) return null;
+    const day = loadedDays.find((item) => item.date === selectedKey.date);
     const slot = day?.slots.find(
       (item) => item.shiftTemplateId === selectedKey.shiftTemplateId,
     );
     return day && slot ? { day, slot } : null;
-  }, [calendar, selectedKey]);
+  }, [loadedDays, selectedKey]);
+
+  const navigateCalendar = (direction: -1 | 1) => {
+    setSelectedDate(null);
+    setSelectedKey(null);
+
+    if (calendarDisplay === "MONTH") {
+      const nextMonth = shiftCalendarMonth(month, direction);
+      setMonth(nextMonth);
+      setFocusDate(`${nextMonth}-01`);
+      return;
+    }
+
+    const nextDate = shiftWorkDate(
+      focusDate,
+      direction * (calendarDisplay === "WEEK" ? 7 : 1),
+    );
+    setFocusDate(nextDate);
+    setMonth(nextDate.slice(0, 7));
+  };
+
+  const goToToday = () => {
+    const today = currentDateKey();
+    setSelectedDate(null);
+    setSelectedKey(null);
+    setFocusDate(today);
+    setMonth(today.slice(0, 7));
+  };
+
+  const changeCalendarDisplay = (mode: CalendarDisplayMode) => {
+    setSelectedDate(null);
+    setSelectedKey(null);
+    setCalendarDisplay(mode);
+    setMonth(focusDate.slice(0, 7));
+  };
 
   const openSlot = (day: WorkShiftCalendarDay, slot: WorkShiftCalendarSlot) => {
     setSelectedDate(null);
@@ -395,7 +501,7 @@ export default function WorkforceMonthCalendar({
     ? (7 - ((leadingDays + calendar.days.length) % 7)) % 7
     : 0;
   const calendarSummary = useMemo(() => {
-    if (!calendar) {
+    if (displayedDays.length === 0) {
       return {
         required: 0,
         assigned: 0,
@@ -406,8 +512,10 @@ export default function WorkforceMonthCalendar({
       };
     }
 
-    return calendar.days.reduce((summary, day) => {
-      day.slots.forEach((slot) => {
+    return displayedDays.reduce((summary, day) => {
+      day.slots
+        .filter((slot) => shiftFilter === "ALL" || workShiftPeriod(slot) === shiftFilter)
+        .forEach((slot) => {
         summary.required += slot.requiredStaff;
         summary.assigned += slot.assignedCount;
         summary.available += Math.max(slot.availableSlots, 0);
@@ -424,7 +532,7 @@ export default function WorkforceMonthCalendar({
       myAssignments: 0,
       myPending: 0,
     });
-  }, [calendar]);
+  }, [displayedDays, shiftFilter]);
   const pendingRequests = selected?.slot.requests.filter(
     (request) => request.status === "PENDING",
   ) || [];
@@ -434,15 +542,15 @@ export default function WorkforceMonthCalendar({
 
   return (
     <>
-      <section className="ops-panel overflow-hidden rounded-2xl border shadow-sm" aria-labelledby="month-calendar-title">
+      <section className="ops-panel overflow-hidden rounded-2xl border shadow-sm" aria-labelledby="work-calendar-title">
         <header className="bg-[#0F2A43] px-5 py-5 text-white md:px-6">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D8C398]">
                 {isAdmin ? "Kế hoạch nhân sự" : "Lịch làm việc của tôi"}
               </p>
-              <h2 id="month-calendar-title" className="mt-1 font-serif text-2xl font-bold">
-                {formatMonth(month)}
+              <h2 id="work-calendar-title" className="mt-1 font-serif text-2xl font-bold capitalize">
+                {formatCalendarPeriod(calendarDisplay, month, focusDate)}
               </h2>
               <p className="mt-2 max-w-3xl text-xs leading-5 text-white/70">
                 {isAdmin
@@ -451,10 +559,32 @@ export default function WorkforceMonthCalendar({
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.13em] text-white/60">
+                  Chế độ xem
+                </span>
+                <div className="flex min-h-11 rounded-xl border border-white/20 bg-[#173D5F] p-1" aria-label="Chế độ hiển thị lịch làm việc">
+                  {calendarDisplayOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={calendarDisplay === option.value}
+                      onClick={() => changeCalendarDisplay(option.value)}
+                      className={`min-w-14 cursor-pointer rounded-lg px-3 text-xs font-bold transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#D8C398] ${
+                        calendarDisplay === option.value
+                          ? "bg-white text-[#0F2A43] shadow-sm"
+                          : "text-white/75 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="min-w-36 text-[9px] font-bold uppercase tracking-[0.13em] text-white/60">
-                Hiển thị
+                Ca làm việc
                 <select
-                  aria-label="Lọc ca trên lịch tháng"
+                  aria-label="Lọc ca trên lịch làm việc"
                   value={shiftFilter}
                   onChange={(event) => setShiftFilter(event.target.value as ShiftFilter)}
                   className="mt-1 block min-h-11 w-full cursor-pointer rounded-xl border border-white/20 bg-[#173D5F] px-3 text-xs font-bold normal-case tracking-normal text-white outline-none transition hover:border-white/35 focus-visible:border-[#D8C398] focus-visible:ring-2 focus-visible:ring-[#D8C398]/25"
@@ -464,26 +594,26 @@ export default function WorkforceMonthCalendar({
                   ))}
                 </select>
               </label>
-              <div className="flex items-center gap-2" aria-label="Điều hướng tháng">
+              <div className="flex items-center gap-2" aria-label="Điều hướng lịch làm việc">
                 <button
                   type="button"
-                  aria-label="Tháng trước"
-                  onClick={() => setMonth((value) => shiftCalendarMonth(value, -1))}
+                  aria-label={calendarDisplay === "MONTH" ? "Tháng trước" : calendarDisplay === "WEEK" ? "Tuần trước" : "Ngày trước"}
+                  onClick={() => navigateCalendar(-1)}
                   className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
                 >
                   <Chevron direction="left" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMonth(currentMonthKey())}
+                  onClick={goToToday}
                   className="min-h-11 cursor-pointer rounded-xl border border-white/20 bg-white/10 px-4 text-xs font-bold text-white transition duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
                 >
                   Hôm nay
                 </button>
                 <button
                   type="button"
-                  aria-label="Tháng sau"
-                  onClick={() => setMonth((value) => shiftCalendarMonth(value, 1))}
+                  aria-label={calendarDisplay === "MONTH" ? "Tháng sau" : calendarDisplay === "WEEK" ? "Tuần sau" : "Ngày sau"}
+                  onClick={() => navigateCalendar(1)}
                   className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
                 >
                   <Chevron direction="right" />
@@ -533,7 +663,7 @@ export default function WorkforceMonthCalendar({
         )}
 
         {loading ? (
-          <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4" aria-label="Đang tải lịch tháng">
+          <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4" aria-label="Đang tải lịch làm việc">
             {Array.from({ length: 8 }, (_, index) => (
               <div key={index} className="h-40 animate-pulse rounded-xl bg-[#0F2A43]/6" />
             ))}
@@ -541,7 +671,7 @@ export default function WorkforceMonthCalendar({
         ) : loadError ? (
           <div className="flex min-h-64 flex-col items-center justify-center px-5 py-10 text-center" role="alert">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-lg font-bold text-rose-700" aria-hidden="true">!</div>
-            <h3 className="mt-3 text-base font-bold text-[#0F2A43]">Chưa tải được lịch tháng</h3>
+            <h3 className="mt-3 text-base font-bold text-[#0F2A43]">Chưa tải được lịch làm việc</h3>
             <p className="mt-1 max-w-lg text-sm leading-6 text-[#66727C]">{loadError}</p>
             <button
               type="button"
@@ -553,6 +683,8 @@ export default function WorkforceMonthCalendar({
           </div>
         ) : calendar ? (
           <div className="p-3 sm:p-4 md:p-5">
+            {calendarDisplay === "MONTH" ? (
+              <>
             <div className="grid grid-cols-7 rounded-t-2xl border border-b-0 border-[#0F2A43]/10 bg-[#F3F5F3] px-px pt-px">
               {weekdays.map((day, index) => (
                 <div
@@ -579,7 +711,10 @@ export default function WorkforceMonthCalendar({
                 return (
                   <article
                     key={day.date}
-                    onClick={() => setSelectedDate(day.date)}
+                    onClick={() => {
+                      setFocusDate(day.date);
+                      setSelectedDate(day.date);
+                    }}
                     className={`group relative min-h-[104px] text-left transition duration-200 sm:min-h-[116px] ${
                       isWeekend(day.date) ? "bg-[#F7F8F6]" : "bg-white"
                     } ${day.past ? "bg-slate-50/70" : "hover:bg-[#FCFBF7]"} ${
@@ -591,6 +726,7 @@ export default function WorkforceMonthCalendar({
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
+                        setFocusDate(day.date);
                         setSelectedDate(day.date);
                       }}
                       aria-label={`Mở tổng quan ${formatDay(day.date)}. ${day.slots.map((slot) => `${slot.shiftName}: ${workShiftCalendarStatus(slot, isAdmin, day.past).label}`).join(". ")}`}
@@ -663,6 +799,128 @@ export default function WorkforceMonthCalendar({
             <p className="mt-3 text-center text-[10px] font-semibold text-[#66727C]">
               Chọn nền ô ngày để xem tổng quan; chọn trực tiếp S/C/T để mở chi tiết ca.
             </p>
+              </>
+            ) : (
+              <div className={calendarDisplay === "DAY" ? "mx-auto max-w-6xl" : ""}>
+                <div className={`grid gap-3 ${
+                  calendarDisplay === "DAY"
+                    ? "grid-cols-1"
+                    : "sm:grid-cols-2 xl:grid-cols-7"
+                }`}>
+                  {displayedDays.map((day) => {
+                    const visibleSlots = day.slots.filter((slot) => (
+                      shiftFilter === "ALL" || workShiftPeriod(slot) === shiftFilter
+                    ));
+                    const required = visibleSlots.reduce((total, slot) => total + slot.requiredStaff, 0);
+                    const assigned = visibleSlots.reduce((total, slot) => total + slot.assignedCount, 0);
+                    const pending = visibleSlots.reduce((total, slot) => total + slot.pendingRequestCount, 0);
+
+                    return (
+                      <article
+                        key={day.date}
+                        className={`overflow-hidden rounded-2xl border bg-white shadow-sm ${
+                          day.today
+                            ? "border-[#B8944F] ring-1 ring-[#B8944F]/25"
+                            : "border-[#0F2A43]/10"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFocusDate(day.date);
+                            setSelectedDate(day.date);
+                          }}
+                          className={`flex min-h-16 w-full cursor-pointer items-center justify-between gap-3 border-b px-4 py-3 text-left transition hover:bg-[#F8F5EE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F] ${
+                            isWeekend(day.date) ? "bg-[#F8F5EE]/75" : "bg-white"
+                          }`}
+                        >
+                          <span>
+                            <span className="block text-[9px] font-black uppercase tracking-[0.14em] text-[#80632F]">
+                              {new Intl.DateTimeFormat("vi-VN", { weekday: "long", timeZone: HOTEL_TIME_ZONE }).format(new Date(`${day.date}T12:00:00+07:00`))}
+                            </span>
+                            <span className="mt-0.5 block text-lg font-black tabular-nums text-[#0F2A43]">
+                              {formatDay(day.date, false)}
+                            </span>
+                          </span>
+                          <span className="text-right">
+                            {day.today ? (
+                              <span className="mb-1 inline-flex rounded-full bg-[#0F2A43] px-2 py-1 text-[8px] font-black uppercase tracking-wide text-white">Hôm nay</span>
+                            ) : null}
+                            <span className="block text-[10px] font-bold text-[#66727C]">
+                              {assigned}/{required} nhân sự{pending > 0 ? ` · ${pending} chờ` : ""}
+                            </span>
+                          </span>
+                        </button>
+
+                        <div className={`grid gap-3 p-3 ${calendarDisplay === "DAY" ? "md:grid-cols-3 md:p-4" : ""}`}>
+                          {visibleSlots.length > 0 ? visibleSlots.map((slot) => {
+                            const period = workShiftPeriod(slot);
+                            const visual = shiftVisuals[period];
+                            const status = workShiftCalendarStatus(slot, isAdmin, day.past);
+                            const employeeNames = slot.assignments.map((assignment) => assignment.employeeName);
+
+                            return (
+                              <button
+                                type="button"
+                                key={slot.shiftTemplateId}
+                                onClick={() => openSlot(day, slot)}
+                                className={`group min-h-32 w-full cursor-pointer rounded-xl border p-3 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F2A43] ${visual.row}`}
+                              >
+                                <span className="flex items-start justify-between gap-2">
+                                  <span className="flex items-center gap-2">
+                                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base font-black ${visual.compact}`} aria-hidden="true">
+                                      {visual.icon}
+                                    </span>
+                                    <span>
+                                      <span className="block text-sm font-black text-[#0F2A43]">{slot.shiftName}</span>
+                                      <span className="mt-0.5 block text-[10px] font-bold tabular-nums text-[#66727C]">
+                                        {formatShiftTime(slot.startTime)}–{formatShiftTime(slot.endTime)}
+                                      </span>
+                                    </span>
+                                  </span>
+                                  <span className={`max-w-[9rem] rounded-full px-2 py-1 text-right text-[9px] font-black leading-3 ${calendarStatusTone[status.tone]}`}>
+                                    {status.label}
+                                  </span>
+                                </span>
+
+                                <span className="mt-3 block border-t border-current/10 pt-2">
+                                  <span className="flex items-center justify-between text-[10px] font-bold text-[#526372]">
+                                    <span>Nhân sự</span>
+                                    <span className="tabular-nums">{slot.assignedCount}/{slot.requiredStaff}</span>
+                                  </span>
+                                  {isAdmin ? (
+                                    <span className="mt-2 block min-h-8 text-[10px] leading-4 text-[#66727C]">
+                                      {employeeNames.length > 0
+                                        ? employeeNames.slice(0, 2).join(" · ")
+                                        : "Chưa phân nhân viên"}
+                                      {employeeNames.length > 2 ? ` +${employeeNames.length - 2}` : ""}
+                                    </span>
+                                  ) : (
+                                    <span className="mt-2 block min-h-8 text-[10px] leading-4 text-[#66727C]">
+                                      {slot.currentUserAssignment
+                                        ? assignmentAttendanceLabel(slot.currentUserAssignment)
+                                        : drawerActionLabel(slot, false)}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          }) : (
+                            <div className="flex min-h-32 items-center justify-center rounded-xl border border-dashed border-[#0F2A43]/15 bg-[#F8F5EE]/60 px-4 text-center text-xs font-bold text-[#66727C]">
+                              Không có ca phù hợp bộ lọc
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <p className="mt-4 text-center text-[10px] font-semibold text-[#66727C]">
+                  Chọn ngày để xem tổng quan; chọn trực tiếp một ca để xem nhân viên và thao tác chi tiết.
+                </p>
+              </div>
+            )}
           </div>
         ) : null}
       </section>
@@ -798,25 +1056,44 @@ export default function WorkforceMonthCalendar({
         onClose={() => setSelectedKey(null)}
         labelledBy="workforce-slot-title"
         busy={submitting}
-        panelClassName="max-w-4xl"
+        panelClassName="max-w-5xl bg-[#FBFAF6]"
+        backdropClassName="bg-[#091E30]/60 backdrop-blur-[2px]"
         zIndexClassName="z-[95]"
       >
         {selected && (
           <div className="flex min-h-0 flex-1 flex-col">
-            <header className="border-b px-5 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">
-                {isAdmin ? "Chi tiết ca làm việc" : "Đăng ký ca làm việc"}
-              </p>
-              <h2 id="workforce-slot-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">
-                {selected.slot.shiftName} · {formatDay(selected.day.date)}
-              </h2>
-              <p className="mt-1 text-xs text-[#66727C]">
-                {formatShiftTime(selected.slot.startTime)}–{formatShiftTime(selected.slot.endTime)}
-                {selected.slot.crossesMidnight ? " · kết thúc ngày hôm sau" : ""}
-              </p>
+            <header className="border-b border-white/10 bg-[#0F2A43] px-5 py-5 text-white">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#D8C398]">
+                      {isAdmin ? "Chi tiết & quản lý ca" : "Chi tiết ca làm việc"}
+                    </p>
+                    <span className={`rounded-full px-2.5 py-1 text-[9px] font-black ${calendarStatusTone[workShiftCalendarStatus(selected.slot, isAdmin, selected.day.past).tone]}`}>
+                      {workShiftCalendarStatus(selected.slot, isAdmin, selected.day.past).label}
+                    </span>
+                  </div>
+                  <h2 id="workforce-slot-title" className="mt-1 truncate font-serif text-2xl font-bold">
+                    {selected.slot.shiftName} · {formatDay(selected.day.date)}
+                  </h2>
+                  <p className="mt-1 text-xs font-semibold text-white/65">
+                    {formatShiftTime(selected.slot.startTime)}–{formatShiftTime(selected.slot.endTime)}
+                    {selected.slot.crossesMidnight ? " · kết thúc ngày hôm sau" : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Đóng chi tiết ca"
+                  disabled={submitting}
+                  onClick={() => setSelectedKey(null)}
+                  className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-white/10 text-lg font-bold transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  ×
+                </button>
+              </div>
             </header>
 
-            <div className="lux-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+            <div className="lux-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   ["Cần", selected.slot.requiredStaff],
@@ -837,15 +1114,48 @@ export default function WorkforceMonthCalendar({
                     <h3 className="text-sm font-bold text-[#0F2A43]">Nhân viên đã nhận ca</h3>
                     <p className="mt-1 text-xs text-[#66727C]">Chỉ ADMIN được xem danh sách này.</p>
                     <div className="mt-3 space-y-2">
-                      {selected.slot.assignments.length ? selected.slot.assignments.map((assignment) => (
-                        <div key={assignment.id} className="flex items-center justify-between gap-3 rounded-lg bg-[#F4EFE5] px-3 py-2.5">
-                          <div>
+                      {selected.slot.assignments.length ? selected.slot.assignments.map((assignment) => {
+                        const editable = assignment.status === "SCHEDULED"
+                          && !assignment.sessionStatus
+                          && !selected.day.past;
+                        return (
+                        <div key={assignment.id} className="flex flex-col gap-3 rounded-lg bg-[#F4EFE5] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
                             <p className="text-sm font-bold text-[#0F2A43]">{assignment.employeeName}</p>
                             <p className="mt-0.5 text-[10px] text-[#66727C]">Lịch #{assignment.id}</p>
                           </div>
-                          <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-[#27445F]">{assignmentAttendanceLabel(assignment)}</span>
+                          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                            <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-[#27445F]">{assignmentAttendanceLabel(assignment)}</span>
+                            {editable && onEditAssignment && (
+                              <button
+                                type="button"
+                                disabled={submitting}
+                                onClick={() => {
+                                  setSelectedKey(null);
+                                  void onEditAssignment(assignment.id);
+                                }}
+                                className="min-h-9 cursor-pointer rounded-lg border border-[#0F2A43]/15 bg-white px-3 text-[10px] font-bold text-[#0F2A43] transition duration-200 hover:border-[#B8944F] hover:bg-[#FFF9EA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Đổi nhân viên
+                              </button>
+                            )}
+                            {editable && onCancelAssignment && (
+                              <button
+                                type="button"
+                                disabled={submitting}
+                                onClick={() => {
+                                  setSelectedKey(null);
+                                  void onCancelAssignment(assignment.id);
+                                }}
+                                className="min-h-9 cursor-pointer rounded-lg border border-rose-200 bg-white px-3 text-[10px] font-bold text-rose-700 transition duration-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Hủy phân ca
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      )) : (
+                      );
+                      }) : (
                         <p className="rounded-lg border border-dashed p-4 text-center text-xs text-[#66727C]">Chưa phân nhân viên.</p>
                       )}
                     </div>
@@ -1049,13 +1359,13 @@ export default function WorkforceMonthCalendar({
               )}
             </div>
 
-            <footer className="flex justify-end border-t px-5 py-4">
+            <footer className="flex justify-end border-t border-[#0F2A43]/10 bg-white px-5 py-4">
               <button
                 type="button"
                 onClick={() => setSelectedKey(null)}
                 className="min-h-11 rounded-lg border px-5 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F4EFE5]"
               >
-                Đóng
+                Đóng chi tiết
               </button>
             </footer>
           </div>
