@@ -23,7 +23,7 @@ public class Room extends AbstractEntity<Long> implements Serializable{
     @Column(name = "room_name", unique = true, length = 20)
     private String roomName;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "room_type_id")
     private RoomType roomType;
 
@@ -55,7 +55,7 @@ public class Room extends AbstractEntity<Long> implements Serializable{
     private LocalDate maintenanceExpectedCompletedDate;
 
     @Builder.Default
-    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("createdAt DESC")
     private List<RoomMaintenanceLog> maintenanceHistory = new ArrayList<>();
 

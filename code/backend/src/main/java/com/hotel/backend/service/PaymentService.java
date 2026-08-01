@@ -20,6 +20,7 @@ import com.hotel.backend.repository.PaymentTransactionRepository;
 import com.hotel.backend.repository.ReservationRepository;
 import com.hotel.backend.repository.RoomHoldRepository;
 import com.hotel.backend.repository.ReservationRoomTypeRepository;
+import com.hotel.backend.security.ClientIpResolver;
 import com.hotel.backend.util.PaymentUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +56,7 @@ public class PaymentService {
     private final PaymentBalanceCalculator balanceCalculator;
     private final CashierShiftService cashierShiftService;
     private final FinancialJournalService financialJournalService;
+    private final ClientIpResolver clientIpResolver;
     // ==================== TẠO GIAO DỊCH MỚI ====================
 
     @Transactional
@@ -63,7 +65,7 @@ public class PaymentService {
             HttpServletRequest httpRequest,
             User currentUser,
             String guestToken) {
-        String ipAddress = PaymentUtil.getClientIp(httpRequest);
+        String ipAddress = clientIpResolver.resolve(httpRequest);
         // Lock the payment aggregate before validation and insert. This prevents
         // concurrent requests from both observing an unpaid balance and creating
         // duplicate deposit/final-payment transactions.
@@ -150,7 +152,7 @@ public class PaymentService {
             Long requestedAmount,
             HttpServletRequest httpRequest,
             User currentUser) {
-        String ipAddress = PaymentUtil.getClientIp(httpRequest);
+        String ipAddress = clientIpResolver.resolve(httpRequest);
         Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
         accessPolicy.ensureCanAccessReservation(currentUser, reservation);
@@ -203,7 +205,7 @@ public class PaymentService {
 
     @Transactional
     public PaymentResponse createCashPayment(PaymentRequest request, HttpServletRequest httpRequest, User currentUser) {
-        String ipAddress = PaymentUtil.getClientIp(httpRequest);
+        String ipAddress = clientIpResolver.resolve(httpRequest);
         // Cash collection shares the same critical section as online payment so
         // two front-desk requests cannot collect the same remaining balance.
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getBookingId())

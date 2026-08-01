@@ -49,7 +49,22 @@ public class PricingV2LifecycleService {
             Reservation reservation,
             LocalDateTime requestedCheckout) {
         return project(
-                reservation, requestedCheckout, Map.of());
+                reservation, requestedCheckout, Map.of(), null, null);
+    }
+
+    /**
+     * Read-model variant that reuses room lines and immutable snapshots loaded
+     * for a reservation page. Mutation paths continue to use the locking
+     * repository-backed variant above.
+     */
+    @Transactional(readOnly = true)
+    public Projection project(
+            Reservation reservation,
+            LocalDateTime requestedCheckout,
+            List<ReservationRoomType> preloadedRoomTypes,
+            List<ReservationRateSnapshot> preloadedSnapshots) {
+        return project(reservation, requestedCheckout, Map.of(),
+                preloadedRoomTypes, preloadedSnapshots);
     }
 
     /**
@@ -68,6 +83,16 @@ public class PricingV2LifecycleService {
             Reservation reservation,
             LocalDateTime requestedCheckout,
             Map<Long, Integer> lineGuestCountOverrides) {
+        return project(reservation, requestedCheckout,
+                lineGuestCountOverrides, null, null);
+    }
+
+    private Projection project(
+            Reservation reservation,
+            LocalDateTime requestedCheckout,
+            Map<Long, Integer> lineGuestCountOverrides,
+            List<ReservationRoomType> preloadedRoomTypes,
+            List<ReservationRateSnapshot> preloadedSnapshots) {
         requireV2(reservation);
         if (requestedCheckout == null) {
             throw new AppException(
@@ -83,11 +108,23 @@ public class PricingV2LifecycleService {
                 requestedCheckout.isAfter(reservation.getCheckOut())
                         ? requestedCheckout
                         : reservation.getCheckOut();
-        List<ReservationRoomType> reservationLines =
-                reservationRoomTypeRepository.findDetailsByReservationId(
+        List<ReservationRoomType> reservationLines = preloadedRoomTypes != null
+                ? preloadedRoomTypes
+                : reservationRoomTypeRepository.findDetailsByReservationId(
                         reservation.getId());
         if (reservationLines.isEmpty()) {
             throw missingSnapshot();
+        }
+
+        Map<Long, List<ReservationRateSnapshot>> snapshotsByLine = null;
+        if (preloadedSnapshots != null) {
+            snapshotsByLine = new LinkedHashMap<>();
+            for (ReservationRateSnapshot snapshot : preloadedSnapshots) {
+                snapshotsByLine.computeIfAbsent(
+                                snapshot.getReservationRoomType().getId(),
+                                ignored -> new ArrayList<>())
+                        .add(snapshot);
+            }
         }
 
         List<LineProjection> projectedLines = new ArrayList<>();
@@ -101,7 +138,10 @@ public class PricingV2LifecycleService {
         Set<Long> matchedGuestOverrideLines = new HashSet<>();
 
         for (ReservationRoomType reservationLine : reservationLines) {
-            List<ReservationRateSnapshot> snapshots = snapshotRepository
+            List<ReservationRateSnapshot> snapshots = snapshotsByLine != null
+                    ? snapshotsByLine.getOrDefault(
+                            reservationLine.getId(), List.of())
+                    : snapshotRepository
                     .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
                             reservationLine.getId());
             if (snapshots.isEmpty()) {

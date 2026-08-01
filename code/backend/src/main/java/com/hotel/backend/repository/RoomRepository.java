@@ -11,11 +11,24 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface RoomRepository extends JpaRepository<Room, Long> {
+
+       @Override
+       @EntityGraph(attributePaths = "roomType")
+       List<Room> findAll();
+
+       @Override
+       @EntityGraph(attributePaths = "roomType")
+       Page<Room> findAll(Pageable pageable);
+
+       @EntityGraph(attributePaths = {"roomType", "maintenanceHistory"})
+       @Query("SELECT DISTINCT r FROM Room r WHERE r.id = :id")
+       Optional<Room> findDetailById(@Param("id") Long id);
 
        boolean existsByRoomName(String roomName);       
        Optional<Room> findByRoomName(String roomName);
@@ -28,7 +41,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
        @Query("SELECT r FROM Room r WHERE r.id = :id")
        Optional<Room> findByIdForUpdate(@Param("id") Long id);
 
-       @Query("SELECT r FROM Room r JOIN r.roomType rt WHERE " +
+       @Query("SELECT r FROM Room r JOIN FETCH r.roomType rt WHERE " +
               "(:keyword IS NULL OR LOWER(r.roomName) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%') " +
               " OR LOWER(rt.typeName) LIKE CONCAT('%', LOWER(CAST(:keyword AS string)), '%'))"+
               "AND (:status IS NULL OR r.status = :status) " +
@@ -38,11 +51,13 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
                          @Param("cleaningStatus") CleaningStatus cleaningStatus);   
 
 
-       @Query("SELECT r FROM Room r JOIN r.roomType rt WHERE LOWER(r.roomName) LIKE :keyword OR LOWER(rt.typeName) LIKE :keyword OR LOWER(r.status) LIKE :keyword or LOWER(r.cleaningStatus) LIKE :keyword")
+       @Query(value = "SELECT r FROM Room r JOIN FETCH r.roomType rt WHERE LOWER(r.roomName) LIKE :keyword OR LOWER(rt.typeName) LIKE :keyword OR LOWER(r.status) LIKE :keyword or LOWER(r.cleaningStatus) LIKE :keyword",
+              countQuery = "SELECT COUNT(r) FROM Room r JOIN r.roomType rt WHERE LOWER(r.roomName) LIKE :keyword OR LOWER(rt.typeName) LIKE :keyword OR LOWER(r.status) LIKE :keyword or LOWER(r.cleaningStatus) LIKE :keyword")
        Page<Room> searchByKeyword(@Param("keyword") String keyword, Pageable pageable);
 
        @Query("""
               SELECT r FROM Room r
+              JOIN FETCH r.roomType roomType
               WHERE r.roomType.id = :roomTypeId
                 AND r.status = com.hotel.backend.constant.RoomStatus.AVAILABLE
                 AND r.cleaningStatus = com.hotel.backend.constant.CleaningStatus.CLEAN

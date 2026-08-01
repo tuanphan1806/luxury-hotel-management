@@ -72,7 +72,8 @@ public class UserServiceImpl implements UserService {
             entityPage= userRepository.findAll(pageable);
         }
 
-        return UserViewMapper.toPage(pageNo, size, entityPage);
+        return UserViewMapper.toPage(
+                pageNo, pageable.getPageSize(), entityPage);
     }
     
     @Override

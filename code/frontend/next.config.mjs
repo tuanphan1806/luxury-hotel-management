@@ -7,6 +7,34 @@ const backendOrigin = (process.env.BACKEND_INTERNAL_URL || 'http://localhost:808
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 const standaloneOutputEnabled = process.env.NEXT_DISABLE_STANDALONE !== 'true'
   && (process.platform !== 'win32' || process.env.NEXT_ENABLE_STANDALONE === 'true');
+const localHttpSources = process.env.NODE_ENV === 'development'
+  ? ' http://localhost:* http://127.0.0.1:*'
+  : '';
+const localSocketSources = process.env.NODE_ENV === 'development'
+  ? ' ws://localhost:* ws://127.0.0.1:*'
+  : '';
+
+// Keep the policy compatible with Next.js hydration and the existing
+// backend/OAuth redirect flow while denying all resource types that are not
+// explicitly needed by the application. A nonce-based script policy can be
+// introduced later with per-request middleware; this static baseline already
+// prevents object/frame embedding and limits network-capable resources.
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "frame-src 'none'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https:",
+  `img-src 'self' data: blob: https:${localHttpSources}`,
+  "font-src 'self' data: https:",
+  `connect-src 'self' https: wss:${localHttpSources}${localSocketSources}`,
+  `media-src 'self' data: blob: https:${localHttpSources}`,
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+].join('; ');
 
 const imageOrigins = [
   'https://images.unsplash.com',
@@ -68,7 +96,7 @@ const nextConfig = {
       {
         source: '/:path*',
         headers: [
-          { key: 'Content-Security-Policy', value: "object-src 'none'; base-uri 'self'; frame-ancestors 'none'" },
+          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },

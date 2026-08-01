@@ -41,10 +41,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     @Query("""
     SELECT DISTINCT r FROM Reservation r
-    LEFT JOIN FETCH r.roomTypes rt
-    LEFT JOIN FETCH rt.roomType
-    LEFT JOIN FETCH rt.roomHold
-    WHERE r.customerProfile.linkedUser.id = :userId
+    JOIN FETCH r.customerProfile cp
+    LEFT JOIN FETCH cp.linkedUser
+    WHERE cp.linkedUser.id = :userId
       AND r.status <> com.hotel.backend.constant.ReservationStatus.PAYMENT_PENDING
     ORDER BY r.createdAt DESC
     """)
@@ -135,11 +134,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
         SELECT DISTINCT r FROM Reservation r
         JOIN FETCH r.customerProfile cp
         LEFT JOIN FETCH cp.linkedUser
-        JOIN FETCH r.roomTypes rt
-        JOIN FETCH rt.roomType
-        LEFT JOIN FETCH rt.roomHold
-        LEFT JOIN FETCH rt.rooms reservationRoom
-        LEFT JOIN FETCH reservationRoom.room physicalRoom
         WHERE r.status <> com.hotel.backend.constant.ReservationStatus.PAYMENT_PENDING
         ORDER BY r.createdAt DESC
     """)

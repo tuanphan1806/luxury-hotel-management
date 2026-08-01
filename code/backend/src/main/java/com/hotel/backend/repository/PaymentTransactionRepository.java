@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.time.Instant;
+import java.util.Collection;
 
 @Repository
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, String> {
@@ -46,6 +47,16 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
         WHERE pt.reservation.id = :reservationId
     """)
     List<PaymentTransaction> findByReservationId(@Param("reservationId") Long reservationId);
+
+    @Query("""
+        SELECT pt
+        FROM PaymentTransaction pt
+        JOIN FETCH pt.reservation
+        WHERE pt.reservation.id IN :reservationIds
+        ORDER BY pt.reservation.id, pt.createdAt, pt.id
+    """)
+    List<PaymentTransaction> findByReservationIds(
+            @Param("reservationIds") Collection<Long> reservationIds);
  
     @Query("""
         SELECT pt FROM PaymentTransaction pt
