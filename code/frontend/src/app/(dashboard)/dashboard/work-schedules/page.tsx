@@ -31,6 +31,7 @@ import {
 type ToastState = { message: string; type: "success" | "error" | "info" };
 type DateRangePreset = "DAY" | "WEEK" | "MONTH" | "CUSTOM";
 type WorkScheduleView = "calendar" | "statistics" | "list";
+type WorkScheduleOperationalFilter = "ALL" | "ACTION_REQUIRED" | "ACTIVE" | WorkScheduleStatus;
 
 const HOTEL_TIME_ZONE = "Asia/Ho_Chi_Minh";
 const inputClass = "ops-control min-h-11 w-full rounded-lg border px-3 py-2.5 text-sm font-semibold text-[#0F2A43] outline-none transition hover:border-[#0F2A43]/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20 disabled:cursor-not-allowed disabled:opacity-60";
@@ -153,7 +154,7 @@ export default function WorkSchedulesPage() {
   const [to, setTo] = useState(() => dateRangeForPreset("MONTH").to);
   const [rangePreset, setRangePreset] = useState<DateRangePreset>("MONTH");
   const [employeeFilter, setEmployeeFilter] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<"ALL" | WorkScheduleStatus>("ALL");
+  const [statusFilter, setStatusFilter] = useState<WorkScheduleOperationalFilter>("ALL");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -173,6 +174,7 @@ export default function WorkSchedulesPage() {
   const [attendanceNote, setAttendanceNote] = useState("");
   const [attendanceError, setAttendanceError] = useState("");
   const [viewMode, setViewMode] = useState<WorkScheduleView>("calendar");
+  const [calendarRefreshSignal, setCalendarRefreshSignal] = useState(0);
   const lastVisibilityRefreshAt = useRef(0);
 
   useEffect(() => {
@@ -241,9 +243,18 @@ export default function WorkSchedulesPage() {
     };
   }, [loadData, role]);
 
-  const listSchedules = useMemo(() => statusFilter === "ALL"
-    ? schedules
-    : schedules.filter((schedule) => schedule.status === statusFilter), [schedules, statusFilter]);
+  const listSchedules = useMemo(() => schedules.filter((schedule) => {
+    if (statusFilter === "ALL") return true;
+    if (statusFilter === "ACTIVE") return schedule.sessionStatus === "ACTIVE";
+    if (statusFilter === "ACTION_REQUIRED") {
+      return schedule.status === "ABSENT"
+        || schedule.late
+        || (schedule.status === "SCHEDULED"
+          && !schedule.sessionId
+          && new Date(schedule.scheduledEndUtc).getTime() <= now.getTime());
+    }
+    return schedule.status === statusFilter;
+  }), [now, schedules, statusFilter]);
   const activeTemplates = useMemo(() => templates.filter((template) => template.active), [templates]);
   const upcomingStaffSchedule = useMemo(() => schedules
     .filter((schedule) => schedule.status === "SCHEDULED"
@@ -272,6 +283,32 @@ export default function WorkSchedulesPage() {
     setScheduleModalOpen(true);
   };
 
+  const loadAssignmentForAction = async (
+    assignmentId: number,
+    action: "edit" | "cancel",
+  ) => {
+    try {
+      const response = await cachedGet(
+        `/api/work-schedules/assignments/${assignmentId}`,
+        { ttlMs: 0, force: true },
+      );
+      const schedule = unwrapWorkScheduleApiData<WorkSchedule>(response);
+      if (!schedule) throw new Error("Không tìm thấy lịch làm việc");
+      if (action === "edit") {
+        openEditSchedule(schedule);
+        return;
+      }
+      setCancelTarget(schedule);
+      setCancelReason("");
+      setCancelError("");
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: getApiErrorMessage(error, "Không thể tải thông tin phân ca"),
+      });
+    }
+  };
+
   const saveSchedule = async (event: FormEvent) => {
     event.preventDefault();
     if (!scheduleForm.employeeId || !scheduleForm.shiftTemplateId || !scheduleForm.workDate) return setScheduleError("Vui lòng chọn nhân viên, mẫu ca và ngày làm việc.");
@@ -285,6 +322,7 @@ export default function WorkSchedulesPage() {
       clearIdempotencyKey(scope);
       setScheduleModalOpen(false);
       setToast({ type: "success", message: scheduleEditing ? "Đã cập nhật lịch làm việc" : "Đã phân ca làm việc" });
+      setCalendarRefreshSignal((current) => current + 1);
       await loadData();
     } catch (error) { setScheduleError(getApiErrorMessage(error, "Không thể lưu lịch làm việc")); }
     finally { setSubmitting(false); }
@@ -302,6 +340,7 @@ export default function WorkSchedulesPage() {
       setCancelReason("");
       setCancelError("");
       setToast({ type: "success", message: "Đã hủy lịch làm việc" });
+      setCalendarRefreshSignal((current) => current + 1);
       await loadData();
     } catch (error) { setCancelError(getApiErrorMessage(error, "Không thể hủy lịch làm việc")); }
     finally { setSubmitting(false); }
@@ -373,9 +412,9 @@ export default function WorkSchedulesPage() {
         <p className="mt-0.5 text-xs text-[#66727C]">Phân ca, xem thống kê đi làm hoặc tra cứu chi tiết từng ca.</p>
       </div>
       <nav className="grid grid-cols-3 rounded-lg bg-[#F1F0EA] p-1 sm:flex" aria-label="Khu vực lịch làm việc">
-        <button type="button" onClick={() => setViewMode("calendar")} aria-pressed={viewMode === "calendar"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "calendar" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Lịch tháng</button>
+        <button type="button" onClick={() => setViewMode("calendar")} aria-pressed={viewMode === "calendar"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "calendar" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Lịch làm việc</button>
         <button type="button" onClick={() => { if (rangePreset === "CUSTOM") applyRangePreset("MONTH"); setViewMode("statistics"); }} aria-pressed={viewMode === "statistics"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "statistics" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Thống kê chấm công</button>
-        <button type="button" onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "list" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Danh sách ca</button>
+        <button type="button" onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "list" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>{isAdmin ? "Quản lý ca" : "Ca của tôi"}</button>
       </nav>
     </section>
 
@@ -386,7 +425,10 @@ export default function WorkSchedulesPage() {
         isAdmin={isAdmin}
         isStaff={isStaff}
         employees={employees}
+        refreshSignal={calendarRefreshSignal}
         onScheduleChanged={() => loadData()}
+        onEditAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "edit")}
+        onCancelAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "cancel")}
       />
     ) : viewMode === "statistics" ? (
       <>
@@ -421,9 +463,9 @@ export default function WorkSchedulesPage() {
         <section className="overflow-hidden rounded-2xl bg-[#0F2A43] text-white shadow-[0_14px_36px_rgba(15,42,67,0.14)]" aria-labelledby="schedule-range-title">
           <div className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#D8C398]">Tra cứu lịch làm việc</p>
-              <h2 id="schedule-range-title" className="mt-1 font-serif text-2xl font-bold">{isAdmin ? "Danh sách ca đã phân công" : "Lịch sử và ca sắp tới"}</h2>
-              <p className="mt-2 max-w-2xl text-xs leading-5 text-white/65">Chọn nhanh ngày, tuần hoặc tháng; dữ liệu được nhóm theo ngày để dễ theo dõi điểm danh.</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#D8C398]">{isAdmin ? "Tra cứu & xử lý" : "Lịch cá nhân"}</p>
+              <h2 id="schedule-range-title" className="mt-1 font-serif text-2xl font-bold">{isAdmin ? "Quản lý ca làm việc" : "Lịch sử và ca sắp tới"}</h2>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-white/65">{isAdmin ? "Tra cứu theo thời gian, nhân viên và trạng thái để sửa lịch, đổi người hoặc xử lý ca cần lưu ý." : "Xem ca sắp tới, lịch sử điểm danh và thao tác với ca đang hoạt động."}</p>
             </div>
             <DateRangePresetFilter value={rangePreset} onChange={applyRangePreset} />
           </div>
@@ -447,8 +489,10 @@ export default function WorkSchedulesPage() {
             )}
             <label className="text-[10px] font-bold uppercase tracking-wide text-white/65">
               Trạng thái
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "ALL" | WorkScheduleStatus)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-[#173D5F] px-3 text-xs font-semibold text-white outline-none transition hover:border-white/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20">
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as WorkScheduleOperationalFilter)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-[#173D5F] px-3 text-xs font-semibold text-white outline-none transition hover:border-white/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20">
                 <option value="ALL">Tất cả trạng thái</option>
+                <option value="ACTION_REQUIRED">Cần xử lý</option>
+                <option value="ACTIVE">Đang làm việc</option>
                 <option value="SCHEDULED">Đã phân công</option>
                 <option value="FULFILLED">Đã hoàn thành</option>
                 <option value="ABSENT">Vắng mặt</option>
