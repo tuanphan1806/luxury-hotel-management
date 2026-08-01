@@ -115,6 +115,12 @@ const formatDay = (date: string, withWeekday = true) => new Intl.DateTimeFormat(
   timeZone: HOTEL_TIME_ZONE,
 }).format(new Date(`${date}T12:00:00+07:00`));
 
+const formatCompactDate = (date: string) => new Intl.DateTimeFormat("vi-VN", {
+  day: "2-digit",
+  month: "2-digit",
+  timeZone: HOTEL_TIME_ZONE,
+}).format(new Date(`${date}T12:00:00+07:00`));
+
 const startOfWorkWeek = (date: string) => {
   const sundayFirst = new Date(`${date}T12:00:00+07:00`).getUTCDay();
   return shiftWorkDate(date, -((sundayFirst + 6) % 7));
@@ -805,7 +811,7 @@ export default function WorkforceMonthCalendar({
                 <div className={`grid gap-3 ${
                   calendarDisplay === "DAY"
                     ? "grid-cols-1"
-                    : "sm:grid-cols-2 xl:grid-cols-7"
+                    : "sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7"
                 }`}>
                   {displayedDays.map((day) => {
                     const visibleSlots = day.slots.filter((slot) => (
@@ -839,7 +845,7 @@ export default function WorkforceMonthCalendar({
                               {new Intl.DateTimeFormat("vi-VN", { weekday: "long", timeZone: HOTEL_TIME_ZONE }).format(new Date(`${day.date}T12:00:00+07:00`))}
                             </span>
                             <span className="mt-0.5 block text-lg font-black tabular-nums text-[#0F2A43]">
-                              {formatDay(day.date, false)}
+                              {calendarDisplay === "WEEK" ? formatCompactDate(day.date) : formatDay(day.date, false)}
                             </span>
                           </span>
                           <span className="text-right">
