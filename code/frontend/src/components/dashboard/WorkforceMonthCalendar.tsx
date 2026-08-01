@@ -470,111 +470,67 @@ export default function WorkforceMonthCalendar({
             </button>
           </div>
         ) : calendar ? (
-          <>
-            <div className="lux-scrollbar hidden overflow-x-auto lg:block">
-              <div className="min-w-[1120px] p-5">
-                <div className="mb-2 grid grid-cols-7 gap-2 rounded-xl bg-[#0F2A43]/[0.045] p-2">
-                  {weekdays.map((day) => (
-                    <div key={day} className="px-2 py-1 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-[#526372]">
-                      {day}
-                    </div>
-                  ))}
+          <div className="p-4 md:p-5">
+            <div className="mb-2 hidden grid-cols-7 gap-2 rounded-xl bg-[#0F2A43]/[0.045] p-2 xl:grid">
+              {weekdays.map((day) => (
+                <div key={day} className="px-2 py-1 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-[#526372]">
+                  {day}
                 </div>
-                <div className="grid grid-cols-7 gap-2.5">
-                  {Array.from({ length: leadingDays }, (_, index) => (
-                    <div key={`empty-${index}`} aria-hidden="true" className="min-h-[186px] rounded-xl bg-[#0F2A43]/[0.018]" />
-                  ))}
-                  {calendar.days.map((day) => (
-                    <article
-                      key={day.date}
-                      className={`min-h-[186px] rounded-xl border p-2.5 transition ${
-                        day.today
-                          ? "border-[#B8944F] bg-[#FFF9EA] shadow-[0_8px_22px_rgba(15,42,67,0.08)]"
-                          : day.past
-                            ? "border-slate-200 bg-slate-50/75"
-                            : "border-[#0F2A43]/10 bg-white hover:border-[#0F2A43]/20"
-                      }`}
-                    >
-                      <div className="mb-2.5 flex items-center justify-between border-b border-[#0F2A43]/7 pb-2">
-                        <span className={`flex h-8 min-w-8 items-center justify-center rounded-full px-1 text-xs font-bold ${day.today ? "bg-[#0F2A43] text-white" : "text-[#0F2A43]"}`}>
-                          {Number(day.date.slice(-2))}
-                        </span>
-                        {day.today ? (
-                          <span className="rounded-full bg-[#B8944F]/15 px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-[#80632F]">Hôm nay</span>
-                        ) : null}
-                      </div>
-                      <div className="space-y-2">
-                        {day.slots.map((slot) => (
-                          <button
-                            key={slot.shiftTemplateId}
-                            type="button"
-                            onClick={() => openSlot(day, slot)}
-                            style={{ boxShadow: `inset 3px 0 0 ${slot.shiftColor}` }}
-                            className={`min-h-[54px] w-full rounded-lg border px-2.5 py-2 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
-                          >
-                            <span className="flex items-start justify-between gap-2">
-                              <span className="min-w-0">
-                                <strong className="block truncate text-[11px] leading-4">{slot.shiftName}</strong>
-                                <span className="mt-0.5 block text-[9px] font-semibold opacity-70">
-                                  {formatShiftTime(slot.startTime)}–{formatShiftTime(slot.endTime)}
-                                </span>
-                              </span>
-                              {isAdmin && (
-                                <span className="shrink-0 rounded-full bg-white/80 px-1.5 py-0.5 text-[9px] font-bold tabular-nums">
-                                  {slot.assignedCount}/{slot.requiredStaff}
-                                </span>
-                              )}
-                            </span>
-                            <span className="mt-1 block truncate text-[9px] font-semibold opacity-80">
-                              {isAdmin
-                                ? slot.pendingRequestCount
-                                  ? `${slot.pendingRequestCount} yêu cầu chờ duyệt`
-                                  : slot.availableSlots > 0
-                                    ? `Còn thiếu ${slot.availableSlots} người`
-                                    : "Đủ nhân sự"
-                                : staffCalendarSlotLabel(slot, day.past)}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
-
-            <div className="space-y-3 p-4 lg:hidden">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7 xl:gap-2.5">
+              {Array.from({ length: leadingDays }, (_, index) => (
+                <div key={`empty-${index}`} aria-hidden="true" className="hidden min-h-[186px] rounded-xl bg-[#0F2A43]/[0.018] xl:block" />
+              ))}
               {calendar.days.map((day) => (
                 <article
                   key={day.date}
-                  className={`rounded-xl border p-3 ${
+                  className={`rounded-xl border p-3 transition xl:min-h-[186px] xl:p-2.5 ${
                     day.today
-                      ? "border-[#B8944F] bg-[#FFF9EA] shadow-sm"
+                      ? "border-[#B8944F] bg-[#FFF9EA] shadow-[0_8px_22px_rgba(15,42,67,0.08)]"
                       : day.past
-                        ? "border-slate-200 bg-slate-50/70"
-                        : "border-[#0F2A43]/10 bg-white"
+                        ? "border-slate-200 bg-slate-50/75"
+                        : "border-[#0F2A43]/10 bg-white hover:border-[#0F2A43]/20"
                   }`}
                 >
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-bold capitalize text-[#0F2A43]">{formatDay(day.date)}</h3>
-                    {day.today && <span className="rounded-full bg-[#0F2A43] px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">Hôm nay</span>}
+                  <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#0F2A43]/7 pb-2 xl:mb-2.5">
+                    <h3 className="text-sm font-bold capitalize text-[#0F2A43] xl:hidden">{formatDay(day.date)}</h3>
+                    <span className={`hidden h-8 min-w-8 items-center justify-center rounded-full px-1 text-xs font-bold xl:flex ${day.today ? "bg-[#0F2A43] text-white" : "text-[#0F2A43]"}`}>
+                      {Number(day.date.slice(-2))}
+                    </span>
+                    {day.today ? (
+                      <span className="rounded-full bg-[#0F2A43] px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-white xl:bg-[#B8944F]/15 xl:text-[#80632F]">Hôm nay</span>
+                    ) : null}
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="space-y-2">
                     {day.slots.map((slot) => (
                       <button
                         key={slot.shiftTemplateId}
                         type="button"
                         onClick={() => openSlot(day, slot)}
                         style={{ boxShadow: `inset 3px 0 0 ${slot.shiftColor}` }}
-                        className={`min-h-[62px] rounded-lg border px-3 py-2.5 text-left transition active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
+                        className={`min-h-[58px] w-full rounded-lg border px-3 py-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] xl:min-h-[54px] xl:px-2.5 xl:py-2 ${slotTone(slot, isAdmin, day.past)}`}
                       >
-                        <span className="flex items-center justify-between gap-2">
-                          <strong className="text-xs">{slot.shiftName}</strong>
-                          <span className="text-[9px] font-semibold opacity-70">{formatShiftTime(slot.startTime)}–{formatShiftTime(slot.endTime)}</span>
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="min-w-0">
+                            <strong className="block truncate text-xs leading-4 xl:text-[11px]">{slot.shiftName}</strong>
+                            <span className="mt-0.5 block text-[9px] font-semibold opacity-70">
+                              {formatShiftTime(slot.startTime)}–{formatShiftTime(slot.endTime)}
+                            </span>
+                          </span>
+                          {isAdmin && (
+                            <span className="shrink-0 rounded-full bg-white/80 px-1.5 py-0.5 text-[9px] font-bold tabular-nums">
+                              {slot.assignedCount}/{slot.requiredStaff}
+                            </span>
+                          )}
                         </span>
-                        <span className="mt-1 block text-[10px] font-semibold opacity-80">
+                        <span className="mt-1 block truncate text-[10px] font-semibold opacity-80 xl:text-[9px]">
                           {isAdmin
-                            ? `${slot.assignedCount}/${slot.requiredStaff} đã phân${slot.pendingRequestCount ? ` · ${slot.pendingRequestCount} chờ` : ""}`
+                            ? slot.pendingRequestCount
+                              ? `${slot.pendingRequestCount} yêu cầu chờ duyệt`
+                              : slot.availableSlots > 0
+                                ? `Còn thiếu ${slot.availableSlots} người`
+                                : "Đủ nhân sự"
                             : staffCalendarSlotLabel(slot, day.past)}
                         </span>
                       </button>
@@ -583,7 +539,7 @@ export default function WorkforceMonthCalendar({
                 </article>
               ))}
             </div>
-          </>
+          </div>
         ) : null}
       </section>
 
