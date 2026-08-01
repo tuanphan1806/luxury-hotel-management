@@ -12,9 +12,28 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+let activeScrollLocks = 0;
+let bodyOverflowBeforeFirstModal = "";
+
+function lockDocumentScroll() {
+  if (activeScrollLocks === 0) {
+    bodyOverflowBeforeFirstModal = document.body.style.overflow;
+  }
+  activeScrollLocks += 1;
+  document.body.style.overflow = "hidden";
+}
+
+function unlockDocumentScroll() {
+  activeScrollLocks = Math.max(0, activeScrollLocks - 1);
+  if (activeScrollLocks === 0) {
+    document.body.style.overflow = bodyOverflowBeforeFirstModal;
+  }
+}
+
 interface ViewportModalProps {
   open: boolean;
   onClose: () => void;
+  onBackdropClose?: () => void;
   labelledBy: string;
   describedBy?: string;
   busy?: boolean;
@@ -22,6 +41,7 @@ interface ViewportModalProps {
   panelClassName?: string;
   backdropClassName?: string;
   zIndexClassName?: string;
+  ariaModal?: boolean;
   testId?: string;
   variant?: "center" | "drawer";
 }
@@ -34,6 +54,7 @@ interface ViewportModalProps {
 export default function ViewportModal({
   open,
   onClose,
+  onBackdropClose,
   labelledBy,
   describedBy,
   busy = false,
@@ -41,6 +62,7 @@ export default function ViewportModal({
   panelClassName = "max-w-xl",
   backdropClassName = "bg-[#091E30]/68",
   zIndexClassName = "z-[80]",
+  ariaModal = true,
   testId,
   variant = "center",
 }: ViewportModalProps) {
@@ -61,8 +83,7 @@ export default function ViewportModal({
     const previousFocus = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockDocumentScroll();
 
     const frame = window.requestAnimationFrame(() => {
       const preferred = panelRef.current?.querySelector<HTMLElement>("[data-modal-autofocus]");
@@ -103,7 +124,7 @@ export default function ViewportModal({
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow;
+      unlockDocumentScroll();
       previousFocus?.focus();
     };
   }, [mounted, open]);
@@ -125,14 +146,15 @@ export default function ViewportModal({
       onClick={(event) => {
         if (event.target !== event.currentTarget || busy) return;
         event.stopPropagation();
-        onClose();
+        (onBackdropClose || onClose)();
       }}
       data-testid={testId}
     >
       <div
         ref={panelRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal={ariaModal || undefined}
+        aria-hidden={ariaModal ? undefined : true}
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         aria-busy={busy || undefined}
