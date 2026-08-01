@@ -23,6 +23,7 @@ interface ViewportModalProps {
   backdropClassName?: string;
   zIndexClassName?: string;
   testId?: string;
+  variant?: "center" | "drawer";
 }
 
 /**
@@ -41,6 +42,7 @@ export default function ViewportModal({
   backdropClassName = "bg-[#091E30]/68",
   zIndexClassName = "z-[80]",
   testId,
+  variant = "center",
 }: ViewportModalProps) {
   const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -108,9 +110,15 @@ export default function ViewportModal({
 
   if (!mounted || !open) return null;
 
+  const isDrawer = variant === "drawer";
+
   return createPortal(
     <div
-      className={`ux-modal-backdrop fixed inset-0 grid place-items-center overflow-hidden p-2 sm:p-4 ${zIndexClassName} ${backdropClassName}`}
+      className={`ux-modal-backdrop fixed inset-0 overflow-hidden ${
+        isDrawer
+          ? "flex items-end justify-center p-0 sm:items-stretch sm:justify-end"
+          : "grid place-items-center p-2 sm:p-4"
+      } ${zIndexClassName} ${backdropClassName}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) event.preventDefault();
       }}
@@ -129,7 +137,11 @@ export default function ViewportModal({
         aria-describedby={describedBy}
         aria-busy={busy || undefined}
         tabIndex={-1}
-        className={`ux-modal-panel flex max-h-[calc(100dvh-1rem)] min-h-0 w-full flex-col overflow-hidden rounded-xl border border-white/20 bg-white shadow-2xl outline-none sm:max-h-[calc(100dvh-2rem)] ${panelClassName}`}
+        className={`${isDrawer ? "ux-modal-drawer" : "ux-modal-panel"} flex min-h-0 w-full flex-col overflow-hidden border border-white/20 bg-white shadow-2xl outline-none ${
+          isDrawer
+            ? "max-h-[88dvh] rounded-t-2xl sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-2xl"
+            : "max-h-[calc(100dvh-1rem)] rounded-xl sm:max-h-[calc(100dvh-2rem)]"
+        } ${panelClassName}`}
       >
         {children}
       </div>
