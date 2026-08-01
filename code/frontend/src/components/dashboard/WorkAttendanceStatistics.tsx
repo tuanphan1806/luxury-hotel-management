@@ -5,8 +5,6 @@ import {
   formatWorkedMinutes,
   summarizeAttendance,
   summarizeAttendanceByDay,
-  summarizeAttendanceByEmployee,
-  type AttendanceSummary,
 } from "@/lib/work-attendance-statistics";
 import {
   formatWorkDateTime,
@@ -49,20 +47,6 @@ const formatDate = (value: string) => attendanceDateFormatter.format(new Date(`$
 
 const formatTime = (value: string) => attendanceTimeFormatter.format(new Date(value));
 
-function RateBar({ summary }: { summary: AttendanceSummary }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#0F2A43]/10" aria-hidden="true">
-        <span
-          className="block h-full rounded-full bg-emerald-500 transition-[width] duration-300"
-          style={{ width: `${Math.min(100, summary.attendanceRate)}%` }}
-        />
-      </div>
-      <strong className="w-11 text-right text-xs tabular-nums text-[#0F2A43]">{summary.attendanceRate}%</strong>
-    </div>
-  );
-}
-
 function StatCell({ label, value, tone = "navy" }: { label: string; value: string | number; tone?: "navy" | "green" | "orange" | "red" }) {
   const styles = {
     navy: "bg-[#F1F0EA] text-[#0F2A43]",
@@ -78,17 +62,28 @@ function StatCell({ label, value, tone = "navy" }: { label: string; value: strin
   );
 }
 
-function InitialBadge({ name }: { name: string }) {
+function AttendanceResult({ schedule }: { schedule: WorkSchedule }) {
   return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0F2A43] text-sm font-black text-white" aria-hidden="true">
-      {name.trim().charAt(0).toUpperCase() || "N"}
-    </span>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${toneClass[workScheduleTone(schedule)]}`}>
+        {workScheduleDisplayStatus(schedule)}
+      </span>
+      {schedule.late && (
+        <span className="rounded-full bg-orange-50 px-2 py-1 text-[10px] font-bold text-orange-700">
+          Muộn {schedule.lateMinutes} phút
+        </span>
+      )}
+      {schedule.autoCheckOut && (
+        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
+          Tự động kết thúc
+        </span>
+      )}
+    </div>
   );
 }
 
 export default function WorkAttendanceStatistics({ schedules, isAdmin, periodLabel, now }: WorkAttendanceStatisticsProps) {
   const summary = useMemo(() => summarizeAttendance(schedules, now), [now, schedules]);
-  const employees = useMemo(() => summarizeAttendanceByEmployee(schedules, now), [now, schedules]);
   const days = useMemo(() => summarizeAttendanceByDay(schedules, now), [now, schedules]);
   const concludedShifts = summary.attendedShifts + summary.absentShifts + summary.unrecordedShifts;
   const attentionCount = summary.absentShifts + summary.unrecordedShifts;
@@ -141,97 +136,95 @@ export default function WorkAttendanceStatistics({ schedules, isAdmin, periodLab
         </div>
       </section>
 
-      {isAdmin && (
-        <section className="overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white shadow-sm" aria-labelledby="employee-attendance-title">
-          <header className="flex flex-col gap-2 border-b border-[#0F2A43]/10 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#9A7531]">Theo nhân viên</p>
-              <h2 id="employee-attendance-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Kết quả trong kỳ</h2>
-            </div>
-            <p className="text-xs text-[#66727C]">{employees.length} nhân viên có lịch</p>
-          </header>
-          <div className="divide-y divide-[#0F2A43]/8">
-            {employees.map((employee) => {
-              const employeeAttention = employee.absentShifts + employee.unrecordedShifts;
-              return (
-                <article key={employee.employeeId} className="grid gap-4 px-4 py-4 transition duration-200 hover:bg-[#FBFAF6] md:px-5 lg:grid-cols-[minmax(13rem,1fr)_minmax(20rem,1.4fr)_minmax(12rem,0.75fr)] lg:items-center">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <InitialBadge name={employee.employeeName} />
-                    <div className="min-w-0">
-                      <strong className="block truncate text-sm text-[#0F2A43]">{employee.employeeName}</strong>
-                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold ${employeeAttention > 0 ? "bg-orange-50 text-orange-800" : "bg-emerald-50 text-emerald-800"}`}>{employeeAttention > 0 ? `${employeeAttention} ca cần xem` : "Không bất thường"}</span>
-                    </div>
-                  </div>
-                  <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                    {[
-                      ["Tổng ca", employee.totalShifts, "text-[#0F2A43]"],
-                      ["Đúng giờ", employee.onTimeShifts, "text-emerald-700"],
-                      ["Đi muộn", employee.lateShifts, "text-orange-700"],
-                      ["Vắng", employee.absentShifts, "text-rose-700"],
-                      ["Giờ thực tế", formatWorkedMinutes(employee.workedMinutes), "text-[#0F2A43]"],
-                    ].map(([label, value, tone]) => (
-                      <div key={String(label)} className="rounded-lg bg-[#F1F0EA]/65 px-3 py-2">
-                        <dt className="text-[9px] font-black uppercase tracking-wide text-[#66727C]">{label}</dt>
-                        <dd className={`mt-1 text-xs font-bold tabular-nums ${tone}`}>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <div>
-                    <p className="mb-2 text-[9px] font-black uppercase tracking-wide text-[#66727C]">Tỷ lệ đi làm</p>
-                    <RateBar summary={employee} />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      <section className="overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white shadow-sm" aria-labelledby="daily-attendance-title">
+      <section className="overflow-hidden rounded-2xl border border-[#0F2A43]/10 bg-white shadow-sm" aria-labelledby="attendance-ledger-title">
         <header className="flex flex-col gap-2 border-b border-[#0F2A43]/10 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#9A7531]">Nhật ký theo ngày</p>
-            <h2 id="daily-attendance-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Giờ vào, giờ ra và trạng thái</h2>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#9A7531]">Chấm công theo ngày</p>
+            <h2 id="attendance-ledger-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Bảng chấm công trong kỳ</h2>
+            <p className="mt-1 text-xs leading-5 text-[#66727C]">Giờ theo lịch, giờ thực tế và kết quả được đặt trên cùng một dòng để dễ đối chiếu.</p>
           </div>
-          <p className="text-xs text-[#66727C]">Bấm một ngày để xem chi tiết</p>
+          <div className="flex flex-wrap gap-2 text-[10px] font-bold text-[#526372]">
+            <span className="rounded-full bg-[#F1F0EA] px-3 py-1.5">{days.length} ngày</span>
+            <span className="rounded-full bg-[#F1F0EA] px-3 py-1.5">{summary.totalShifts} ca</span>
+          </div>
         </header>
-        <div className="space-y-2 bg-[#F4F1E9]/55 p-3">
-          {days.map((day, index) => (
-            <details key={day.workDate} className="group overflow-hidden rounded-xl border border-[#0F2A43]/10 bg-white [content-visibility:auto]" open={index === 0}>
-              <summary className="grid min-h-16 cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 transition duration-200 hover:bg-[#F8F4EA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F] lg:grid-cols-[minmax(14rem,1fr)_repeat(4,minmax(5.5rem,auto))_auto]">
-                <div>
-                  <strong className="block capitalize text-sm text-[#0F2A43]">{formatDate(day.workDate)}</strong>
-                  <span className="mt-1 block text-[10px] text-[#66727C]">{day.totalShifts} ca · {formatWorkedMinutes(day.workedMinutes)}</span>
-                </div>
-                <span className="hidden text-xs lg:block"><b className="text-emerald-700">{day.onTimeShifts}</b> đúng giờ</span>
-                <span className="hidden text-xs lg:block"><b className="text-orange-700">{day.lateShifts}</b> đi muộn</span>
-                <span className="hidden text-xs lg:block"><b className="text-rose-700">{day.absentShifts}</b> vắng</span>
-                <span className="hidden text-xs lg:block"><b className="text-[#0F2A43]">{day.unrecordedShifts}</b> chưa ghi nhận</span>
-                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#0F2A43]/15 text-[#0F2A43] transition duration-200 group-open:rotate-180" aria-hidden="true"><svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg></span>
-              </summary>
-              <div className="divide-y divide-[#0F2A43]/8 border-t border-[#0F2A43]/10">
+
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[760px] border-collapse text-left">
+            <thead className="bg-[#F7F5EF] text-[9px] font-black uppercase tracking-[0.12em] text-[#66727C]">
+              <tr>
+                <th className="px-5 py-3">Ca làm việc</th>
+                {isAdmin && <th className="px-4 py-3">Nhân viên</th>}
+                <th className="px-4 py-3">Giờ vào</th>
+                <th className="px-4 py-3">Giờ ra</th>
+                <th className="px-5 py-3">Kết quả</th>
+              </tr>
+            </thead>
+            {days.map((day) => (
+              <tbody key={day.workDate} className="border-t border-[#0F2A43]/10">
+                <tr className="bg-[#EEE7D9]/75">
+                  <th colSpan={isAdmin ? 5 : 4} className="px-5 py-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="capitalize text-xs font-black text-[#0F2A43]">{formatDate(day.workDate)}</span>
+                      <span className="text-[10px] font-semibold text-[#66727C]">
+                        {day.totalShifts} ca · {formatWorkedMinutes(day.workedMinutes)} · <b className="text-emerald-700">{day.onTimeShifts} đúng giờ</b> · <b className="text-orange-700">{day.lateShifts} muộn</b> · <b className="text-rose-700">{day.absentShifts} vắng</b>{day.unrecordedShifts > 0 ? <> · <b className="text-slate-700">{day.unrecordedShifts} chưa ghi nhận</b></> : null}
+                      </span>
+                    </div>
+                  </th>
+                </tr>
                 {day.schedules.map((schedule) => (
-                  <article key={schedule.id} className="grid gap-3 px-4 py-3 transition duration-200 hover:bg-[#FBFAF6] md:grid-cols-[1.1fr_1fr_1fr] md:items-center">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <span className="mt-0.5 h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: schedule.shiftColor }} aria-hidden="true" />
-                      <div className="min-w-0">
-                        <strong className="block truncate text-sm text-[#0F2A43]">{schedule.shiftName}</strong>
-                        <span className="mt-1 block truncate text-[11px] text-[#66727C]">{isAdmin ? `${schedule.employeeName} · ` : ""}{formatTime(schedule.scheduledStartUtc)}–{formatTime(schedule.scheduledEndUtc)}</span>
+                  <tr key={schedule.id} className="border-t border-[#0F2A43]/8 transition duration-200 hover:bg-[#FBFAF6]">
+                    <td className="px-5 py-3.5">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="mt-0.5 h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: schedule.shiftColor }} aria-hidden="true" />
+                        <div className="min-w-0">
+                          <strong className="block truncate text-sm text-[#0F2A43]">{schedule.shiftName}</strong>
+                          <span className="mt-1 block text-[11px] tabular-nums text-[#66727C]">{formatTime(schedule.scheduledStartUtc)}–{formatTime(schedule.scheduledEndUtc)}</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-[11px] leading-5 text-[#66727C]">
-                      <span>Vào: <b className="text-[#27445F]">{formatWorkDateTime(schedule.actualCheckInUtc)}</b></span>
-                      <span>Ra: <b className="text-[#27445F]">{formatWorkDateTime(schedule.actualCheckOutUtc)}</b></span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                      <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${toneClass[workScheduleTone(schedule)]}`}>{workScheduleDisplayStatus(schedule)}</span>
-                      {schedule.late && <span className="text-[10px] font-bold text-orange-700">Muộn {schedule.lateMinutes} phút</span>}
-                      {schedule.autoCheckOut && <span className="text-[10px] font-bold text-slate-600">Tự động kết thúc</span>}
+                    </td>
+                    {isAdmin && <td className="px-4 py-3.5 text-xs font-bold text-[#27445F]">{schedule.employeeName}</td>}
+                    <td className="px-4 py-3.5 text-xs font-semibold tabular-nums text-[#27445F]">{formatWorkDateTime(schedule.actualCheckInUtc)}</td>
+                    <td className="px-4 py-3.5 text-xs font-semibold tabular-nums text-[#27445F]">{formatWorkDateTime(schedule.actualCheckOutUtc)}</td>
+                    <td className="px-5 py-3.5"><AttendanceResult schedule={schedule} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            ))}
+          </table>
+        </div>
+
+        <div className="space-y-3 bg-[#F4F1E9]/55 p-3 md:hidden">
+          {days.map((day) => (
+            <section key={day.workDate} className="overflow-hidden rounded-xl border border-[#0F2A43]/10 bg-white">
+              <header className="bg-[#EEE7D9]/75 px-3 py-2.5">
+                <strong className="block capitalize text-xs text-[#0F2A43]">{formatDate(day.workDate)}</strong>
+                <span className="mt-1 block text-[9px] font-semibold text-[#66727C]">{day.totalShifts} ca · {formatWorkedMinutes(day.workedMinutes)} · {day.lateShifts} muộn · {day.absentShifts} vắng</span>
+              </header>
+              <div className="divide-y divide-[#0F2A43]/8">
+                {day.schedules.map((schedule) => (
+                  <article key={schedule.id} className="p-3">
+                    <div className="flex items-start gap-2.5">
+                      <span className="mt-0.5 h-10 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: schedule.shiftColor }} aria-hidden="true" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <strong className="block truncate text-sm text-[#0F2A43]">{schedule.shiftName}</strong>
+                            <span className="mt-0.5 block text-[10px] tabular-nums text-[#66727C]">Lịch {formatTime(schedule.scheduledStartUtc)}–{formatTime(schedule.scheduledEndUtc)}</span>
+                            {isAdmin && <span className="mt-1 block truncate text-[11px] font-bold text-[#27445F]">{schedule.employeeName}</span>}
+                          </div>
+                          <AttendanceResult schedule={schedule} />
+                        </div>
+                        <dl className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-[#F7F5EF] p-2.5 text-[10px]">
+                          <div><dt className="font-bold uppercase tracking-wide text-[#7A858D]">Giờ vào</dt><dd className="mt-1 font-bold tabular-nums text-[#27445F]">{formatWorkDateTime(schedule.actualCheckInUtc)}</dd></div>
+                          <div><dt className="font-bold uppercase tracking-wide text-[#7A858D]">Giờ ra</dt><dd className="mt-1 font-bold tabular-nums text-[#27445F]">{formatWorkDateTime(schedule.actualCheckOutUtc)}</dd></div>
+                        </dl>
+                      </div>
                     </div>
                   </article>
                 ))}
               </div>
-            </details>
+            </section>
           ))}
         </div>
       </section>

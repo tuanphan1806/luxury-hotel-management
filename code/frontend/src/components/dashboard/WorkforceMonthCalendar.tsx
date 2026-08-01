@@ -13,11 +13,12 @@ import {
   compactWorkShiftLabel,
   formatShiftTime,
   shiftCalendarMonth,
-  staffCalendarSlotLabel,
   unwrapWorkScheduleApiData,
+  workShiftCalendarStatus,
   workShiftPeriod,
   workShiftStaffingSegments,
   type WorkScheduleEmployee,
+  type WorkShiftCalendarAssignment,
   type WorkShiftCalendarDay,
   type WorkShiftCalendarSlot,
   type WorkShiftMonthCalendar,
@@ -112,24 +113,22 @@ const requestTone: Record<WorkShiftRegistration["status"], string> = {
   CANCELLED: "border-slate-200 bg-slate-50 text-slate-600",
 };
 
+const calendarStatusTone = {
+  active: "bg-sky-100 text-sky-800",
+  available: "bg-white/80 text-[#526372]",
+  danger: "bg-rose-100 text-rose-800",
+  muted: "bg-slate-100 text-slate-600",
+  pending: "bg-amber-100 text-amber-900",
+  success: "bg-emerald-100 text-emerald-800",
+  warning: "bg-orange-100 text-orange-800",
+};
+
 function Chevron({ direction }: { direction: "left" | "right" }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-none stroke-current stroke-2">
       <path d={direction === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
-}
-
-function compactSlotStatus(
-  slot: WorkShiftCalendarSlot,
-  isAdmin: boolean,
-  past: boolean,
-) {
-  if (!isAdmin) return staffCalendarSlotLabel(slot, past);
-  if (slot.pendingRequestCount > 0) return `${slot.pendingRequestCount} chờ`;
-  if (past || slot.registrationOpen === false) return "Đã qua";
-  if (slot.availableSlots > 0) return `${slot.availableSlots} trống`;
-  return "Đủ";
 }
 
 function isWeekend(date: string) {
@@ -143,6 +142,18 @@ function drawerActionLabel(slot: WorkShiftCalendarSlot, isAdmin: boolean) {
   if (slot.currentUserRequest?.status === "PENDING") return "Xem yêu cầu";
   if (slot.availableSlots > 0 && slot.registrationOpen !== false) return "Đăng ký ca";
   return "Xem chi tiết";
+}
+
+function assignmentAttendanceLabel(assignment: WorkShiftCalendarAssignment) {
+  if (assignment.status === "ABSENT") return "Vắng mặt";
+  if (assignment.late) return assignment.lateMinutes > 0 ? `Muộn ${assignment.lateMinutes} phút` : "Đi muộn";
+  if (assignment.sessionStatus === "ACTIVE") return "Đang làm việc";
+  if (
+    assignment.status === "FULFILLED"
+    || assignment.sessionStatus === "CLOSED"
+    || assignment.sessionStatus === "AUTO_CLOSED"
+  ) return "Đã hoàn thành";
+  return "Đã phân công";
 }
 
 export default function WorkforceMonthCalendar({
@@ -219,7 +230,7 @@ export default function WorkforceMonthCalendar({
   }, [calendar, selectedKey]);
 
   const openSlot = (day: WorkShiftCalendarDay, slot: WorkShiftCalendarSlot) => {
-    setSelectedDate(day.date);
+    setSelectedDate(null);
     setSelectedKey({ date: day.date, shiftTemplateId: slot.shiftTemplateId });
     setStaffNote(slot.currentUserRequest?.staffNote || "");
     setReviewReasons({});
@@ -566,19 +577,21 @@ export default function WorkforceMonthCalendar({
                 const pendingCount = day.slots.reduce((total, slot) => total + slot.pendingRequestCount, 0);
 
                 return (
-                  <button
+                  <article
                     key={day.date}
-                    type="button"
-                    onClick={() => setSelectedDate(day.date)}
-                    aria-label={`Xem lịch ${formatDay(day.date)}. ${day.slots.map((slot) => `${slot.shiftName}: ${compactSlotStatus(slot, isAdmin, day.past)}`).join(". ")}`}
-                    className={`group relative min-h-[104px] cursor-pointer p-1.5 text-left outline-none transition duration-200 sm:min-h-[116px] sm:p-2 ${
+                    className={`group relative min-h-[104px] text-left transition duration-200 sm:min-h-[116px] ${
                       isWeekend(day.date) ? "bg-[#F7F8F6]" : "bg-white"
-                    } ${day.past ? "opacity-[0.72]" : "hover:bg-[#FCFBF7]"} ${
-                      selectedDateActive
-                        ? "z-[1] ring-2 ring-inset ring-[#0F2A43]"
-                        : "focus-visible:z-[1] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F]"
+                    } ${day.past ? "bg-slate-50/70" : "hover:bg-[#FCFBF7]"} ${
+                      selectedDateActive ? "z-[1] ring-2 ring-inset ring-[#0F2A43]" : ""
                     }`}
                   >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDate(day.date)}
+                      aria-label={`Mở tổng quan ${formatDay(day.date)}. ${day.slots.map((slot) => `${slot.shiftName}: ${workShiftCalendarStatus(slot, isAdmin, day.past).label}`).join(". ")}`}
+                      className="absolute inset-0 z-0 cursor-pointer outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F]"
+                    />
+                    <div className="pointer-events-none relative z-[1] p-1.5 sm:p-2">
                     <span className="mb-1.5 flex min-h-7 items-center justify-between gap-1">
                       <span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-[11px] font-black tabular-nums sm:text-xs ${
                         day.today
@@ -601,15 +614,20 @@ export default function WorkforceMonthCalendar({
                       {visibleSlots.length > 0 ? visibleSlots.map((slot) => {
                         const period = workShiftPeriod(slot);
                         const visual = shiftVisuals[period];
-                        const status = compactSlotStatus(slot, isAdmin, day.past);
+                        const status = workShiftCalendarStatus(slot, isAdmin, day.past);
                         const segments = workShiftStaffingSegments(slot.assignedCount, slot.requiredStaff);
-                        const complete = slot.requiredStaff > 0 && slot.assignedCount >= slot.requiredStaff;
 
                         return (
-                          <span
+                          <button
+                            type="button"
                             key={slot.shiftTemplateId}
-                            title={`${slot.shiftName} ${formatShiftTime(slot.startTime)}–${formatShiftTime(slot.endTime)} · ${slot.assignedCount}/${slot.requiredStaff} đã phân · ${status}`}
-                            className={`grid min-h-5 grid-cols-[16px_1fr] items-center gap-1 rounded-md border px-1 py-0.5 sm:grid-cols-[18px_24px_1fr] ${visual.row} ${complete ? "opacity-70" : ""}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openSlot(day, slot);
+                            }}
+                            aria-label={`Mở chi tiết ${slot.shiftName} ngày ${formatDay(day.date, false)}. ${status.label}`}
+                            title={`${slot.shiftName} ${formatShiftTime(slot.startTime)}–${formatShiftTime(slot.endTime)} · ${slot.assignedCount}/${slot.requiredStaff} đã phân · ${status.label}`}
+                            className={`pointer-events-auto relative z-10 grid min-h-6 w-full cursor-pointer grid-cols-[16px_1fr] items-center gap-1 rounded-md border px-1 py-0.5 text-left transition duration-150 hover:-translate-y-px hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F2A43] sm:grid-cols-[18px_24px_1fr] ${visual.row}`}
                           >
                             <span className={`flex h-4 w-4 items-center justify-center rounded text-[8px] font-black sm:h-[18px] sm:w-[18px] sm:text-[9px] ${visual.compact}`}>
                               {compactWorkShiftLabel(period)}
@@ -619,17 +637,18 @@ export default function WorkforceMonthCalendar({
                                 <i key={segmentIndex} className={`h-1.5 rounded-full ${filled ? visual.marker : "bg-white/80 ring-1 ring-inset ring-current/15"}`} aria-hidden="true" />
                               ))}
                             </span>
-                            <span className="truncate text-[8px] font-bold leading-none sm:text-[9px] lg:text-[10px]">
-                              <span className="sm:hidden">{complete ? "✓" : Math.max(slot.availableSlots, 0)}</span>
-                              <span className="hidden sm:inline">{status}</span>
+                            <span className={`truncate rounded px-1 py-0.5 text-[8px] font-bold leading-none sm:text-[9px] lg:text-[10px] ${calendarStatusTone[status.tone]}`}>
+                              <span className="sm:hidden">{status.compactLabel}</span>
+                              <span className="hidden sm:inline">{status.label}</span>
                             </span>
-                          </span>
+                          </button>
                         );
                       }) : (
                         <span className="flex min-h-[70px] items-center justify-center text-xs font-bold text-[#98A1A8]" aria-hidden="true">—</span>
                       )}
                     </span>
-                  </button>
+                    </div>
+                  </article>
                 );
               })}
 
@@ -639,7 +658,7 @@ export default function WorkforceMonthCalendar({
             </div>
 
             <p className="mt-3 text-center text-[10px] font-semibold text-[#66727C]">
-              Chọn một ngày để xem giờ ca, nhân viên và thao tác chi tiết.
+              Chọn nền ô ngày để xem tổng quan; chọn trực tiếp S/C/T để mở chi tiết ca.
             </p>
           </div>
         ) : null}
@@ -649,8 +668,7 @@ export default function WorkforceMonthCalendar({
         open={Boolean(selectedDay)}
         onClose={() => setSelectedDate(null)}
         labelledBy="workforce-day-title"
-        variant="drawer"
-        panelClassName="max-w-[420px] bg-[#FBFAF6]"
+        panelClassName="max-w-5xl bg-[#FBFAF6]"
         backdropClassName="bg-[#091E30]/52 backdrop-blur-[2px]"
         zIndexClassName="z-[85]"
       >
@@ -680,7 +698,7 @@ export default function WorkforceMonthCalendar({
               </div>
             </header>
 
-            <div className="lux-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+            <div className="lux-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
               <div className="grid grid-cols-3 gap-2" aria-label="Tổng hợp nhân sự trong ngày">
                 {[
                   ["Nhân sự cần", selectedDay.slots.reduce((total, slot) => total + slot.requiredStaff, 0)],
@@ -694,15 +712,15 @@ export default function WorkforceMonthCalendar({
                 ))}
               </div>
 
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
               {selectedDay.slots.map((slot) => {
                 const period = workShiftPeriod(slot);
                 const visual = shiftVisuals[period];
-                const status = compactSlotStatus(slot, isAdmin, selectedDay.past);
-                const complete = slot.requiredStaff > 0 && slot.assignedCount >= slot.requiredStaff;
+                const status = workShiftCalendarStatus(slot, isAdmin, selectedDay.past);
 
                 return (
-                  <article key={slot.shiftTemplateId} className={`overflow-hidden rounded-2xl border bg-white shadow-sm ${visual.row}`}>
-                    <div className="bg-white/85 p-4">
+                  <article key={slot.shiftTemplateId} className={`flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-sm ${visual.row}`}>
+                    <div className="flex flex-1 flex-col bg-white/85 p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 gap-3">
                           <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl ${visual.compact}`} aria-hidden="true">
@@ -716,10 +734,8 @@ export default function WorkforceMonthCalendar({
                             </p>
                           </div>
                         </div>
-                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black ${
-                          complete ? "bg-emerald-100 text-emerald-800" : slot.pendingRequestCount > 0 ? "bg-rose-100 text-rose-800" : visual.compact
-                        }`}>
-                          {status}
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black ${calendarStatusTone[status.tone]}`}>
+                          {status.label}
                         </span>
                       </div>
 
@@ -744,7 +760,7 @@ export default function WorkforceMonthCalendar({
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {slot.assignments.length > 0 ? slot.assignments.map((assignment) => (
                               <span key={assignment.id} className="rounded-full border border-[#0F2A43]/10 bg-white px-2.5 py-1 text-[10px] font-bold text-[#27445F]">
-                                {assignment.employeeName}
+                                {assignment.employeeName} · {assignmentAttendanceLabel(assignment)}
                               </span>
                             )) : (
                               <span className="text-xs font-semibold text-[#89939A]">Chưa phân nhân viên</span>
@@ -760,7 +776,7 @@ export default function WorkforceMonthCalendar({
                       <button
                         type="button"
                         onClick={() => openSlot(selectedDay, slot)}
-                        className="mt-4 min-h-11 w-full cursor-pointer rounded-xl bg-[#0F2A43] px-4 text-xs font-black text-white transition duration-200 hover:bg-[#173D5F] active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B8944F]"
+                        className="mt-auto min-h-11 w-full cursor-pointer rounded-xl bg-[#0F2A43] px-4 text-xs font-black text-white transition duration-200 hover:bg-[#173D5F] active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B8944F]"
                       >
                         {drawerActionLabel(slot, isAdmin)}
                       </button>
@@ -768,6 +784,7 @@ export default function WorkforceMonthCalendar({
                   </article>
                 );
               })}
+              </div>
             </div>
           </div>
         )}
@@ -823,7 +840,7 @@ export default function WorkforceMonthCalendar({
                             <p className="text-sm font-bold text-[#0F2A43]">{assignment.employeeName}</p>
                             <p className="mt-0.5 text-[10px] text-[#66727C]">Lịch #{assignment.id}</p>
                           </div>
-                          <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-[#27445F]">{assignment.status}</span>
+                          <span className="rounded-full bg-white px-2 py-1 text-[9px] font-bold text-[#27445F]">{assignmentAttendanceLabel(assignment)}</span>
                         </div>
                       )) : (
                         <p className="rounded-lg border border-dashed p-4 text-center text-xs text-[#66727C]">Chưa phân nhân viên.</p>
