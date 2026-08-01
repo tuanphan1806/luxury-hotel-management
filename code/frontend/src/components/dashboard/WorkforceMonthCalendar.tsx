@@ -95,7 +95,9 @@ function slotTone(slot: WorkShiftCalendarSlot, isAdmin: boolean, past = false) {
   if (slot.availableSlots > 0) {
     return "border-[#B8944F]/45 bg-[#FBF7EE] text-[#0F2A43]";
   }
-  return "border-slate-200 bg-slate-50 text-slate-600";
+  return isAdmin
+    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+    : "border-slate-200 bg-slate-50 text-slate-600";
 }
 
 export default function WorkforceMonthCalendar({
@@ -320,6 +322,37 @@ export default function WorkforceMonthCalendar({
   };
 
   const leadingDays = calendarMonthLeadingDays(month);
+  const calendarSummary = useMemo(() => {
+    if (!calendar) {
+      return {
+        required: 0,
+        assigned: 0,
+        available: 0,
+        pending: 0,
+        myAssignments: 0,
+        myPending: 0,
+      };
+    }
+
+    return calendar.days.reduce((summary, day) => {
+      day.slots.forEach((slot) => {
+        summary.required += slot.requiredStaff;
+        summary.assigned += slot.assignedCount;
+        summary.available += Math.max(slot.availableSlots, 0);
+        summary.pending += slot.pendingRequestCount;
+        if (slot.currentUserAssignment) summary.myAssignments += 1;
+        if (slot.currentUserRequest?.status === "PENDING") summary.myPending += 1;
+      });
+      return summary;
+    }, {
+      required: 0,
+      assigned: 0,
+      available: 0,
+      pending: 0,
+      myAssignments: 0,
+      myPending: 0,
+    });
+  }, [calendar]);
   const pendingRequests = selected?.slot.requests.filter(
     (request) => request.status === "PENDING",
   ) || [];
@@ -329,59 +362,103 @@ export default function WorkforceMonthCalendar({
 
   return (
     <>
-      <section className="ops-panel overflow-hidden rounded-xl border" aria-labelledby="month-calendar-title">
-        <header className="ops-section-header flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#D8C398]">
-              {isAdmin ? "Kế hoạch nhân sự" : "Lịch tháng của tôi"}
-            </p>
-            <h2 id="month-calendar-title" className="mt-1 text-xl font-bold text-white">
-              {formatMonth(month)}
-            </h2>
-            <p className="mt-1 text-xs text-white/65">
-              {isAdmin
-                ? "Mở một ô ca để xem người đã nhận, duyệt đăng ký hoặc điều chỉnh số nhân sự cần."
-                : "Bạn thấy ca còn trống và lịch của chính mình; thông tin nhân viên khác luôn được ẩn."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              aria-label="Tháng trước"
-              onClick={() => setMonth((value) => shiftCalendarMonth(value, -1))}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
-            >
-              <Chevron direction="left" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setMonth(currentMonthKey())}
-              className="min-h-11 rounded-lg border border-white/15 bg-white/10 px-4 text-xs font-bold text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
-            >
-              Tháng hiện tại
-            </button>
-            <button
-              type="button"
-              aria-label="Tháng sau"
-              onClick={() => setMonth((value) => shiftCalendarMonth(value, 1))}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
-            >
-              <Chevron direction="right" />
-            </button>
+      <section className="ops-panel overflow-hidden rounded-2xl border shadow-sm" aria-labelledby="month-calendar-title">
+        <header className="bg-[#0F2A43] px-5 py-5 text-white md:px-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D8C398]">
+                {isAdmin ? "Kế hoạch nhân sự" : "Lịch làm việc của tôi"}
+              </p>
+              <h2 id="month-calendar-title" className="mt-1 font-serif text-2xl font-bold">
+                {formatMonth(month)}
+              </h2>
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-white/70">
+                {isAdmin
+                  ? "Chọn một ca để xem nhân viên, duyệt đăng ký và điều chỉnh nhu cầu nhân sự."
+                  : "Ca của bạn, yêu cầu chờ duyệt và số chỗ còn trống được phân biệt bằng màu."}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Tháng trước"
+                onClick={() => setMonth((value) => shiftCalendarMonth(value, -1))}
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
+              >
+                <Chevron direction="left" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setMonth(currentMonthKey())}
+                className="min-h-11 rounded-xl border border-white/20 bg-white/10 px-4 text-xs font-bold text-white transition duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
+              >
+                Hôm nay
+              </button>
+              <button
+                type="button"
+                aria-label="Tháng sau"
+                onClick={() => setMonth((value) => shiftCalendarMonth(value, 1))}
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-white transition duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398]"
+              >
+                <Chevron direction="right" />
+              </button>
+            </div>
           </div>
         </header>
+
+        {!loading && !loadError && calendar && (
+          <div className="border-b border-[#0F2A43]/10 bg-[#F8F5EE] px-4 py-4 md:px-5">
+            <div className={`grid gap-2 ${isAdmin ? "grid-cols-2 xl:grid-cols-4" : "grid-cols-3"}`}>
+              {(isAdmin
+                ? [
+                    ["Nhân sự cần", calendarSummary.required],
+                    ["Đã phân", calendarSummary.assigned],
+                    ["Còn thiếu", calendarSummary.available],
+                    ["Chờ duyệt", calendarSummary.pending],
+                  ]
+                : [
+                    ["Ca của bạn", calendarSummary.myAssignments],
+                    ["Chờ duyệt", calendarSummary.myPending],
+                    ["Chỗ còn trống", calendarSummary.available],
+                  ]
+              ).map(([label, value]) => (
+                <div key={String(label)} className="rounded-xl border border-[#0F2A43]/10 bg-white px-3 py-3">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#66727C]">{label}</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-[#0F2A43]">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] font-semibold text-[#66727C]" aria-label="Chú thích trạng thái lịch">
+              {(isAdmin
+                ? [
+                    ["bg-emerald-500", "Đủ nhân sự"],
+                    ["bg-[#B8944F]", "Còn thiếu nhân sự"],
+                    ["bg-amber-500", "Có yêu cầu chờ duyệt"],
+                  ]
+                : [
+                    ["bg-emerald-500", "Ca của bạn"],
+                    ["bg-[#B8944F]", "Ca còn trống"],
+                    ["bg-amber-500", "Yêu cầu chờ duyệt"],
+                  ]
+              ).map(([tone, label]) => (
+                <span key={label} className="inline-flex items-center gap-2">
+                  <i className={`h-2.5 w-2.5 rounded-full ${tone}`} aria-hidden="true" />
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4" aria-label="Đang tải lịch tháng">
             {Array.from({ length: 8 }, (_, index) => (
-              <div key={index} className="h-36 animate-pulse rounded-xl bg-[#0F2A43]/6" />
+              <div key={index} className="h-40 animate-pulse rounded-xl bg-[#0F2A43]/6" />
             ))}
           </div>
         ) : loadError ? (
           <div className="flex min-h-64 flex-col items-center justify-center px-5 py-10 text-center" role="alert">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-lg font-bold text-rose-700" aria-hidden="true">
-              !
-            </div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-lg font-bold text-rose-700" aria-hidden="true">!</div>
             <h3 className="mt-3 text-base font-bold text-[#0F2A43]">Chưa tải được lịch tháng</h3>
             <p className="mt-1 max-w-lg text-sm leading-6 text-[#66727C]">{loadError}</p>
             <button
@@ -394,55 +471,75 @@ export default function WorkforceMonthCalendar({
           </div>
         ) : calendar ? (
           <>
-            <div className="hidden p-4 lg:block xl:p-5">
-              <div className="grid grid-cols-7 gap-2">
-                {weekdays.map((day) => (
-                  <div key={day} className="px-2 py-1 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-[#66727C]">
-                    {day}
-                  </div>
-                ))}
-                {Array.from({ length: leadingDays }, (_, index) => (
-                  <div key={`empty-${index}`} aria-hidden="true" className="min-h-44 rounded-xl bg-[#0F2A43]/[0.025]" />
-                ))}
-                {calendar.days.map((day) => (
-                  <article
-                    key={day.date}
-                    className={`min-h-44 rounded-xl border p-2.5 ${
-                      day.today
-                        ? "border-[#B8944F] bg-[#FFF9EA] shadow-sm"
-                        : day.past
-                          ? "border-slate-200 bg-slate-50/70"
-                          : "border-[#0F2A43]/10 bg-white"
-                    }`}
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-xs font-bold ${day.today ? "bg-[#0F2A43] text-white" : "text-[#0F2A43]"}`}>
-                        {Number(day.date.slice(-2))}
-                      </span>
-                      {day.today && <span className="text-[9px] font-bold uppercase tracking-wide text-[#80632F]">Hôm nay</span>}
+            <div className="lux-scrollbar hidden overflow-x-auto lg:block">
+              <div className="min-w-[1120px] p-5">
+                <div className="mb-2 grid grid-cols-7 gap-2 rounded-xl bg-[#0F2A43]/[0.045] p-2">
+                  {weekdays.map((day) => (
+                    <div key={day} className="px-2 py-1 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-[#526372]">
+                      {day}
                     </div>
-                    <div className="space-y-1.5">
-                      {day.slots.map((slot) => (
-                        <button
-                          key={slot.shiftTemplateId}
-                          type="button"
-                          onClick={() => openSlot(day, slot)}
-                          className={`w-full rounded-lg border px-2 py-2 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
-                        >
-                          <span className="flex items-center justify-between gap-2">
-                            <strong className="truncate text-[11px]">{slot.shiftName}</strong>
-                            <i className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: slot.shiftColor }} />
-                          </span>
-                          <span className="mt-1 block text-[10px] font-semibold opacity-75">
-                            {isAdmin
-                              ? `${slot.assignedCount}/${slot.requiredStaff} đã phân${slot.pendingRequestCount ? ` · ${slot.pendingRequestCount} chờ` : ""}`
-                              : staffCalendarSlotLabel(slot, day.past)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </article>
-                ))}
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-2.5">
+                  {Array.from({ length: leadingDays }, (_, index) => (
+                    <div key={`empty-${index}`} aria-hidden="true" className="min-h-[186px] rounded-xl bg-[#0F2A43]/[0.018]" />
+                  ))}
+                  {calendar.days.map((day) => (
+                    <article
+                      key={day.date}
+                      className={`min-h-[186px] rounded-xl border p-2.5 transition ${
+                        day.today
+                          ? "border-[#B8944F] bg-[#FFF9EA] shadow-[0_8px_22px_rgba(15,42,67,0.08)]"
+                          : day.past
+                            ? "border-slate-200 bg-slate-50/75"
+                            : "border-[#0F2A43]/10 bg-white hover:border-[#0F2A43]/20"
+                      }`}
+                    >
+                      <div className="mb-2.5 flex items-center justify-between border-b border-[#0F2A43]/7 pb-2">
+                        <span className={`flex h-8 min-w-8 items-center justify-center rounded-full px-1 text-xs font-bold ${day.today ? "bg-[#0F2A43] text-white" : "text-[#0F2A43]"}`}>
+                          {Number(day.date.slice(-2))}
+                        </span>
+                        {day.today ? (
+                          <span className="rounded-full bg-[#B8944F]/15 px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-[#80632F]">Hôm nay</span>
+                        ) : null}
+                      </div>
+                      <div className="space-y-2">
+                        {day.slots.map((slot) => (
+                          <button
+                            key={slot.shiftTemplateId}
+                            type="button"
+                            onClick={() => openSlot(day, slot)}
+                            style={{ boxShadow: `inset 3px 0 0 ${slot.shiftColor}` }}
+                            className={`min-h-[54px] w-full rounded-lg border px-2.5 py-2 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
+                          >
+                            <span className="flex items-start justify-between gap-2">
+                              <span className="min-w-0">
+                                <strong className="block truncate text-[11px] leading-4">{slot.shiftName}</strong>
+                                <span className="mt-0.5 block text-[9px] font-semibold opacity-70">
+                                  {formatShiftTime(slot.startTime)}–{formatShiftTime(slot.endTime)}
+                                </span>
+                              </span>
+                              {isAdmin && (
+                                <span className="shrink-0 rounded-full bg-white/80 px-1.5 py-0.5 text-[9px] font-bold tabular-nums">
+                                  {slot.assignedCount}/{slot.requiredStaff}
+                                </span>
+                              )}
+                            </span>
+                            <span className="mt-1 block truncate text-[9px] font-semibold opacity-80">
+                              {isAdmin
+                                ? slot.pendingRequestCount
+                                  ? `${slot.pendingRequestCount} yêu cầu chờ duyệt`
+                                  : slot.availableSlots > 0
+                                    ? `Còn thiếu ${slot.availableSlots} người`
+                                    : "Đủ nhân sự"
+                                : staffCalendarSlotLabel(slot, day.past)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -452,13 +549,13 @@ export default function WorkforceMonthCalendar({
                   key={day.date}
                   className={`rounded-xl border p-3 ${
                     day.today
-                      ? "border-[#B8944F] bg-[#FFF9EA]"
+                      ? "border-[#B8944F] bg-[#FFF9EA] shadow-sm"
                       : day.past
                         ? "border-slate-200 bg-slate-50/70"
                         : "border-[#0F2A43]/10 bg-white"
                   }`}
                 >
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 flex items-center justify-between gap-3">
                     <h3 className="text-sm font-bold capitalize text-[#0F2A43]">{formatDay(day.date)}</h3>
                     {day.today && <span className="rounded-full bg-[#0F2A43] px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-white">Hôm nay</span>}
                   </div>
@@ -468,13 +565,14 @@ export default function WorkforceMonthCalendar({
                         key={slot.shiftTemplateId}
                         type="button"
                         onClick={() => openSlot(day, slot)}
-                          className={`min-h-14 rounded-lg border px-3 py-2 text-left transition active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
+                        style={{ boxShadow: `inset 3px 0 0 ${slot.shiftColor}` }}
+                        className={`min-h-[62px] rounded-lg border px-3 py-2.5 text-left transition active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#B8944F] ${slotTone(slot, isAdmin, day.past)}`}
                       >
-                        <span className="flex items-center gap-2">
-                          <i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: slot.shiftColor }} />
+                        <span className="flex items-center justify-between gap-2">
                           <strong className="text-xs">{slot.shiftName}</strong>
+                          <span className="text-[9px] font-semibold opacity-70">{formatShiftTime(slot.startTime)}–{formatShiftTime(slot.endTime)}</span>
                         </span>
-                        <span className="mt-1 block text-[10px] font-semibold opacity-75">
+                        <span className="mt-1 block text-[10px] font-semibold opacity-80">
                           {isAdmin
                             ? `${slot.assignedCount}/${slot.requiredStaff} đã phân${slot.pendingRequestCount ? ` · ${slot.pendingRequestCount} chờ` : ""}`
                             : staffCalendarSlotLabel(slot, day.past)}
