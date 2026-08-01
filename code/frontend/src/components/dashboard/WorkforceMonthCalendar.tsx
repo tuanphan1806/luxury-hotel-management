@@ -579,20 +579,23 @@ export default function WorkforceMonthCalendar({
                 return (
                   <article
                     key={day.date}
+                    onClick={() => setSelectedDate(day.date)}
                     className={`group relative min-h-[104px] text-left transition duration-200 sm:min-h-[116px] ${
                       isWeekend(day.date) ? "bg-[#F7F8F6]" : "bg-white"
                     } ${day.past ? "bg-slate-50/70" : "hover:bg-[#FCFBF7]"} ${
                       selectedDateActive ? "z-[1] ring-2 ring-inset ring-[#0F2A43]" : ""
                     }`}
                   >
+                    <div className="relative z-[1] p-1.5 sm:p-2">
                     <button
                       type="button"
-                      onClick={() => setSelectedDate(day.date)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedDate(day.date);
+                      }}
                       aria-label={`Mở tổng quan ${formatDay(day.date)}. ${day.slots.map((slot) => `${slot.shiftName}: ${workShiftCalendarStatus(slot, isAdmin, day.past).label}`).join(". ")}`}
-                      className="absolute inset-0 z-0 cursor-pointer outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F]"
-                    />
-                    <div className="pointer-events-none relative z-[1] p-1.5 sm:p-2">
-                    <span className="mb-1.5 flex min-h-7 items-center justify-between gap-1">
+                      className="mb-1.5 flex min-h-7 w-full cursor-pointer items-center justify-between gap-1 rounded-md text-left outline-none transition hover:bg-[#0F2A43]/[0.04] focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                    >
                       <span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-[11px] font-black tabular-nums sm:text-xs ${
                         day.today
                           ? "bg-[#0F2A43] text-white shadow-[0_4px_12px_rgba(15,42,67,0.22)]"
@@ -608,7 +611,7 @@ export default function WorkforceMonthCalendar({
                           <span className="hidden rounded-full bg-[#B8944F]/15 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide text-[#80632F] xl:inline">Hôm nay</span>
                         ) : null}
                       </span>
-                    </span>
+                    </button>
 
                     <span className="block space-y-1">
                       {visibleSlots.length > 0 ? visibleSlots.map((slot) => {
