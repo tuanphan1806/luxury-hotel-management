@@ -61,6 +61,14 @@ function StatusBadge({ schedule }: { schedule: WorkSchedule }) {
   );
 }
 
+function needsOperationalAttention(schedule: WorkSchedule, now: Date) {
+  return schedule.status === "ABSENT"
+    || schedule.late
+    || (schedule.status === "SCHEDULED"
+      && !schedule.sessionId
+      && new Date(schedule.scheduledEndUtc).getTime() <= now.getTime());
+}
+
 function Metric({ label, value, tone }: { label: string; value: number; tone: "navy" | "green" | "orange" | "red" }) {
   const styles = {
     navy: "border-[#0F2A43]/10 bg-white text-[#0F2A43]",
@@ -101,11 +109,12 @@ export default function WorkScheduleListView({
     if (item.status === "FULFILLED") result.completed += 1;
     if (item.late) result.late += 1;
     if (item.status === "ABSENT") result.absent += 1;
+    if (needsOperationalAttention(item, now)) result.attention += 1;
     if (item.status === "SCHEDULED"
       && !item.sessionId
       && new Date(item.scheduledEndUtc).getTime() > now.getTime()) result.upcoming += 1;
     return result;
-  }, { total: 0, active: 0, completed: 0, late: 0, absent: 0, upcoming: 0 }), [now, schedules]);
+  }, { total: 0, active: 0, completed: 0, late: 0, absent: 0, upcoming: 0, attention: 0 }), [now, schedules]);
 
   if (schedules.length === 0) {
     return (
@@ -122,26 +131,30 @@ export default function WorkScheduleListView({
       <header className="border-b border-[#0F2A43]/10 bg-[#FBFAF6] px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#9A7531]">Theo ngày làm việc</p>
-            <h2 id="schedule-list-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">{isAdmin ? "Danh sách phân ca" : "Ca của tôi"}</h2>
-            <p className="mt-1 text-xs leading-5 text-[#66727C]">{periodLabel} · {sortedDates.length} ngày có lịch</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#9A7531]">{isAdmin ? "Từng phân công cụ thể" : "Theo ngày làm việc"}</p>
+            <h2 id="schedule-list-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">{isAdmin ? "Ca đã phân & trạng thái" : "Ca của tôi"}</h2>
+            <p className="mt-1 text-xs leading-5 text-[#66727C]">{periodLabel} · {sortedDates.length} ngày có lịch · ca cần lưu ý được xếp trước.</p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Tóm tắt danh sách ca">
             <Metric label="Tổng ca" value={summary.total} tone="navy" />
             <Metric label={isAdmin ? "Đang làm" : "Sắp tới"} value={isAdmin ? summary.active : summary.upcoming} tone="green" />
             <Metric label={isAdmin ? "Đi muộn" : "Hoàn thành"} value={isAdmin ? summary.late : summary.completed} tone="orange" />
-            <Metric label="Vắng mặt" value={summary.absent} tone="red" />
+            <Metric label="Cần xử lý" value={summary.attention} tone="red" />
           </div>
         </div>
       </header>
 
       <div className="space-y-3 bg-[#F4F1E9]/55 p-3 sm:p-4">
         {sortedDates.map((day, index) => {
-          const daySchedules = groupedSchedules[day];
+          const daySchedules = [...groupedSchedules[day]].sort((left, right) => {
+            const attentionDifference = Number(needsOperationalAttention(right, now))
+              - Number(needsOperationalAttention(left, now));
+            return attentionDifference || left.scheduledStartUtc.localeCompare(right.scheduledStartUtc);
+          });
           const daySummary = daySchedules.reduce((result, item) => {
             if (item.sessionStatus === "ACTIVE") result.active += 1;
             if (item.status === "FULFILLED") result.completed += 1;
-            if (item.late || item.status === "ABSENT") result.attention += 1;
+            if (needsOperationalAttention(item, now)) result.attention += 1;
             return result;
           }, { active: 0, completed: 0, attention: 0 });
           return (
