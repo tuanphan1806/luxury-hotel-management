@@ -140,6 +140,21 @@ export interface WorkShiftMonthCalendar {
 
 export type WorkShiftPeriod = "MORNING" | "AFTERNOON" | "NIGHT";
 
+export type WorkShiftCalendarStatusTone =
+  | "active"
+  | "available"
+  | "danger"
+  | "muted"
+  | "pending"
+  | "success"
+  | "warning";
+
+export interface WorkShiftCalendarStatus {
+  label: string;
+  compactLabel: string;
+  tone: WorkShiftCalendarStatusTone;
+}
+
 /**
  * Opens the backend ApiResponse envelope without turning an omitted nullable
  * `data` field into a truthy object. Jackson omits null properties, so
@@ -279,4 +294,127 @@ export function staffCalendarSlotLabel(slot: WorkShiftCalendarSlot, past = false
   if (past || slot.registrationOpen === false) return "Đã qua";
   if (slot.availableSlots > 0) return `Còn ${slot.availableSlots} chỗ`;
   return "Đã đủ nhân sự";
+}
+
+/**
+ * Produces an attendance-aware label for a compact calendar slot.
+ * Past assignments must keep their operational meaning (late, absent,
+ * completed or unrecorded) instead of collapsing into the generic "Đã qua".
+ */
+export function workShiftCalendarStatus(
+  slot: WorkShiftCalendarSlot,
+  isAdmin: boolean,
+  past = false,
+): WorkShiftCalendarStatus {
+  if (!isAdmin) {
+    const assignment = slot.currentUserAssignment;
+    if (assignment) {
+      if (assignment.status === "ABSENT") {
+        return { label: "Vắng mặt", compactLabel: "Vắng", tone: "danger" };
+      }
+      if (assignment.late) {
+        return {
+          label: assignment.lateMinutes > 0
+            ? `Muộn ${assignment.lateMinutes} phút`
+            : "Đi muộn",
+          compactLabel: "Muộn",
+          tone: "warning",
+        };
+      }
+      if (assignment.sessionStatus === "ACTIVE") {
+        return { label: "Đang làm việc", compactLabel: "Đang ca", tone: "active" };
+      }
+      if (
+        assignment.status === "FULFILLED"
+        || assignment.sessionStatus === "CLOSED"
+        || assignment.sessionStatus === "AUTO_CLOSED"
+      ) {
+        return { label: "Đã hoàn thành", compactLabel: "Hoàn tất", tone: "success" };
+      }
+      if (past) {
+        return { label: "Chưa chấm công", compactLabel: "Chưa chấm", tone: "danger" };
+      }
+      return { label: "Ca của bạn", compactLabel: "Ca của bạn", tone: "active" };
+    }
+
+    if (slot.currentUserRequest?.status === "PENDING") {
+      return { label: "Yêu cầu chờ duyệt", compactLabel: "Chờ duyệt", tone: "pending" };
+    }
+    if (slot.currentUserRequest?.status === "APPROVED") {
+      return { label: "Yêu cầu đã duyệt", compactLabel: "Đã duyệt", tone: "success" };
+    }
+    if (slot.currentUserRequest?.status === "REJECTED") {
+      return { label: "Yêu cầu bị từ chối", compactLabel: "Từ chối", tone: "danger" };
+    }
+    if (past || slot.registrationOpen === false) {
+      return { label: "Đã qua", compactLabel: "Đã qua", tone: "muted" };
+    }
+    if (slot.availableSlots > 0) {
+      return {
+        label: `Còn ${slot.availableSlots} chỗ`,
+        compactLabel: `${slot.availableSlots} trống`,
+        tone: "available",
+      };
+    }
+    return { label: "Đã đủ nhân sự", compactLabel: "Đủ", tone: "success" };
+  }
+
+  const absentCount = slot.assignments.filter((assignment) => assignment.status === "ABSENT").length;
+  const lateCount = slot.assignments.filter((assignment) => (
+    assignment.status !== "ABSENT" && assignment.late
+  )).length;
+  const activeCount = slot.assignments.filter((assignment) => assignment.sessionStatus === "ACTIVE").length;
+  const completedCount = slot.assignments.filter((assignment) => (
+    assignment.status === "FULFILLED"
+    || assignment.sessionStatus === "CLOSED"
+    || assignment.sessionStatus === "AUTO_CLOSED"
+  )).length;
+  const unrecordedCount = past
+    ? slot.assignments.filter((assignment) => (
+      assignment.status === "SCHEDULED" && !assignment.sessionStatus
+    )).length
+    : 0;
+
+  const attendanceParts: string[] = [];
+  if (absentCount > 0) attendanceParts.push(`${absentCount} vắng`);
+  if (lateCount > 0) attendanceParts.push(`${lateCount} muộn`);
+  if (activeCount > 0) attendanceParts.push(`${activeCount} đang ca`);
+  if (unrecordedCount > 0) attendanceParts.push(`${unrecordedCount} chưa chấm`);
+
+  if (attendanceParts.length > 0) {
+    return {
+      label: attendanceParts.join(" · "),
+      compactLabel: attendanceParts[0],
+      tone: absentCount > 0 || unrecordedCount > 0
+        ? "danger"
+        : lateCount > 0
+          ? "warning"
+          : "active",
+    };
+  }
+  if (past && completedCount > 0) {
+    return {
+      label: `${completedCount} hoàn thành`,
+      compactLabel: `${completedCount} xong`,
+      tone: "success",
+    };
+  }
+  if (past && slot.assignedCount === 0) {
+    return { label: "Không phân ca", compactLabel: "Không phân", tone: "muted" };
+  }
+  if (slot.pendingRequestCount > 0) {
+    return {
+      label: `${slot.pendingRequestCount} yêu cầu chờ duyệt`,
+      compactLabel: `${slot.pendingRequestCount} chờ`,
+      tone: "pending",
+    };
+  }
+  if (slot.availableSlots > 0) {
+    return {
+      label: `Còn ${slot.availableSlots} vị trí trống`,
+      compactLabel: `${slot.availableSlots} trống`,
+      tone: "available",
+    };
+  }
+  return { label: "Đủ nhân sự", compactLabel: "Đủ", tone: "success" };
 }

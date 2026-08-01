@@ -11,6 +11,7 @@ import {
   type WorkSchedule,
   unwrapWorkScheduleApiData,
   workScheduleDisplayStatus,
+  workShiftCalendarStatus,
   workShiftPeriod,
   workShiftStaffingSegments,
 } from "./work-schedules";
@@ -141,6 +142,74 @@ describe("work schedule helpers", () => {
         status: "PENDING",
       },
     })).toBe("Chờ duyệt");
+  });
+
+  it("keeps real attendance outcomes visible on past calendar slots", () => {
+    const slot = {
+      shiftTemplateId: 2,
+      shiftCode: "SANG",
+      shiftName: "Ca sáng",
+      shiftColor: "#B8944F",
+      startTime: "06:00",
+      endTime: "14:00",
+      crossesMidnight: false,
+      requiredStaff: 3,
+      assignedCount: 3,
+      pendingRequestCount: 0,
+      availableSlots: 0,
+      assignments: [
+        { id: 1, employeeId: 7, employeeName: "A", status: "ABSENT" as const, late: false, lateMinutes: 0 },
+        { id: 2, employeeId: 8, employeeName: "B", status: "FULFILLED" as const, late: true, lateMinutes: 18 },
+        { id: 3, employeeId: 9, employeeName: "C", status: "FULFILLED" as const, sessionStatus: "CLOSED" as const, late: false, lateMinutes: 0 },
+      ],
+      requests: [],
+    };
+
+    expect(workShiftCalendarStatus(slot, true, true)).toMatchObject({
+      label: "1 vắng · 1 muộn",
+      tone: "danger",
+    });
+    expect(workShiftCalendarStatus({
+      ...slot,
+      assignments: slot.assignments.slice(2),
+      assignedCount: 1,
+    }, true, true)).toMatchObject({
+      label: "1 hoàn thành",
+      tone: "success",
+    });
+  });
+
+  it("shows a staff member's own attendance result instead of a generic past label", () => {
+    const slot = {
+      shiftTemplateId: 2,
+      shiftCode: "SANG",
+      shiftName: "Ca sáng",
+      shiftColor: "#B8944F",
+      startTime: "06:00",
+      endTime: "14:00",
+      crossesMidnight: false,
+      requiredStaff: 1,
+      assignedCount: 1,
+      pendingRequestCount: 0,
+      availableSlots: 0,
+      currentUserAssignment: {
+        id: 2,
+        employeeId: 8,
+        employeeName: "B",
+        status: "FULFILLED" as const,
+        sessionStatus: "CLOSED" as const,
+        late: true,
+        lateMinutes: 18,
+      },
+      assignments: [],
+      requests: [],
+    };
+
+    expect(workShiftCalendarStatus(slot, false, true)).toMatchObject({
+      label: "Muộn 18 phút",
+      compactLabel: "Muộn",
+      tone: "warning",
+    });
   });
 
   it("maps editable templates into stable compact month labels", () => {
