@@ -160,36 +160,36 @@ export default function WorkAttendanceStatistics({
             <h2 id="employee-attendance-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Kết quả chấm công trong kỳ</h2>
             <p className="mt-1 text-xs leading-5 text-[#66727C]">Tỷ lệ đi làm chỉ tính các ca đã có mặt, đã vắng hoặc đã quá giờ kết thúc.</p>
           </header>
-          <div className="lux-scrollbar overflow-x-auto">
-            <table className="min-w-[900px] w-full border-collapse text-left text-xs">
-              <thead className="bg-[#F1F0EA] text-[10px] uppercase tracking-[0.1em] text-[#66727C]">
-                <tr>
-                  <th className="px-5 py-3 font-black">Nhân viên</th>
-                  <th className="px-3 py-3 text-center font-black">Tổng ca</th>
-                  <th className="px-3 py-3 text-center font-black">Có mặt</th>
-                  <th className="px-3 py-3 text-center font-black">Đi muộn</th>
-                  <th className="px-3 py-3 text-center font-black">Vắng</th>
-                  <th className="px-3 py-3 font-black">Giờ thực tế</th>
-                  <th className="min-w-40 px-5 py-3 font-black">Tỷ lệ đi làm</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#0F2A43]/8">
-                {employees.map((employee) => (
-                  <tr key={employee.employeeId} className="transition hover:bg-[#FBFAF6]">
-                    <td className="px-5 py-4">
-                      <strong className="block text-sm text-[#0F2A43]">{employee.employeeName}</strong>
-                      <span className="mt-1 block text-[10px] text-[#66727C]">{employee.onTimeShifts} ca đúng giờ</span>
-                    </td>
-                    <td className="px-3 py-4 text-center font-bold tabular-nums text-[#0F2A43]">{employee.totalShifts}</td>
-                    <td className="px-3 py-4 text-center font-bold tabular-nums text-emerald-700">{employee.attendedShifts}</td>
-                    <td className="px-3 py-4 text-center font-bold tabular-nums text-orange-700">{employee.lateShifts}</td>
-                    <td className="px-3 py-4 text-center font-bold tabular-nums text-rose-700">{employee.absentShifts}</td>
-                    <td className="px-3 py-4 font-bold tabular-nums text-[#0F2A43]">{formatWorkedMinutes(employee.workedMinutes)}</td>
-                    <td className="px-5 py-4"><AttendanceRate summary={employee} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="divide-y divide-[#0F2A43]/8">
+            {employees.map((employee) => (
+              <article
+                key={employee.employeeId}
+                className="grid gap-4 px-4 py-4 transition hover:bg-[#FBFAF6] md:px-5 lg:grid-cols-[minmax(12rem,1.1fr)_minmax(20rem,1.4fr)_minmax(12rem,0.8fr)] lg:items-center"
+              >
+                <div>
+                  <strong className="block text-sm text-[#0F2A43]">{employee.employeeName}</strong>
+                  <span className="mt-1 block text-[10px] text-[#66727C]">{employee.onTimeShifts} ca đúng giờ</span>
+                </div>
+                <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  {[
+                    ["Tổng ca", employee.totalShifts, "text-[#0F2A43]"],
+                    ["Có mặt", employee.attendedShifts, "text-emerald-700"],
+                    ["Đi muộn", employee.lateShifts, "text-orange-700"],
+                    ["Vắng", employee.absentShifts, "text-rose-700"],
+                    ["Giờ thực tế", formatWorkedMinutes(employee.workedMinutes), "text-[#0F2A43]"],
+                  ].map(([label, value, tone]) => (
+                    <div key={String(label)} className="rounded-lg bg-[#F1F0EA]/65 px-3 py-2">
+                      <dt className="text-[9px] font-black uppercase tracking-wide text-[#66727C]">{label}</dt>
+                      <dd className={`mt-1 text-xs font-bold tabular-nums ${tone}`}>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div>
+                  <p className="mb-2 text-[9px] font-black uppercase tracking-wide text-[#66727C]">Tỷ lệ đi làm</p>
+                  <AttendanceRate summary={employee} />
+                </div>
+              </article>
+            ))}
           </div>
         </section>
       )}

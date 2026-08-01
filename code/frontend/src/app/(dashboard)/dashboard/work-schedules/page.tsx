@@ -164,6 +164,7 @@ export default function WorkSchedulesPage() {
   const [scheduleError, setScheduleError] = useState("");
   const [cancelTarget, setCancelTarget] = useState<WorkSchedule | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelError, setCancelError] = useState("");
   const [templatesModalOpen, setTemplatesModalOpen] = useState(false);
   const [templateEditing, setTemplateEditing] = useState<WorkShiftTemplate | null>(null);
   const [templateForm, setTemplateForm] = useState<WorkShiftTemplateForm>(emptyTemplateForm);
@@ -191,27 +192,36 @@ export default function WorkSchedulesPage() {
     try {
       const params = new URLSearchParams({ from, to });
       if (employeeFilter) params.set("employeeId", String(employeeFilter));
-      const requests: Promise<unknown>[] = [
+      const shouldLoadSchedules = isStaff || viewMode !== "calendar";
+      const [templateResult, scheduleResult, userResult, currentResult] = await Promise.all([
         cachedGet(`/api/work-schedules/templates?includeInactive=${isAdmin}`, { ttlMs: 60_000 }),
-        cachedGet(`/api/work-schedules/assignments?${params}`, { ttlMs: 5_000, force: true }),
-      ];
-      if (isAdmin) requests.push(cachedGet("/api/user/list?size=100", { ttlMs: 60_000 }));
-      if (isStaff) requests.push(cachedGet("/api/work-schedules/current", { ttlMs: 3_000, force: true }));
-      const results = await Promise.all(requests) as Array<{ data?: unknown }>;
-      setTemplates(unwrapWorkScheduleApiData<WorkShiftTemplate[]>(results[0]));
-      setSchedules(unwrapWorkScheduleApiData<WorkSchedule[]>(results[1]));
-      let cursor = 2;
-      if (isAdmin) {
-        const usersPayload = unwrapWorkScheduleApiData<{ users?: WorkScheduleEmployee[] }>(results[cursor++]);
+        shouldLoadSchedules
+          ? cachedGet(`/api/work-schedules/assignments?${params}`, { ttlMs: 5_000, force: true })
+          : Promise.resolve(null),
+        isAdmin
+          ? cachedGet("/api/user/list?size=100", { ttlMs: 60_000 })
+          : Promise.resolve(null),
+        isStaff
+          ? cachedGet("/api/work-schedules/current", { ttlMs: 3_000, force: true })
+          : Promise.resolve(null),
+      ]) as Array<{ data?: unknown } | null>;
+      setTemplates(unwrapWorkScheduleApiData<WorkShiftTemplate[]>(templateResult));
+      if (scheduleResult) {
+        setSchedules(unwrapWorkScheduleApiData<WorkSchedule[]>(scheduleResult));
+      }
+      if (isAdmin && userResult) {
+        const usersPayload = unwrapWorkScheduleApiData<{ users?: WorkScheduleEmployee[] }>(userResult);
         setEmployees((usersPayload?.users || []).filter((user) => user.type === "STAFF" && user.status === "ACTIVE"));
       }
-      if (isStaff) setCurrentSchedule(unwrapWorkScheduleApiData<WorkSchedule | null>(results[cursor]));
+      if (isStaff && currentResult) {
+        setCurrentSchedule(unwrapWorkScheduleApiData<WorkSchedule | null>(currentResult));
+      }
     } catch (error) {
       setToast({ type: "error", message: getApiErrorMessage(error, "Không thể tải lịch làm việc") });
     } finally {
       setLoading(false);
     }
-  }, [employeeFilter, from, isAdmin, isStaff, role, to]);
+  }, [employeeFilter, from, isAdmin, isStaff, role, to, viewMode]);
 
   useEffect(() => { void loadData(true); }, [loadData]);
 
@@ -292,18 +302,19 @@ export default function WorkSchedulesPage() {
   };
 
   const cancelSchedule = async () => {
-    if (!cancelTarget || !cancelReason.trim()) return setAttendanceError("Lý do hủy lịch là bắt buộc.");
+    if (!cancelTarget || !cancelReason.trim()) return setCancelError("Lý do hủy lịch là bắt buộc.");
     setSubmitting(true);
-    setAttendanceError("");
+    setCancelError("");
     const scope = `work-schedule:cancel:${cancelTarget.id}:${cancelReason.trim()}`;
     try {
       await apiClient.post(`/api/work-schedules/assignments/${cancelTarget.id}/cancel`, { reason: cancelReason.trim() }, { headers: { "Idempotency-Key": getOrCreateIdempotencyKey(scope) } });
       clearIdempotencyKey(scope);
       setCancelTarget(null);
       setCancelReason("");
+      setCancelError("");
       setToast({ type: "success", message: "Đã hủy lịch làm việc" });
       await loadData();
-    } catch (error) { setAttendanceError(getApiErrorMessage(error, "Không thể hủy lịch làm việc")); }
+    } catch (error) { setCancelError(getApiErrorMessage(error, "Không thể hủy lịch làm việc")); }
     finally { setSubmitting(false); }
   };
 
@@ -458,7 +469,7 @@ export default function WorkSchedulesPage() {
 
     <ViewportModal open={templatesModalOpen} onClose={() => setTemplatesModalOpen(false)} labelledBy="template-manager-title" busy={submitting} panelClassName="max-w-5xl"><div className="flex min-h-0 flex-1 flex-col"><header className="flex items-center justify-between gap-3 border-b px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">Cấu hình dùng chung</p><h2 id="template-manager-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Mẫu ca làm việc</h2></div><button type="button" onClick={() => openTemplateEditor()} className="min-h-10 rounded-lg border px-3 text-xs font-bold text-[#0F2A43]">+ Mẫu mới</button></header><div className="lux-scrollbar grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 lg:grid-cols-[0.85fr_1.15fr]"><div className="space-y-2">{templates.map((template) => <button type="button" key={template.id} onClick={() => openTemplateEditor(template)} className={`flex min-h-16 w-full items-center gap-3 rounded-xl border p-3 text-left transition hover:border-[#B8944F] ${templateEditing?.id === template.id ? "border-[#B8944F] bg-[#F8F4EA]" : "border-[#0F2A43]/10 bg-white"}`}><span className="h-9 w-2 rounded-full" style={{ backgroundColor: template.color }} /><span className="min-w-0 flex-1"><strong className="block truncate text-sm text-[#0F2A43]">{template.name}</strong><span className="mt-1 block text-xs text-[#66727C]">{formatShiftTime(template.startTime)}–{formatShiftTime(template.endTime)}{template.crossesMidnight ? " · qua ngày" : ""}</span></span><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${template.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{template.active ? "Đang dùng" : "Đã dừng"}</span></button>)}</div><form onSubmit={saveTemplate} className="grid content-start gap-4 rounded-xl border border-[#0F2A43]/10 bg-[#FBFAF6] p-4 sm:grid-cols-2"><label><span className={labelClass}>Mã ca *</span><input data-modal-autofocus value={templateForm.code} maxLength={32} onChange={(event) => setTemplateForm((current) => ({ ...current, code: event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "") }))} className={inputClass} /></label><label><span className={labelClass}>Tên ca *</span><input value={templateForm.name} maxLength={100} onChange={(event) => setTemplateForm((current) => ({ ...current, name: event.target.value }))} className={inputClass} /></label><label><span className={labelClass}>Bắt đầu *</span><input type="time" value={templateForm.startTime} onChange={(event) => setTemplateForm((current) => ({ ...current, startTime: event.target.value }))} className={inputClass} /></label><label><span className={labelClass}>Kết thúc *</span><input type="time" value={templateForm.endTime} onChange={(event) => setTemplateForm((current) => ({ ...current, endTime: event.target.value }))} className={inputClass} /></label><label><span className={labelClass}>Cho check-in sớm (phút)</span><input type="number" min={0} max={240} value={templateForm.checkInEarlyMinutes} onChange={(event) => setTemplateForm((current) => ({ ...current, checkInEarlyMinutes: Number(event.target.value) }))} className={inputClass} /></label><label><span className={labelClass}>Ngưỡng đi muộn (phút)</span><input type="number" min={0} max={240} value={templateForm.lateToleranceMinutes} onChange={(event) => setTemplateForm((current) => ({ ...current, lateToleranceMinutes: Number(event.target.value) }))} className={inputClass} /></label><label><span className={labelClass}>Màu nhận diện</span><input type="color" value={templateForm.color} onChange={(event) => setTemplateForm((current) => ({ ...current, color: event.target.value }))} className={`${inputClass} cursor-pointer p-1`} /></label><label><span className={labelClass}>Thứ tự</span><input type="number" min={0} value={templateForm.sortOrder} onChange={(event) => setTemplateForm((current) => ({ ...current, sortOrder: Number(event.target.value) }))} className={inputClass} /></label><label className="flex min-h-11 items-center gap-3 sm:col-span-2"><input type="checkbox" checked={templateForm.active} onChange={(event) => setTemplateForm((current) => ({ ...current, active: event.target.checked }))} className="h-5 w-5 accent-[#0F2A43]" /><span className="text-sm font-bold text-[#0F2A43]">Cho phép dùng mẫu ca này khi phân lịch mới</span></label>{templateError && <p role="alert" className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{templateError}</p>}<div className="flex justify-end sm:col-span-2"><button type="submit" disabled={submitting} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white disabled:opacity-60">{submitting ? "Đang lưu..." : templateEditing ? "Cập nhật mẫu" : "Tạo mẫu ca"}</button></div></form></div><footer className="flex justify-end border-t px-5 py-4"><button type="button" onClick={() => setTemplatesModalOpen(false)} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Đóng</button></footer></div></ViewportModal>
 
-    <ViewportModal open={Boolean(cancelTarget)} onClose={() => setCancelTarget(null)} labelledBy="cancel-schedule-title" busy={submitting} panelClassName="max-w-lg"><div className="flex min-h-0 flex-1 flex-col"><header className="border-b px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-700">Thay đổi lịch</p><h2 id="cancel-schedule-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Hủy lịch làm việc</h2></header><div className="p-5"><p className="text-sm leading-6 text-[#66727C]">{cancelTarget && `Hủy ${cancelTarget.shiftName} của ${cancelTarget.employeeName} ngày ${formatWorkDate(cancelTarget.workDate)}.`}</p><label className="mt-4 block"><span className={labelClass}>Lý do hủy *</span><textarea data-modal-autofocus value={cancelReason} maxLength={500} onChange={(event) => setCancelReason(event.target.value)} rows={4} className={`${inputClass} resize-y`} /></label>{attendanceError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{attendanceError}</p>}</div><footer className="flex justify-end gap-2 border-t px-5 py-4"><button type="button" onClick={() => setCancelTarget(null)} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Quay lại</button><button type="button" disabled={submitting} onClick={() => void cancelSchedule()} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white disabled:opacity-60">{submitting ? "Đang hủy..." : "Xác nhận hủy"}</button></footer></div></ViewportModal>
+    <ViewportModal open={Boolean(cancelTarget)} onClose={() => { setCancelTarget(null); setCancelError(""); }} labelledBy="cancel-schedule-title" busy={submitting} panelClassName="max-w-lg"><div className="flex min-h-0 flex-1 flex-col"><header className="border-b px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-700">Thay đổi lịch</p><h2 id="cancel-schedule-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Hủy lịch làm việc</h2></header><div className="p-5"><p className="text-sm leading-6 text-[#66727C]">{cancelTarget && `Hủy ${cancelTarget.shiftName} của ${cancelTarget.employeeName} ngày ${formatWorkDate(cancelTarget.workDate)}.`}</p><label className="mt-4 block"><span className={labelClass}>Lý do hủy *</span><textarea data-modal-autofocus value={cancelReason} maxLength={500} onChange={(event) => { setCancelReason(event.target.value); if (cancelError) setCancelError(""); }} rows={4} className={`${inputClass} resize-y`} /></label>{cancelError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{cancelError}</p>}</div><footer className="flex justify-end gap-2 border-t px-5 py-4"><button type="button" onClick={() => { setCancelTarget(null); setCancelError(""); }} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Quay lại</button><button type="button" disabled={submitting} onClick={() => void cancelSchedule()} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white disabled:opacity-60">{submitting ? "Đang hủy..." : "Xác nhận hủy"}</button></footer></div></ViewportModal>
 
     <ViewportModal open={Boolean(checkoutTarget)} onClose={() => setCheckoutTarget(null)} labelledBy="work-checkout-title" busy={submitting} panelClassName="max-w-lg"><div className="flex min-h-0 flex-1 flex-col"><header className="border-b px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">Kết thúc phiên làm việc</p><h2 id="work-checkout-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Check-out cuối ca</h2></header><div className="p-5"><p className="rounded-lg bg-[#0F2A43]/5 p-3 text-sm leading-6 text-[#27445F]">Ca thu ngân liên kết sẽ được đóng tự động trong cùng giao dịch. Nếu thao tác lỗi, cả hai trạng thái đều được giữ nguyên.</p><label className="mt-4 block"><span className={labelClass}>{checkoutTarget && now.getTime() < new Date(checkoutTarget.scheduledEndUtc).getTime() ? "Lý do checkout sớm *" : "Ghi chú bàn giao"}</span><textarea data-modal-autofocus value={attendanceNote} maxLength={1000} onChange={(event) => setAttendanceNote(event.target.value)} rows={4} className={`${inputClass} resize-y`} /></label>{attendanceError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{attendanceError}</p>}</div><footer className="flex justify-end gap-2 border-t px-5 py-4"><button type="button" onClick={() => setCheckoutTarget(null)} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Chưa kết thúc</button><button type="button" disabled={submitting} onClick={() => void checkOut()} className="min-h-11 rounded-lg bg-[#B8944F] px-5 text-sm font-bold text-[#0F2A43] disabled:opacity-60">{submitting ? "Đang xử lý..." : "Xác nhận check-out"}</button></footer></div></ViewportModal>
 
