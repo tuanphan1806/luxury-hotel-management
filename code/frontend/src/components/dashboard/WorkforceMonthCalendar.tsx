@@ -34,6 +34,7 @@ interface WorkforceMonthCalendarProps {
   isStaff: boolean;
   employees: WorkScheduleEmployee[];
   refreshSignal?: number;
+  editorOverlayOpen?: boolean;
   onScheduleChanged?: () => Promise<void> | void;
   onEditAssignment?: (assignmentId: number) => Promise<void> | void;
   onCancelAssignment?: (assignmentId: number) => Promise<void> | void;
@@ -170,6 +171,27 @@ function isWeekend(date: string) {
   return day === 0 || day === 6;
 }
 
+function calendarDaySurface(day: WorkShiftCalendarDay) {
+  const assignments = day.slots.flatMap((slot) => slot.assignments);
+  if (assignments.some((assignment) => assignment.status === "ABSENT")) {
+    return "bg-[linear-gradient(180deg,#FFF1F2_0%,#FFFFFF_42%)]";
+  }
+  if (assignments.some((assignment) => assignment.late) || day.slots.some((slot) => slot.pendingRequestCount > 0)) {
+    return "bg-[linear-gradient(180deg,#FFF8E7_0%,#FFFFFF_42%)]";
+  }
+  if (assignments.some((assignment) => assignment.sessionStatus === "ACTIVE")) {
+    return "bg-[linear-gradient(180deg,#ECFDF5_0%,#FFFFFF_42%)]";
+  }
+  if (day.today) {
+    return "bg-[linear-gradient(180deg,#EDF5FA_0%,#FFFFFF_44%)]";
+  }
+  if (isWeekend(day.date)) {
+    return "bg-[linear-gradient(180deg,#FAF5E9_0%,#FFFFFF_46%)]";
+  }
+  if (day.past) return "bg-slate-50/75";
+  return "bg-white";
+}
+
 function drawerActionLabel(slot: WorkShiftCalendarSlot, isAdmin: boolean) {
   if (isAdmin) return "Quản lý ca";
   if (slot.currentUserAssignment) return "Xem ca của tôi";
@@ -195,6 +217,7 @@ export default function WorkforceMonthCalendar({
   isStaff,
   employees,
   refreshSignal = 0,
+  editorOverlayOpen = false,
   onScheduleChanged,
   onEditAssignment,
   onCancelAssignment,
@@ -372,7 +395,6 @@ export default function WorkforceMonthCalendar({
   };
 
   const openSlot = (day: WorkShiftCalendarDay, slot: WorkShiftCalendarSlot) => {
-    setSelectedDate(null);
     setSelectedKey({ date: day.date, shiftTemplateId: slot.shiftTemplateId });
     setStaffNote(slot.currentUserRequest?.staffNote || "");
     setReviewReasons({});
@@ -380,6 +402,11 @@ export default function WorkforceMonthCalendar({
     setDirectNote("");
     setRequiredStaff(slot.requiredStaff);
     setRequirementNote(slot.requirementNote || "");
+  };
+
+  const closeCalendarModalStack = () => {
+    setSelectedKey(null);
+    setSelectedDate(null);
   };
 
   const completeMutation = async (message: string) => {
@@ -751,12 +778,17 @@ export default function WorkforceMonthCalendar({
                       setFocusDate(day.date);
                       setSelectedDate(day.date);
                     }}
-                    className={`group relative min-h-[104px] text-left transition duration-200 sm:min-h-[116px] ${
-                      isWeekend(day.date) ? "bg-[#F7F8F6]" : "bg-white"
-                    } ${day.past ? "bg-slate-50/70" : "hover:bg-[#FCFBF7]"} ${
+                    className={`group relative min-h-[104px] overflow-hidden text-left transition duration-200 sm:min-h-[116px] ${
+                      calendarDaySurface(day)
+                    } ${day.past ? "" : "hover:brightness-[0.985]"} ${
                       selectedDateActive ? "z-[1] ring-2 ring-inset ring-[#0F2A43]" : ""
                     }`}
                   >
+                    <span className="absolute inset-x-0 top-0 flex h-[3px] opacity-70" aria-hidden="true">
+                      <i className="flex-1 bg-amber-400" />
+                      <i className="flex-1 bg-teal-500" />
+                      <i className="flex-1 bg-indigo-500" />
+                    </span>
                     <div className="relative z-[1] p-1.5 sm:p-2">
                     <button
                       type="button"
@@ -964,7 +996,9 @@ export default function WorkforceMonthCalendar({
       <ViewportModal
         open={Boolean(selectedDay)}
         onClose={() => setSelectedDate(null)}
+        onBackdropClose={closeCalendarModalStack}
         labelledBy="workforce-day-title"
+        ariaModal={!selected}
         panelClassName="max-w-5xl bg-[#FBFAF6]"
         backdropClassName="bg-[#091E30]/52 backdrop-blur-[2px]"
         zIndexClassName="z-[85]"
@@ -1090,7 +1124,9 @@ export default function WorkforceMonthCalendar({
       <ViewportModal
         open={Boolean(selected)}
         onClose={() => setSelectedKey(null)}
+        onBackdropClose={closeCalendarModalStack}
         labelledBy="workforce-slot-title"
+        ariaModal={!editorOverlayOpen}
         busy={submitting}
         panelClassName="max-w-5xl bg-[#FBFAF6]"
         backdropClassName="bg-[#091E30]/60 backdrop-blur-[2px]"
@@ -1119,7 +1155,7 @@ export default function WorkforceMonthCalendar({
                 </div>
                 <button
                   type="button"
-                  aria-label="Đóng chi tiết ca"
+                  aria-label={selectedDay ? "Quay lại lịch trong ngày" : "Đóng chi tiết ca"}
                   disabled={submitting}
                   onClick={() => setSelectedKey(null)}
                   className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-white/10 text-lg font-bold transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#D8C398] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1167,7 +1203,6 @@ export default function WorkforceMonthCalendar({
                                 type="button"
                                 disabled={submitting}
                                 onClick={() => {
-                                  setSelectedKey(null);
                                   void onEditAssignment(assignment.id);
                                 }}
                                 className="min-h-9 cursor-pointer rounded-lg border border-[#0F2A43]/15 bg-white px-3 text-[10px] font-bold text-[#0F2A43] transition duration-200 hover:border-[#B8944F] hover:bg-[#FFF9EA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1180,7 +1215,6 @@ export default function WorkforceMonthCalendar({
                                 type="button"
                                 disabled={submitting}
                                 onClick={() => {
-                                  setSelectedKey(null);
                                   void onCancelAssignment(assignment.id);
                                 }}
                                 className="min-h-9 cursor-pointer rounded-lg border border-rose-200 bg-white px-3 text-[10px] font-bold text-rose-700 transition duration-200 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1401,7 +1435,7 @@ export default function WorkforceMonthCalendar({
                 onClick={() => setSelectedKey(null)}
                 className="min-h-11 rounded-lg border px-5 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F4EFE5]"
               >
-                Đóng chi tiết
+                {selectedDay ? "Quay lại lịch trong ngày" : "Đóng chi tiết"}
               </button>
             </footer>
           </div>
