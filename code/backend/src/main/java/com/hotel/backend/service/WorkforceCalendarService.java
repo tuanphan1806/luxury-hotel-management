@@ -140,8 +140,17 @@ public class WorkforceCalendarService {
                 templateRepository.findAllByOrderBySortOrderAscStartTimeAscIdAsc();
         List<WorkShiftRequirement> requirements =
                 requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(from, to);
+        boolean staffView = actor.getType() == UserType.STAFF;
         List<WorkScheduleAssignment> assignments =
-                assignmentRepository.findInWindow(fromUtc, toUtc, null, null);
+                assignmentRepository.findInWindow(
+                        fromUtc,
+                        toUtc,
+                        staffView ? actor.getId() : null,
+                        null);
+        List<WorkScheduleAssignmentRepository.SlotAssignmentCount> staffAssignmentCounts =
+                staffView
+                        ? assignmentRepository.countAssignedBySlotInWindow(from, to)
+                        : List.of();
         List<WorkShiftRegistrationRequest> requests =
                 registrationRepository.findInWindow(
                         from,
@@ -160,6 +169,15 @@ public class WorkforceCalendarService {
                                 new SlotKey(item.getWorkDate(), item.getShiftTemplate().getId()),
                                 ignored -> new ArrayList<>())
                         .add(item));
+        Map<SlotKey, Integer> assignedCountBySlot = new HashMap<>();
+        if (staffView) {
+            staffAssignmentCounts.forEach(item -> assignedCountBySlot.put(
+                    new SlotKey(item.getWorkDate(), item.getShiftTemplateId()),
+                    Math.toIntExact(item.getAssignedCount())));
+        } else {
+            assignmentsBySlot.forEach((key, value) ->
+                    assignedCountBySlot.put(key, value.size()));
+        }
         Map<SlotKey, List<WorkShiftRegistrationRequest>> requestsBySlot = new HashMap<>();
         requests.forEach(item -> requestsBySlot
                 .computeIfAbsent(
@@ -169,6 +187,7 @@ public class WorkforceCalendarService {
 
         var referencedTemplateIds = new java.util.HashSet<Long>();
         requirementBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
+        assignedCountBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
         assignmentsBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
         requestsBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
         List<WorkShiftTemplate> visibleTemplates = allTemplates.stream()
@@ -190,7 +209,7 @@ public class WorkforceCalendarService {
                 int requiredStaff = requirement != null
                         ? requirement.getRequiredStaff()
                         : DEFAULT_REQUIRED_STAFF;
-                int assignedCount = slotAssignments.size();
+                int assignedCount = assignedCountBySlot.getOrDefault(key, 0);
                 boolean registrationOpen =
                         clock.instant().isBefore(window(template, date).endUtc());
                 int pendingCount = actor.getType() == UserType.ADMIN
