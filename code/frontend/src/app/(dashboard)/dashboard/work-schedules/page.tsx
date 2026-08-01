@@ -9,12 +9,12 @@ import {
 import Toast from "@/components/UI/Toast";
 import ViewportModal from "@/components/UI/ViewportModal";
 import WorkAttendanceStatistics from "@/components/dashboard/WorkAttendanceStatistics";
+import WorkScheduleListView from "@/components/dashboard/WorkScheduleListView";
 import WorkforceMonthCalendar from "@/components/dashboard/WorkforceMonthCalendar";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import {
   formatShiftTime,
   formatWorkDateTime,
-  groupWorkSchedulesByDate,
   isCheckInAvailable,
   shiftWorkDate,
   unwrapWorkScheduleApiData,
@@ -125,7 +125,7 @@ function DateRangePresetFilter({
           type="button"
           aria-pressed={value === preset}
           onClick={() => onChange(preset)}
-          className={`min-h-9 rounded-md px-3 text-[11px] font-bold transition ${
+          className={`min-h-11 rounded-md px-3 text-[11px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C398] ${
             value === preset
               ? "bg-white text-[#0F2A43] shadow-sm"
               : "text-white/75 hover:bg-white/10 hover:text-white"
@@ -244,8 +244,6 @@ export default function WorkSchedulesPage() {
   const listSchedules = useMemo(() => statusFilter === "ALL"
     ? schedules
     : schedules.filter((schedule) => schedule.status === statusFilter), [schedules, statusFilter]);
-  const groupedSchedules = useMemo(() => groupWorkSchedulesByDate(listSchedules), [listSchedules]);
-  const sortedDates = useMemo(() => Object.keys(groupedSchedules).sort(), [groupedSchedules]);
   const activeTemplates = useMemo(() => templates.filter((template) => template.active), [templates]);
   const upcomingStaffSchedule = useMemo(() => schedules
     .filter((schedule) => schedule.status === "SCHEDULED"
@@ -253,15 +251,6 @@ export default function WorkSchedulesPage() {
       && new Date(schedule.scheduledEndUtc).getTime() > now.getTime())
     .sort((left, right) => new Date(left.scheduledStartUtc).getTime() - new Date(right.scheduledStartUtc).getTime())[0] || null, [now, schedules]);
   const attendanceHero = currentSchedule || upcomingStaffSchedule;
-  const summary = useMemo(() => ({
-    total: listSchedules.length,
-    scheduled: listSchedules.filter((item) => item.status === "SCHEDULED").length,
-    active: listSchedules.filter((item) => item.sessionStatus === "ACTIVE").length,
-    fulfilled: listSchedules.filter((item) => item.status === "FULFILLED").length,
-    late: listSchedules.filter((item) => item.late).length,
-    absent: listSchedules.filter((item) => item.status === "ABSENT").length,
-  }), [listSchedules]);
-
   const applyRangePreset = (preset: Exclude<DateRangePreset, "CUSTOM">) => {
     const range = dateRangeForPreset(preset);
     setRangePreset(preset);
@@ -383,36 +372,12 @@ export default function WorkSchedulesPage() {
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">Lịch & chấm công</p>
         <p className="mt-0.5 text-xs text-[#66727C]">Phân ca, xem thống kê đi làm hoặc tra cứu chi tiết từng ca.</p>
       </div>
-      <nav className="grid rounded-lg bg-[#F1F0EA] p-1 sm:flex" aria-label="Khu vực lịch làm việc">
-        <button type="button" onClick={() => setViewMode("calendar")} aria-pressed={viewMode === "calendar"} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold transition sm:flex-none ${viewMode === "calendar" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Lịch tháng</button>
-        <button type="button" onClick={() => { if (rangePreset === "CUSTOM") applyRangePreset("MONTH"); setViewMode("statistics"); }} aria-pressed={viewMode === "statistics"} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold transition sm:flex-none ${viewMode === "statistics" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Thống kê chấm công</button>
-        <button type="button" onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold transition sm:flex-none ${viewMode === "list" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Danh sách ca</button>
+      <nav className="grid grid-cols-3 rounded-lg bg-[#F1F0EA] p-1 sm:flex" aria-label="Khu vực lịch làm việc">
+        <button type="button" onClick={() => setViewMode("calendar")} aria-pressed={viewMode === "calendar"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "calendar" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Lịch tháng</button>
+        <button type="button" onClick={() => { if (rangePreset === "CUSTOM") applyRangePreset("MONTH"); setViewMode("statistics"); }} aria-pressed={viewMode === "statistics"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "statistics" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Thống kê chấm công</button>
+        <button type="button" onClick={() => setViewMode("list")} aria-pressed={viewMode === "list"} className={`min-h-11 flex-1 rounded-lg px-2 text-xs font-bold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] sm:flex-none sm:px-5 sm:text-sm ${viewMode === "list" ? "bg-[#0F2A43] text-white shadow-sm" : "text-[#66727C] hover:bg-white hover:text-[#0F2A43]"}`}>Danh sách ca</button>
       </nav>
     </section>
-
-    {viewMode === "list" && (
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Tóm tắt lịch làm việc">
-        {(isAdmin
-          ? [
-              ["Tổng số ca", summary.total, "border-[#0F2A43]/10 bg-white text-[#0F2A43]"],
-              ["Đang làm việc", summary.active, "border-emerald-200 bg-emerald-50 text-emerald-900"],
-              ["Đi muộn", summary.late, "border-orange-200 bg-orange-50 text-orange-900"],
-              ["Vắng mặt", summary.absent, "border-rose-200 bg-rose-50 text-rose-900"],
-            ]
-          : [
-              ["Tổng số ca", summary.total, "border-[#0F2A43]/10 bg-white text-[#0F2A43]"],
-              ["Sắp tới", summary.scheduled, "border-amber-200 bg-amber-50 text-amber-900"],
-              ["Đang làm việc", summary.active, "border-emerald-200 bg-emerald-50 text-emerald-900"],
-              ["Đã hoàn thành", summary.fulfilled, "border-blue-200 bg-blue-50 text-blue-900"],
-            ]
-        ).map(([label, value, tone]) => (
-          <article key={String(label)} className={`rounded-xl border p-4 ${tone}`}>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] opacity-75">{label}</p>
-            <p className="mt-2 text-2xl font-bold tabular-nums">{value}</p>
-          </article>
-        ))}
-      </section>
-    )}
 
     {isStaff && viewMode !== "statistics" && <section className="ops-panel overflow-hidden rounded-xl border"><div className="ops-section-header px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#D8C398]">Trạng thái hiện tại</p><h2 className="mt-1 text-lg font-bold text-white">{currentSchedule ? "Bạn đang trong ca làm việc" : attendanceHero ? "Ca làm việc tiếp theo" : "Chưa có ca được phân công"}</h2></div>{attendanceHero ? <div className="grid gap-5 p-5 lg:grid-cols-[1fr_auto] lg:items-center"><div className="flex min-w-0 gap-4"><span className="mt-1 h-12 w-2 shrink-0 rounded-full" style={{ backgroundColor: attendanceHero.shiftColor }} /><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-serif text-2xl font-bold text-[#0F2A43]">{attendanceHero.shiftName}</h3><ScheduleStatusBadge schedule={attendanceHero} />{attendanceHero.late && <span className="rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-bold text-orange-800">Muộn {attendanceHero.lateMinutes} phút</span>}</div><p className="mt-2 text-sm font-semibold text-[#27445F]">{formatWorkDateTime(attendanceHero.scheduledStartUtc)} → {formatWorkDateTime(attendanceHero.scheduledEndUtc)}</p><p className="mt-2 text-xs leading-5 text-[#66727C]">{currentSchedule ? `Check-in lúc ${formatWorkDateTime(currentSchedule.actualCheckInUtc)} · Ca thu ngân #${currentSchedule.cashierShiftId || "đang đồng bộ"}` : `Có thể check-in sớm ${attendanceHero.checkInEarlyMinutes} phút; sau ngưỡng ${attendanceHero.lateToleranceMinutes} phút sẽ ghi nhận đi muộn.`}</p></div></div><div className="flex flex-wrap gap-2 lg:justify-end">{currentSchedule ? <button type="button" disabled={submitting} onClick={() => { setCheckoutTarget(currentSchedule); setAttendanceNote(""); setAttendanceError(""); }} className="min-h-11 rounded-lg bg-[#B8944F] px-5 text-sm font-bold text-[#0F2A43] transition hover:bg-[#C7A865] disabled:opacity-60">{submitting ? "Đang xử lý..." : "Check-out cuối ca"}</button> : <button type="button" disabled={submitting || !isCheckInAvailable(attendanceHero, now)} onClick={() => void checkIn(attendanceHero)} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#173D5F] disabled:cursor-not-allowed disabled:opacity-45">{submitting ? "Đang xử lý..." : isCheckInAvailable(attendanceHero, now) ? "Check-in bắt đầu ca" : "Chưa đến giờ check-in"}</button>}</div></div> : <EmptySchedule admin={false} />}</section>}
 
@@ -453,15 +418,63 @@ export default function WorkSchedulesPage() {
       </>
     ) : (
       <>
-        <section className="flex flex-col gap-4 rounded-xl border border-[#0F2A43]/10 bg-[#0F2A43] px-5 py-4 shadow-sm lg:flex-row lg:items-center lg:justify-between" aria-labelledby="schedule-range-title">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#D8C398]">Khoảng thời gian</p>
-            <h2 id="schedule-range-title" className="mt-1 text-base font-bold text-white">Lọc nhanh danh sách ca</h2>
-            <p className="mt-1 text-xs text-white/65">Chọn ngày, tuần hoặc tháng; dùng hai ô ngày bên dưới khi cần khoảng tùy chỉnh.</p>
+        <section className="overflow-hidden rounded-2xl bg-[#0F2A43] text-white shadow-[0_14px_36px_rgba(15,42,67,0.14)]" aria-labelledby="schedule-range-title">
+          <div className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#D8C398]">Tra cứu lịch làm việc</p>
+              <h2 id="schedule-range-title" className="mt-1 font-serif text-2xl font-bold">{isAdmin ? "Danh sách ca đã phân công" : "Lịch sử và ca sắp tới"}</h2>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-white/65">Chọn nhanh ngày, tuần hoặc tháng; dữ liệu được nhóm theo ngày để dễ theo dõi điểm danh.</p>
+            </div>
+            <DateRangePresetFilter value={rangePreset} onChange={applyRangePreset} />
           </div>
-          <DateRangePresetFilter value={rangePreset} onChange={applyRangePreset} />
+          <div className="grid gap-3 border-t border-white/10 bg-white/5 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="text-[10px] font-bold uppercase tracking-wide text-white/65">
+              Từ ngày
+              <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-white/10 px-3 text-xs font-semibold text-white outline-none transition hover:border-white/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20" />
+            </label>
+            <label className="text-[10px] font-bold uppercase tracking-wide text-white/65">
+              Đến ngày
+              <input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-white/10 px-3 text-xs font-semibold text-white outline-none transition hover:border-white/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20" />
+            </label>
+            {isAdmin && (
+              <label className="text-[10px] font-bold uppercase tracking-wide text-white/65">
+                Nhân viên
+                <select value={employeeFilter} onChange={(event) => setEmployeeFilter(Number(event.target.value))} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-[#173D5F] px-3 text-xs font-semibold text-white outline-none transition hover:border-white/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20">
+                  <option value={0}>Tất cả nhân viên</option>
+                  {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
+                </select>
+              </label>
+            )}
+            <label className="text-[10px] font-bold uppercase tracking-wide text-white/65">
+              Trạng thái
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "ALL" | WorkScheduleStatus)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-[#173D5F] px-3 text-xs font-semibold text-white outline-none transition hover:border-white/30 focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20">
+                <option value="ALL">Tất cả trạng thái</option>
+                <option value="SCHEDULED">Đã phân công</option>
+                <option value="FULFILLED">Đã hoàn thành</option>
+                <option value="ABSENT">Vắng mặt</option>
+                <option value="CANCELLED">Đã hủy</option>
+              </select>
+            </label>
+          </div>
         </section>
-      <section className="ops-panel overflow-hidden rounded-xl border"><div className="ops-section-header flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-end xl:justify-between"><div><h2 className="text-lg font-bold text-white">{isAdmin ? "Lịch phân công" : "Lịch sử và ca sắp tới"}</h2><p className="mt-1 text-xs text-white/65">Mỗi lịch chỉ có một phiên làm việc thực tế; dữ liệu cũ được giữ nguyên khi sửa mẫu ca.</p></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><label className="text-[10px] font-bold uppercase tracking-wide text-white/65">Từ ngày<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-white/15 bg-white/10 px-3 text-xs text-white outline-none focus:border-[#B8944F]" /></label><label className="text-[10px] font-bold uppercase tracking-wide text-white/65">Đến ngày<input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-white/15 bg-white/10 px-3 text-xs text-white outline-none focus:border-[#B8944F]" /></label>{isAdmin && <label className="text-[10px] font-bold uppercase tracking-wide text-white/65">Nhân viên<select value={employeeFilter} onChange={(event) => setEmployeeFilter(Number(event.target.value))} className="mt-1 min-h-10 w-full rounded-lg border border-white/15 bg-[#173D5F] px-3 text-xs text-white outline-none focus:border-[#B8944F]"><option value={0}>Tất cả</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}</select></label>}<label className="text-[10px] font-bold uppercase tracking-wide text-white/65">Trạng thái<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "ALL" | WorkScheduleStatus)} className="mt-1 min-h-10 w-full rounded-lg border border-white/15 bg-[#173D5F] px-3 text-xs text-white outline-none focus:border-[#B8944F]"><option value="ALL">Tất cả</option><option value="SCHEDULED">Đã phân công</option><option value="FULFILLED">Đã hoàn thành</option><option value="ABSENT">Vắng mặt</option><option value="CANCELLED">Đã hủy</option></select></label></div></div><div className="space-y-5 p-4 sm:p-5">{sortedDates.length === 0 ? <EmptySchedule admin={isAdmin} /> : sortedDates.map((day) => <section key={day} aria-labelledby={`schedule-${day}`}><div className="mb-2 flex items-center justify-between rounded-lg bg-[#EEE8DC] px-4 py-2"><h3 id={`schedule-${day}`} className="text-xs font-bold capitalize tracking-wide text-[#0F2A43]">{formatWorkDate(day)}</h3><span className="text-[10px] font-bold text-[#66727C]">{groupedSchedules[day].length} ca</span></div><div className="grid gap-2">{groupedSchedules[day].map((schedule) => <article key={schedule.id} className="grid gap-4 rounded-xl border border-[#0F2A43]/10 bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-md lg:grid-cols-[1.1fr_1fr_1fr_auto] lg:items-center"><div className="flex min-w-0 gap-3"><span className="h-11 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: schedule.shiftColor }} /><div className="min-w-0"><p className="truncate text-sm font-bold text-[#0F2A43]">{schedule.shiftName} <span className="text-xs font-semibold text-[#80632F]">· {schedule.shiftCode}</span></p><p className="mt-1 truncate text-xs text-[#66727C]">{schedule.employeeName}</p></div></div><div><p className="text-xs font-bold text-[#27445F]">{formatWorkDateTime(schedule.scheduledStartUtc)} →</p><p className="mt-1 text-xs font-bold text-[#27445F]">{formatWorkDateTime(schedule.scheduledEndUtc)}</p></div><div className="flex flex-wrap items-center gap-2"><ScheduleStatusBadge schedule={schedule} />{schedule.late && <span className="text-[10px] font-bold text-orange-700">Muộn {schedule.lateMinutes} phút</span>}<p className="w-full text-[11px] text-[#66727C]">{schedule.actualCheckInUtc ? `Vào ${formatWorkDateTime(schedule.actualCheckInUtc)}` : "Chưa check-in"}{schedule.actualCheckOutUtc ? ` · Ra ${formatWorkDateTime(schedule.actualCheckOutUtc)}` : ""}</p></div><div className="flex flex-wrap gap-2 lg:justify-end">{isAdmin && schedule.status === "SCHEDULED" && !schedule.sessionId && <><button type="button" onClick={() => openEditSchedule(schedule)} className="min-h-10 rounded-lg border border-[#0F2A43]/15 px-3 text-xs font-bold text-[#0F2A43] transition hover:bg-[#F4EFE5]">Sửa</button><button type="button" onClick={() => { setCancelTarget(schedule); setCancelReason(""); setAttendanceError(""); }} className="min-h-10 rounded-lg border border-rose-200 px-3 text-xs font-bold text-rose-700 transition hover:bg-rose-50">Hủy</button></>}{isStaff && schedule.sessionStatus === "ACTIVE" && <button type="button" onClick={() => { setCheckoutTarget(schedule); setAttendanceNote(""); setAttendanceError(""); }} className="min-h-10 rounded-lg bg-[#B8944F] px-3 text-xs font-bold text-[#0F2A43]">Check-out</button>}</div></article>)}</div></section>)}</div></section>
+        <WorkScheduleListView
+          schedules={listSchedules}
+          isAdmin={isAdmin}
+          isStaff={isStaff}
+          periodLabel={from === to ? formatWorkDate(from) : `${formatWorkDate(from)} đến ${formatWorkDate(to)}`}
+          now={now}
+          onEdit={openEditSchedule}
+          onCancel={(schedule) => {
+            setCancelTarget(schedule);
+            setCancelReason("");
+            setCancelError("");
+          }}
+          onCheckout={(schedule) => {
+            setCheckoutTarget(schedule);
+            setAttendanceNote("");
+            setAttendanceError("");
+          }}
+        />
       </>
     )}
 
