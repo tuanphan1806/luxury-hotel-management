@@ -3,6 +3,7 @@ package com.hotel.backend.service;
 import com.hotel.backend.constant.StayPackage;
 import com.hotel.backend.dto.response.ChatResponse;
 import com.hotel.backend.dto.response.AvailabilityResponse;
+import com.hotel.backend.dto.response.RoomTypeResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -74,5 +75,38 @@ class ChatBotServiceTest {
         assertTrue(answer.contains("ước tính 220.000 đ/phòng (qua đêm"));
         assertTrue(answer.contains("chưa gồm khách thêm/dịch vụ"));
         assertTrue(!answer.contains("/giờ"));
+    }
+
+    @Test
+    void roomTierQuestionUsesDeterministicPackagePricingWithoutGemini() throws Exception {
+        Method answerRoomTypeQuestion = ChatBotService.class.getDeclaredMethod(
+                "answerRoomTypeQuestion",
+                String.class,
+                String.class,
+                List.class
+        );
+        answerRoomTypeQuestion.setAccessible(true);
+
+        RoomTypeResponse standard = RoomTypeResponse.builder()
+                .id(1L)
+                .typeName("Phòng tiêu chuẩn")
+                .description("Phù hợp cho kỳ nghỉ gọn nhẹ")
+                .price(new BigDecimal("70000"))
+                .overnightPrice(new BigDecimal("170000"))
+                .dailyPrice(new BigDecimal("300000"))
+                .build();
+
+        @SuppressWarnings("unchecked")
+        var answer = (java.util.Optional<String>) answerRoomTypeQuestion.invoke(
+                service,
+                "Khách sạn có những hạng phòng nào?",
+                "khach san co nhung hang phong nao",
+                List.of(standard)
+        );
+
+        assertTrue(answer.isPresent());
+        assertTrue(answer.orElseThrow().contains("qua đêm 170.000 đ"));
+        assertTrue(answer.orElseThrow().contains("ngày đêm 300.000 đ"));
+        assertTrue(!answer.orElseThrow().contains("/giờ"));
     }
 }

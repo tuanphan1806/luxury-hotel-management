@@ -87,5 +87,6 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level=high
       - run: pnpm run lint
+      - run: pnpm run typecheck
       - run: pnpm run test:unit
       - run: pnpm run build

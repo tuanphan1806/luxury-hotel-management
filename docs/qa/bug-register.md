@@ -1,6 +1,6 @@
 # Full-system QA bug register
 
-Last updated: 2026-07-26
+Last updated: 2026-08-02
 
 ## Status legend
 
@@ -19,6 +19,10 @@ Last updated: 2026-07-26
 | QA-003 | P1 | FIXED | E2E/session isolation | Parallel stateful tests no longer revoke ADMIN/STAFF single-device sessions |
 | QA-004 | P2 | FIXED | E2E/native runtime | Reservation and SePay scenarios can target the native backend through `E2E_QA_API` |
 | QA-005 | P3 | FIXED | E2E/dev timing | CUSTOMER access redirect remains strict while allowing Next.js cold compilation |
+| QA-006 | P2 | FIXED | Booking UX | Submit stays available and shows an explicit inline error until terms are accepted; no reservation is created |
+| QA-007 | P2 | FIXED | Availability UX | Invalid stay order is preserved and explained; stale availability/selection is cleared |
+| QA-008 | P2 | FIXED LOCALLY | Chatbot | Removed unconditional/N+1 catalog calls, bounded timeouts and added visible localized errors; production retest pending deploy |
+| QA-GAP-GITHUB-001 | P1 | PARTIAL | Release gate | Required checks are configured in the pending ruleset edit; owner re-authentication must complete before save is durable |
 | QA-GAP-EMAIL-001 | P1 | PARTIAL | Email deliverability | SendGrid accepts and delivers, but Gmail places the message in Spam because production domain authentication is absent |
 | QA-GAP-EMAIL-002 | P1 | PARTIAL | Email continuity | Current SendGrid account is a timed trial ending 2026-09-13 |
 | QA-GAP-SEPAY-001 | P0 | GAP | Production payment evidence | Real incoming/outgoing bank transfers were not executed in this QA wave |

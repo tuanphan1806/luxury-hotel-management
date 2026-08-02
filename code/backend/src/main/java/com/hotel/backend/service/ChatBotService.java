@@ -7,8 +7,6 @@ import com.hotel.backend.dto.response.ChatReservationPayload;
 import com.hotel.backend.dto.response.ChatResponse;
 import com.hotel.backend.dto.response.FacilityResponse;
 import com.hotel.backend.dto.response.GalleryResponse;
-import com.hotel.backend.dto.response.ReviewResponse;
-import com.hotel.backend.dto.response.RoomTypeRatingResponse;
 import com.hotel.backend.dto.response.RoomTypeResponse;
 import com.hotel.backend.service.chatbot.ChatInputPolicy;
 import com.hotel.backend.service.chatbot.InMemoryChatRateLimiter;
@@ -82,6 +80,12 @@ public class ChatBotService {
 
     @Value("${chatbot.api-base-url:http://localhost:${server.port:8080}}")
     private String chatbotApiBaseUrl;
+
+    @Value("${chatbot.api-timeout-seconds:4}")
+    private long chatbotApiTimeoutSeconds;
+
+    @Value("${gemini.api.timeout-seconds:10}")
+    private long geminiApiTimeoutSeconds;
 
     @Value("${hotel.check-in-time}")
     private String publicCheckInTime;
@@ -225,23 +229,6 @@ public class ChatBotService {
             return operationalAnswer;
         }
 
-        List<RoomTypeResponse> roomTypes = getRoomTypesFromApi();
-        List<FacilityResponse> facilities = getFacilitiesFromApi();
-
-        if (hasApiFetchErrors() && roomTypes.isEmpty() && facilities.isEmpty()) {
-            return Optional.of(formatApiFetchErrorAnswer("dữ liệu phòng và tiện nghi"));
-        }
-
-        Optional<String> roomTypeAnswer = answerRoomTypeQuestion(question, normalized, roomTypes);
-        if (roomTypeAnswer.isPresent()) {
-            return roomTypeAnswer;
-        }
-
-        Optional<String> facilityAnswer = answerFacilityQuestion(normalized, facilities);
-        if (facilityAnswer.isPresent()) {
-            return facilityAnswer;
-        }
-
         Optional<String> paymentAnswer = answerPaymentQuestion(normalized);
         if (paymentAnswer.isPresent()) {
             return paymentAnswer;
@@ -252,7 +239,60 @@ public class ChatBotService {
             return locationAnswer;
         }
 
+        // Chỉ tải đúng catalog cần dùng. Trước đây mọi câu FAQ đều gọi cả room
+        // types lẫn facilities, rồi câu tự do lại tải chúng lần nữa để dựng
+        // Gemini context, làm Render Free dễ vượt timeout của proxy.
+        boolean facilityQuestion = looksLikeFacilityQuestion(normalized);
+        boolean roomTypeQuestion = looksLikeRoomTypeQuestion(normalized);
+
+        if (facilityQuestion) {
+            List<FacilityResponse> facilities = getFacilitiesFromApi();
+            Optional<String> facilityAnswer = answerFacilityQuestion(normalized, facilities);
+            if (facilityAnswer.isPresent()) {
+                return facilityAnswer;
+            }
+            if (hasApiFetchErrors() && facilities.isEmpty()) {
+                return Optional.of(formatApiFetchErrorAnswer("dữ liệu tiện nghi"));
+            }
+        }
+
+        if (roomTypeQuestion) {
+            List<RoomTypeResponse> roomTypes = getRoomTypesFromApi();
+            Optional<String> roomTypeAnswer = answerRoomTypeQuestion(question, normalized, roomTypes);
+            if (roomTypeAnswer.isPresent()) {
+                return roomTypeAnswer;
+            }
+            if (hasApiFetchErrors() && roomTypes.isEmpty()) {
+                return Optional.of(formatApiFetchErrorAnswer("dữ liệu phòng"));
+            }
+        }
+
         return Optional.empty();
+    }
+
+    private boolean looksLikeRoomTypeQuestion(String normalized) {
+        return normalized.contains("phong")
+                || normalized.contains("hang phong")
+                || normalized.contains("loai phong")
+                || normalized.contains("suite")
+                || normalized.contains("deluxe")
+                || normalized.contains("executive")
+                || normalized.contains("family")
+                || normalized.contains("presidential")
+                || normalized.contains("tieu chuan")
+                || normalized.contains("view bien");
+    }
+
+    private boolean looksLikeFacilityQuestion(String normalized) {
+        return normalized.contains("tien nghi")
+                || normalized.contains("tien ich")
+                || normalized.contains("dich vu")
+                || normalized.contains("ho boi")
+                || normalized.contains("gym")
+                || normalized.contains("spa")
+                || normalized.contains("wifi")
+                || normalized.contains("bua sang")
+                || normalized.contains("nha hang");
     }
 
     private Optional<String> answerOperationalPolicyQuestion(String normalized) {
@@ -318,15 +358,17 @@ public class ChatBotService {
         }
 
         if (normalized.contains("nhung loai phong") || normalized.contains("cac loai phong")
-                || normalized.contains("co loai phong nao") || normalized.contains("thong tin phong")) {
+                || normalized.contains("co loai phong nao") || normalized.contains("thong tin phong")
+                || normalized.contains("nhung hang phong") || normalized.contains("cac hang phong")
+                || normalized.contains("co hang phong nao") || normalized.contains("hang phong nao")) {
             StringBuilder answer = new StringBuilder("Khách sạn hiện có các loại phòng:\n");
             roomTypes.stream()
-                    .sorted(Comparator.comparing(RoomTypeResponse::getPrice))
+                    .sorted(Comparator.comparing(this::getComparableRoomRate))
                     .forEach(rt -> answer.append("- ")
                             .append(rt.getTypeName())
                             .append(": ")
-                            .append(rt.getPrice())
-                            .append("/giờ. ")
+                            .append(formatRoomRateSummary(rt))
+                            .append(". ")
                             .append(Optional.ofNullable(rt.getDescription()).orElse(""))
                             .append("\n"));
             return Optional.of(answer.toString().trim());
@@ -334,12 +376,12 @@ public class ChatBotService {
 
         if (normalized.contains("re nhat") || normalized.contains("gia re")) {
             return roomTypes.stream()
-                    .min(Comparator.comparing(RoomTypeResponse::getPrice))
+                    .min(Comparator.comparing(this::getComparableRoomRate))
                     .map(rt -> "Phòng có giá thấp nhất hiện tại là "
                             + rt.getTypeName()
-                            + " với giá "
-                            + rt.getPrice()
-                            + "/giờ. "
+                            + " với "
+                            + formatRoomRateSummary(rt)
+                            + ". "
                             + Optional.ofNullable(rt.getDescription()).orElse(""));
         }
 
@@ -347,9 +389,9 @@ public class ChatBotService {
             RoomTypeResponse rt = requestedRoomType.get();
             return Optional.of("Giá phòng "
                     + rt.getTypeName()
-                    + " hiện tại là "
-                    + rt.getPrice()
-                    + "/giờ.");
+                    + ": "
+                    + formatRoomRateSummary(rt)
+                    + ". Giá chính xác được tính theo thời gian nhận/trả phòng bạn chọn.");
         }
 
         if ((normalized.contains("tien nghi") || normalized.contains("tien ich") || normalized.contains("co gi"))
@@ -398,9 +440,9 @@ public class ChatBotService {
                             + rt.getTypeName()
                             + ": "
                             + Optional.ofNullable(rt.getDescription()).orElse("")
-                            + " Giá hiện tại "
-                            + rt.getPrice()
-                            + "/giờ. Để kiểm tra còn phòng chính xác, bạn vui lòng gửi ngày và giờ nhận/trả phòng.");
+                            + " "
+                            + formatRoomRateSummary(rt)
+                            + ". Để kiểm tra còn phòng và giá chính xác, bạn vui lòng gửi ngày và giờ nhận/trả phòng.");
         }
 
         if (normalized.contains("view bien")) {
@@ -431,9 +473,8 @@ public class ChatBotService {
     }
 
     private String formatRoomTypeDetail(RoomTypeResponse roomType) {
-        RoomTypeRatingResponse rating = getRoomTypeRatingFromApi(roomType.getId()).orElse(null);
-        long reviewCount = rating == null ? 0L : rating.getTotalReviews();
-        Double averageRating = rating == null ? null : rating.getAverageRating();
+        long reviewCount = Optional.ofNullable(roomType.getTotalReviews()).orElse(0L);
+        Double averageRating = roomType.getAverageRating();
 
         List<String> imageUrls = collectRoomTypeImageUrls(roomType);
 
@@ -442,9 +483,9 @@ public class ChatBotService {
                 .append(roomType.getTypeName())
                 .append(":\n");
 
-        answer.append("- Giá hiện tại: ")
-                .append(roomType.getPrice())
-                .append("/giờ.\n");
+        answer.append("- Giá tham khảo: ")
+                .append(formatRoomRateSummary(roomType))
+                .append(". Giá chính xác phụ thuộc thời gian nhận/trả phòng.\n");
 
         answer.append("- Mô tả: ")
                 .append(Optional.ofNullable(roomType.getDescription())
@@ -469,7 +510,7 @@ public class ChatBotService {
             imageUrls.forEach(url -> answer.append("  + ").append(url).append("\n"));
         }
 
-        answer.append("Lưu ý: trạng thái AVAILABLE ở trên là trạng thái hiện tại, để biết còn phòng chính xác theo ngày/giờ bạn hãy hỏi kèm thời gian nhận và trả phòng.");
+        answer.append("Lưu ý: để biết còn phòng và giá chính xác, bạn hãy hỏi kèm thời gian nhận và trả phòng.");
         return answer.toString().trim();
     }
 
@@ -488,19 +529,6 @@ public class ChatBotService {
                     .ifPresent(imageUrls::add);
         }
 
-        String normalizedRoomTypeName = normalizeForMatching(roomType.getTypeName());
-
-        getGalleriesFromApi().stream()
-                .filter(gallery -> gallery.getImageUrl() != null && !gallery.getImageUrl().isBlank())
-                .filter(gallery -> {
-                    String title = normalizeForMatching(Optional.ofNullable(gallery.getTitle()).orElse(""));
-                    return !title.isBlank()
-                            && (title.contains(normalizedRoomTypeName)
-                            || normalizedRoomTypeName.contains(title));
-                })
-                .map(GalleryResponse::getImageUrl)
-                .forEach(imageUrls::add);
-
         if (roomType.getFacilities() != null) {
             roomType.getFacilities().stream()
                     .map(FacilityResponse.Summary::getImageUrl)
@@ -514,6 +542,27 @@ public class ChatBotService {
                 .distinct()
                 .limit(5)
                 .toList();
+    }
+
+    private BigDecimal getComparableRoomRate(RoomTypeResponse roomType) {
+        if (roomType.getOvernightPrice() != null) return roomType.getOvernightPrice();
+        if (roomType.getDailyPrice() != null) return roomType.getDailyPrice();
+        if (roomType.getPrice() != null) return roomType.getPrice();
+        return new BigDecimal("999999999999");
+    }
+
+    private String formatRoomRateSummary(RoomTypeResponse roomType) {
+        List<String> rates = new ArrayList<>();
+        if (roomType.getOvernightPrice() != null) {
+            rates.add("qua đêm " + formatVnd(roomType.getOvernightPrice()));
+        }
+        if (roomType.getDailyPrice() != null) {
+            rates.add("ngày đêm " + formatVnd(roomType.getDailyPrice()));
+        }
+        if (rates.isEmpty() && roomType.getPrice() != null) {
+            rates.add("giá tham khảo " + formatVnd(roomType.getPrice()));
+        }
+        return rates.isEmpty() ? "vui lòng chọn thời gian để kiểm tra giá" : String.join("; ", rates);
     }
 
     private Optional<String> answerFacilityQuestion(String normalized, List<FacilityResponse> facilities) {
@@ -1196,30 +1245,6 @@ public class ChatBotService {
         ).orElseGet(List::of);
     }
 
-    private Optional<RoomTypeRatingResponse> getRoomTypeRatingFromApi(Long roomTypeId) {
-        if (roomTypeId == null) {
-            return Optional.empty();
-        }
-
-        return getApiData(
-                "/api/reviews/room-type/rating/" + roomTypeId,
-                new ParameterizedTypeReference<ApiResponse<RoomTypeRatingResponse>>() {
-                }
-        );
-    }
-
-    private List<ReviewResponse> getReviewsByRoomTypeFromApi(Long roomTypeId) {
-        if (roomTypeId == null) {
-            return List.of();
-        }
-
-        return getApiData(
-                "/api/reviews/room-type/" + roomTypeId,
-                new ParameterizedTypeReference<ApiResponse<List<ReviewResponse>>>() {
-                }
-        ).orElseGet(List::of);
-    }
-
     private List<AvailabilityResponse> getAvailabilityFromApi(LocalDateTime checkIn, LocalDateTime checkOut) {
         return getApiData(
                 uriBuilder -> uriBuilder
@@ -1253,7 +1278,7 @@ public class ChatBotService {
                     .uri(uriFunction)
                     .retrieve()
                     .bodyToMono(responseType)
-                    .block(Duration.ofSeconds(10));
+                    .block(Duration.ofSeconds(chatbotApiTimeoutSeconds > 0 ? chatbotApiTimeoutSeconds : 4));
 
             return Optional.ofNullable(response).map(ApiResponse::getData);
         } catch (Exception e) {
@@ -1344,16 +1369,15 @@ public class ChatBotService {
         sb.append("===== ROOM TYPES =====\n");
 
         roomTypes.forEach(rt -> {
-                    RoomTypeRatingResponse rating = getRoomTypeRatingFromApi(rt.getId()).orElse(null);
-                    long reviewCount = rating == null ? 0L : rating.getTotalReviews();
-                    Double averageRating = rating == null ? null : rating.getAverageRating();
+                    long reviewCount = Optional.ofNullable(rt.getTotalReviews()).orElse(0L);
+                    Double averageRating = rt.getAverageRating();
 
                     sb.append("Loại phòng: ")
                             .append(rt.getTypeName())
                             .append("\n");
 
-                    sb.append("Giá: ")
-                            .append(rt.getPrice())
+                    sb.append("Giá tham khảo: ")
+                            .append(formatRoomRateSummary(rt))
                             .append("\n");
 
                     sb.append("Mô tả: ")
@@ -1430,30 +1454,8 @@ public class ChatBotService {
                     .append(" ảnh đầu tiên.\n\n");
         }
 
-        sb.append("===== RECENT PUBLIC REVIEWS =====\n");
-
-        roomTypes.forEach(rt ->
-                        getReviewsByRoomTypeFromApi(rt.getId())
-                                .stream()
-                                .limit(3)
-                                .forEach(review -> {
-
-                                    sb.append("Loại phòng: ")
-                                            .append(rt.getTypeName())
-                                            .append("\n");
-
-                                    sb.append("Số sao: ")
-                                            .append(review.getRating())
-                                            .append("/5")
-                                            .append("\n");
-
-                                    sb.append("Nhận xét: ")
-                                            .append(Optional.ofNullable(review.getComment())
-                                                    .filter(comment -> !comment.isBlank())
-                                                    .orElse("(không có nhận xét)"))
-                                            .append("\n\n");
-                                })
-                );
+        sb.append("===== PUBLIC REVIEW SUMMARY =====\n");
+        sb.append("Đánh giá chỉ dùng số điểm trung bình và tổng lượt đã có sẵn trong dữ liệu loại phòng; không tải bình luận cá nhân vào prompt.\n");
 
         return sb.toString();
     }
@@ -1504,7 +1506,7 @@ public class ChatBotService {
                             .bodyValue(request)
                             .retrieve()
                             .bodyToMono(GeminiResponse.class)
-                            .block(Duration.ofSeconds(20));
+                            .block(Duration.ofSeconds(geminiApiTimeoutSeconds > 0 ? geminiApiTimeoutSeconds : 10));
 
             if (response == null) {
                 log.error("Gemini API returned null response");
