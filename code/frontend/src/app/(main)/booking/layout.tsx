@@ -1,7 +1,17 @@
 import type { Metadata } from "next";
 
+const title = "Thanh toán đặt phòng";
+const description = "Xác nhận thông tin khách, lựa chọn thanh toán và hoàn tất đặt phòng tại Luxury Hotel.";
+
 export const metadata: Metadata = {
-  title: "Thanh toán đặt phòng",
+  title,
+  description,
+  alternates: { canonical: "/booking" },
+  openGraph: {
+    title,
+    description,
+    url: "/booking",
+  },
   robots: { index: false, follow: false },
 };
 
