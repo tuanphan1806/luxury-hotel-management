@@ -57,6 +57,11 @@ public SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         AuthenticationManager authenticationManager
 ) throws Exception {
+    // API authentication is carried by an Authorization bearer token, not an
+    // ambient session cookie. The only credential cookie is the HttpOnly
+    // refresh token; production keeps it Secure + SameSite=Lax and the browser
+    // reaches this service through the same-origin /backend_proxy. Keep this
+    // threat-model comment with the intentional stateless CSRF decision.
     http.cors(Customizer.withDefaults())
         .csrf(AbstractHttpConfigurer::disable)
         .authorizeHttpRequests(request -> request

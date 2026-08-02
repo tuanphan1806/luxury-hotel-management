@@ -58,6 +58,7 @@ import com.hotel.backend.service.StayWindowValidationService;
 import com.hotel.backend.service.CashierShiftService;
 import com.hotel.backend.service.FinancialJournalService;
 import com.hotel.backend.util.PaymentUtil;
+import com.hotel.backend.util.EmailFormatValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -2471,10 +2472,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     }
 
     private boolean isValidEmail(String value) {
-        if (!hasText(value)) return true;
-        String normalized = value.trim();
-        return normalized.length() <= 254
-                && normalized.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+        return EmailFormatValidator.isValidOptional(value);
     }
 
     private void validateCheckInTime(

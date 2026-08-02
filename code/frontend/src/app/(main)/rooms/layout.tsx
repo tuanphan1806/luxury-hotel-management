@@ -6,9 +6,11 @@ const description = "Khám phá các hạng phòng, tiện nghi, sức chứa v�
 export const metadata: Metadata = {
   title,
   description,
+  alternates: { canonical: "/rooms" },
   openGraph: {
     title,
     description,
+    url: "/rooms",
   },
 };
 
