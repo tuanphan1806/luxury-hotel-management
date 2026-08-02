@@ -25,6 +25,7 @@ remain evidence only for the revisions on which they were produced.
 | Frontend TypeScript | PASS — `tsc --noEmit` |
 | Frontend unit suite | PASS — 75 tests in 17 files |
 | Frontend production build | PASS — 47 routes generated |
+| Frontend dependency audit | PASS — production and development trees have no known high-severity vulnerability |
 | Diff hygiene | PASS — no whitespace errors; Windows LF/CRLF notices are informational |
 
 ## Findings closed
@@ -36,6 +37,9 @@ remain evidence only for the revisions on which they were produced.
   requires status checks to pass before merge. No bypass actor is configured.
 - GitHub Dependency Graph, Dependabot alerts, malware alerts and Dependabot
   security updates are enabled.
+- The stale root workspace/lockfile was removed; CI and Vercel use the single
+  canonical `code/frontend/pnpm-lock.yaml`. The remaining dev-only
+  `brace-expansion` advisory was upgraded to 1.1.17 and the full audit is clean.
 - CodeQL default setup is enabled for GitHub Actions, Java/Kotlin and
   JavaScript/TypeScript. The first complete scan must finish before making its
   result a required merge check, otherwise all merges could be blocked without
