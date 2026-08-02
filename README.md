@@ -79,6 +79,18 @@ For source-level development with hot reload, start only PostgreSQL with
 `docker compose up -d postgres`, then run Spring Boot and Next.js from their
 respective `code/backend` and `code/frontend` directories.
 
+The logical `postgres-data` volume intentionally reuses the legacy physical
+volume `backend_postgres-data` so an existing local database is not replaced.
+Docker Compose may therefore warn that the volume was created by the older
+`backend` project; this is a compatibility notice, not a migration failure.
+Never delete or rename that volume merely to silence the warning. The clean
+database gate is the isolated PostgreSQL 16 Testcontainers profile:
+
+```powershell
+Set-Location code/backend
+.\mvnw.cmd -Ppostgres-migration-test verify
+```
+
 Demo users are available only when the development seed flags are enabled.
 Set `APP_SEED_DEMO_SCENARIOS_ENABLED=true` in `code/backend/.env` to create an
 idempotent local reservation/accounting dataset after master data and demo

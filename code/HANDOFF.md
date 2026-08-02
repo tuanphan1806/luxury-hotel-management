@@ -6,6 +6,29 @@
 
 ## Production release candidate — 2026-07-26
 
+- Release-readiness refresh 2026-08-02 on branch
+  `fix/release-readiness-20260802`: backend/Flyway PostgreSQL gate passes 522
+  unit tests plus 27 integration tests; frontend passes ESLint, explicit
+  TypeScript checking, 71 unit tests and a 47-route production build.
+- Vercel Native Deployment Checks `Lint` and `Typecheck` are configured as
+  blocking production promotion checks. GitHub ruleset is prepared with
+  required `Branch policy`, `Backend and PostgreSQL 16`, `Frontend` checks and
+  up-to-date branches; GitHub still requires the repository owner to complete
+  the open re-authentication dialog before the ruleset save is durable.
+- Booking keeps the action available and shows an explicit inline error when
+  terms have not been accepted. Reservation search
+  preserves an invalid check-out value, explains the validation failure and
+  clears stale availability instead of silently restoring defaults.
+- Chatbot public FAQ no longer performs unconditional catalog/N+1 review
+  requests, has bounded internal/Gemini timeouts and returns deterministic
+  room-package pricing for common room-tier questions. Production previously
+  reproduced a ~57-second 502; deploy and repeat the same browser check before
+  marking the live chatbot fixed.
+- Production auth remains first-party through Vercel `/backend_proxy`, so
+  `Secure` + `SameSite=Lax` is the canonical cookie topology. `None` is only
+  valid if the browser is deliberately changed to call Render cross-site and
+  the entire login/refresh/logout/OAuth matrix is rerun.
+
 - Production verification was refreshed on 2026-07-30 at deployed ref
   `87e9b3c`: ADMIN/STAFF role boundaries, cash walk-in/check-out, invoice,
   audit and financial journal were checked directly in the deployed UI.

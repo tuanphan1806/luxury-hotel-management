@@ -15,6 +15,7 @@
     "build:clean": "pnpm run clean && pnpm run build",
     "start": "next start",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "typecheck": "tsc --noEmit",
     "test": "pnpm run test:unit",
     "test:unit": "vitest run",
     "test:e2e": "playwright test"
