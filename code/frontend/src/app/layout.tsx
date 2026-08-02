@@ -29,6 +29,9 @@ export const metadata: Metadata = {
   },
   description: siteConfig.description,
   applicationName: siteConfig.name,
+  alternates: {
+    canonical: "/",
+  },
   keywords: ["khách sạn", "đặt phòng", "Luxury Hotel", "SePay", "VietQR", "hotel booking"],
   icons: {
     icon: "/favicon.png",
@@ -40,6 +43,7 @@ export const metadata: Metadata = {
     siteName: siteConfig.name,
     title: `${siteConfig.name} | Đặt phòng trực tuyến`,
     description: siteConfig.description,
+    url: "/",
     images: [{ url: siteConfig.image, width: 1024, height: 1024, alt: siteConfig.name }],
   },
   twitter: {

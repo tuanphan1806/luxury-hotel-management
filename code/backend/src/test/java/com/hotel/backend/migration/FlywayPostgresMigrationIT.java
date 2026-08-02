@@ -35,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "32";
+    private static final String LATEST_VERSION = "33";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -175,6 +175,13 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_work_shift_registration_month");
             assertIndex(connection, "idx_work_shift_registration_employee");
             assertIndex(connection, "idx_work_schedule_active_date_template");
+            assertIndex(connection, "idx_work_schedule_shift_template");
+            assertIndex(connection, "idx_cash_movement_payment");
+            assertIndex(connection, "idx_cash_movement_refund");
+            assertIndex(connection, "idx_checkout_reconciliation_requester");
+            assertIndex(connection, "idx_checkout_reconciliation_resolver");
+            assertIndex(connection, "idx_pricing_quote_lines_room_type");
+            assertIndex(connection, "idx_pricing_quote_lines_rate_profile");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_users_username_not_blank_and_trimmed");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
@@ -233,6 +240,10 @@ class FlywayPostgresMigrationIT {
             assertScalar(connection,
                     "SELECT count(*)::text FROM work_shift_templates WHERE active = true",
                     "3");
+            assertScalar(connection,
+                    "SELECT count(*)::text FROM pg_constraint "
+                            + "WHERE connamespace = 'public'::regnamespace AND NOT convalidated",
+                    "0");
         }
 
         assertCanonicalFixedWidthMappings();

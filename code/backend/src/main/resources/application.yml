@@ -205,11 +205,6 @@ openapi:
     server: ${BACKEND_BASE_URL:http://localhost:${server.port:8080}}
     title: Backend service
     version: 1.0.0
-chatbot:
-  # Đây là self-call trong cùng Spring process; không hairpin qua public Render URL.
-  api-base-url: ${CHATBOT_API_BASE_URL:http://127.0.0.1:${server.port:8080}}
-  # Giới hạn self-API để proxy không treo lâu khi Render/Neon vừa cold-start.
-  api-timeout-seconds: ${CHATBOT_API_TIMEOUT_SECONDS:4}
 gemini:
   api:
     # Optional: deterministic FAQ/database answers still work without Gemini.

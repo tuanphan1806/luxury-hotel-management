@@ -6,7 +6,8 @@ const description = "Tìm hiểu cách Luxury Hotel chuẩn bị hành trình l�
 export const metadata: Metadata = {
   title,
   description,
-  openGraph: { title, description },
+  alternates: { canonical: "/about" },
+  openGraph: { title, description, url: "/about" },
 };
 
 export default function AboutRouteLayout({ children }: Readonly<{ children: React.ReactNode }>) {

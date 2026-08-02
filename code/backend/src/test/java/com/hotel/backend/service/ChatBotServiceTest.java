@@ -4,6 +4,7 @@ import com.hotel.backend.constant.StayPackage;
 import com.hotel.backend.dto.response.ChatResponse;
 import com.hotel.backend.dto.response.AvailabilityResponse;
 import com.hotel.backend.dto.response.RoomTypeResponse;
+import com.hotel.backend.service.chatbot.ChatbotPublicDataGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -14,10 +15,36 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ChatBotServiceTest {
 
-    private final ChatBotService service = new ChatBotService(WebClient.builder());
+    private final ChatbotPublicDataGateway publicDataGateway = mock(ChatbotPublicDataGateway.class);
+    private final ChatBotService service = new ChatBotService(
+            WebClient.builder(),
+            publicDataGateway
+    );
+
+    @Test
+    void roomCatalogQuestionUsesInProcessPublicDataGateway() {
+        when(publicDataGateway.getRoomTypes()).thenReturn(List.of(
+                RoomTypeResponse.builder()
+                        .id(1L)
+                        .typeName("Phòng tiêu chuẩn")
+                        .overnightPrice(new BigDecimal("170000"))
+                        .dailyPrice(new BigDecimal("300000"))
+                        .build()
+        ));
+
+        ChatResponse response = service.askWithAction(
+                "Khách sạn có phòng tiêu chuẩn không?",
+                "chat-gateway-test"
+        );
+
+        assertTrue(response.getAnswer().contains("Phòng tiêu chuẩn"));
+        assertTrue(response.getAnswer().contains("170.000 đ"));
+    }
 
     @Test
     void bookingWithoutStayTimeContinuesConversationInsteadOfGuessing() {
