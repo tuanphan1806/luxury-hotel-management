@@ -1,7 +1,6 @@
 package com.hotel.backend.service;
 
 import com.hotel.backend.dto.request.RoomTypeItemRequest;
-import com.hotel.backend.dto.response.ApiResponse;
 import com.hotel.backend.dto.response.AvailabilityResponse;
 import com.hotel.backend.dto.response.ChatReservationPayload;
 import com.hotel.backend.dto.response.ChatResponse;
@@ -9,11 +8,11 @@ import com.hotel.backend.dto.response.FacilityResponse;
 import com.hotel.backend.dto.response.GalleryResponse;
 import com.hotel.backend.dto.response.RoomTypeResponse;
 import com.hotel.backend.service.chatbot.ChatInputPolicy;
+import com.hotel.backend.service.chatbot.ChatbotPublicDataGateway;
 import com.hotel.backend.service.chatbot.InMemoryChatRateLimiter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -78,12 +77,6 @@ public class ChatBotService {
     @Value("${gemini.api.key:}")
     private String apiKey;
 
-    @Value("${chatbot.api-base-url:http://localhost:${server.port:8080}}")
-    private String chatbotApiBaseUrl;
-
-    @Value("${chatbot.api-timeout-seconds:4}")
-    private long chatbotApiTimeoutSeconds;
-
     @Value("${gemini.api.timeout-seconds:10}")
     private long geminiApiTimeoutSeconds;
 
@@ -94,6 +87,7 @@ public class ChatBotService {
     private String publicCheckOutTime;
 
     private final WebClient.Builder webClientBuilder;
+    private final ChatbotPublicDataGateway publicDataGateway;
 
     public String ask(String question) {
         return ask(question, "unknown");
@@ -246,7 +240,7 @@ public class ChatBotService {
         boolean roomTypeQuestion = looksLikeRoomTypeQuestion(normalized);
 
         if (facilityQuestion) {
-            List<FacilityResponse> facilities = getFacilitiesFromApi();
+            List<FacilityResponse> facilities = loadFacilities();
             Optional<String> facilityAnswer = answerFacilityQuestion(normalized, facilities);
             if (facilityAnswer.isPresent()) {
                 return facilityAnswer;
@@ -257,7 +251,7 @@ public class ChatBotService {
         }
 
         if (roomTypeQuestion) {
-            List<RoomTypeResponse> roomTypes = getRoomTypesFromApi();
+            List<RoomTypeResponse> roomTypes = loadRoomTypes();
             Optional<String> roomTypeAnswer = answerRoomTypeQuestion(question, normalized, roomTypes);
             if (roomTypeAnswer.isPresent()) {
                 return roomTypeAnswer;
@@ -392,6 +386,17 @@ public class ChatBotService {
                     + ": "
                     + formatRoomRateSummary(rt)
                     + ". Giá chính xác được tính theo thời gian nhận/trả phòng bạn chọn.");
+        }
+
+        if (requestedRoomType.isPresent()
+                && (normalized.contains("co phong") || normalized.contains("co loai")
+                || normalized.contains("co hang"))) {
+            RoomTypeResponse rt = requestedRoomType.get();
+            return Optional.of("Khách sạn có hạng "
+                    + rt.getTypeName()
+                    + " với "
+                    + formatRoomRateSummary(rt)
+                    + ". Để biết còn phòng và giá chính xác, bạn vui lòng gửi đủ ngày/giờ nhận và trả phòng.");
         }
 
         if ((normalized.contains("tien nghi") || normalized.contains("tien ich") || normalized.contains("co gi"))
@@ -684,7 +689,7 @@ public class ChatBotService {
         }
 
         try {
-            List<AvailabilityResponse> availability = getAvailabilityFromApi(checkIn, checkOut);
+            List<AvailabilityResponse> availability = loadAvailability(checkIn, checkOut);
             if (hasApiFetchErrors()) {
                 return Optional.of(answerOnly(formatApiFetchErrorAnswer("dữ liệu phòng trống")));
             }
@@ -1221,69 +1226,31 @@ public class ChatBotService {
                 .anyMatch(name -> name.contains(normalizedFacilityName));
     }
 
-    private List<RoomTypeResponse> getRoomTypesFromApi() {
-        return getApiData(
-                "/api/room-types",
-                new ParameterizedTypeReference<ApiResponse<List<RoomTypeResponse>>>() {
-                }
-        ).orElseGet(List::of);
+    private List<RoomTypeResponse> loadRoomTypes() {
+        return loadPublicData(publicDataGateway::getRoomTypes, "room types");
     }
 
-    private List<FacilityResponse> getFacilitiesFromApi() {
-        return getApiData(
-                "/api/facilities",
-                new ParameterizedTypeReference<ApiResponse<List<FacilityResponse>>>() {
-                }
-        ).orElseGet(List::of);
+    private List<FacilityResponse> loadFacilities() {
+        return loadPublicData(publicDataGateway::getFacilities, "facilities");
     }
 
-    private List<GalleryResponse> getGalleriesFromApi() {
-        return getApiData(
-                "/api/galleries",
-                new ParameterizedTypeReference<ApiResponse<List<GalleryResponse>>>() {
-                }
-        ).orElseGet(List::of);
+    private List<GalleryResponse> loadGalleries() {
+        return loadPublicData(publicDataGateway::getGalleries, "galleries");
     }
 
-    private List<AvailabilityResponse> getAvailabilityFromApi(LocalDateTime checkIn, LocalDateTime checkOut) {
-        return getApiData(
-                uriBuilder -> uriBuilder
-                        .path("/api/reservations/availability")
-                        .queryParam("checkIn", checkIn)
-                        .queryParam("checkOut", checkOut)
-                        .build(),
-                new ParameterizedTypeReference<ApiResponse<List<AvailabilityResponse>>>() {
-                },
-                "/api/reservations/availability"
-        ).orElseGet(List::of);
+    private List<AvailabilityResponse> loadAvailability(LocalDateTime checkIn, LocalDateTime checkOut) {
+        return loadPublicData(
+                () -> publicDataGateway.getAvailability(checkIn, checkOut),
+                "reservation availability"
+        );
     }
 
-    private <T> Optional<T> getApiData(
-            String path,
-            ParameterizedTypeReference<ApiResponse<T>> responseType
-    ) {
-        return getApiData(uriBuilder -> uriBuilder.path(path).build(), responseType, path);
-    }
-
-    private <T> Optional<T> getApiData(
-            java.util.function.Function<org.springframework.web.util.UriBuilder, java.net.URI> uriFunction,
-            ParameterizedTypeReference<ApiResponse<T>> responseType,
-            String source
-    ) {
+    private <T> List<T> loadPublicData(java.util.function.Supplier<List<T>> loader, String source) {
         try {
-            ApiResponse<T> response = webClientBuilder
-                    .baseUrl(chatbotApiBaseUrl)
-                    .build()
-                    .get()
-                    .uri(uriFunction)
-                    .retrieve()
-                    .bodyToMono(responseType)
-                    .block(Duration.ofSeconds(chatbotApiTimeoutSeconds > 0 ? chatbotApiTimeoutSeconds : 4));
-
-            return Optional.ofNullable(response).map(ApiResponse::getData);
+            return Optional.ofNullable(loader.get()).orElseGet(List::of);
         } catch (Exception e) {
             recordApiFetchError(source, e);
-            return Optional.empty();
+            return List.of();
         }
     }
 
@@ -1364,7 +1331,7 @@ public class ChatBotService {
         sb.append("- Không được tiết lộ tên/số phòng vật lý cụ thể, tầng cụ thể, phòng nào đang có khách, hoặc tình trạng dọn dẹp từng phòng.\n");
         sb.append("- Không có dữ liệu public về địa chỉ, số điện thoại, chính sách hủy, phụ thu, khuyến mãi hoặc giờ nhận/trả phòng nếu không xuất hiện ở các mục bên dưới.\n\n");
 
-        List<RoomTypeResponse> roomTypes = getRoomTypesFromApi();
+        List<RoomTypeResponse> roomTypes = loadRoomTypes();
 
         sb.append("===== ROOM TYPES =====\n");
 
@@ -1409,7 +1376,7 @@ public class ChatBotService {
 
         sb.append("===== FACILITIES =====\n");
 
-        getFacilitiesFromApi()
+        loadFacilities()
                 .forEach(f -> {
 
                     sb.append("Tên tiện nghi: ")
@@ -1427,7 +1394,7 @@ public class ChatBotService {
 
         sb.append("\n===== GALLERY =====\n");
 
-        List<GalleryResponse> galleries = getGalleriesFromApi();
+        List<GalleryResponse> galleries = loadGalleries();
 
         galleries.stream()
                 .limit(MAX_GALLERY_ITEMS_IN_CONTEXT)

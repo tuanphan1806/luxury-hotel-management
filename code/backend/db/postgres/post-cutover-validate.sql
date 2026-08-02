@@ -127,6 +127,30 @@ ALTER TABLE payment_transactions
 ALTER TABLE payment_refunds
     VALIDATE CONSTRAINT chk_payment_refunds_amounts_nonnegative;
 
+ALTER TABLE reservation_audit_logs
+    VALIDATE CONSTRAINT chk_audit_old_value_object;
+ALTER TABLE reservation_audit_logs
+    VALIDATE CONSTRAINT chk_audit_new_value_object;
+ALTER TABLE reservation_audit_logs
+    VALIDATE CONSTRAINT chk_audit_detail_object;
+ALTER TABLE reservation_audit_logs
+    VALIDATE CONSTRAINT chk_audit_risk_level;
+ALTER TABLE payment_refunds
+    VALIDATE CONSTRAINT chk_payment_refunds_detail_object;
+
+ALTER TABLE room_rate_profiles
+    VALIDATE CONSTRAINT chk_room_rate_profile_whole_vnd;
+ALTER TABLE service_catalog
+    VALIDATE CONSTRAINT chk_service_catalog_whole_vnd;
+ALTER TABLE room_types
+    VALIDATE CONSTRAINT chk_room_types_price_whole_vnd;
+ALTER TABLE reservation_room_types
+    VALIDATE CONSTRAINT chk_rrt_minimum_one_guest_per_room;
+ALTER TABLE pricing_quote_lines
+    VALIDATE CONSTRAINT chk_pricing_quote_minimum_one_guest_per_room;
+ALTER TABLE reservation_rate_snapshots
+    VALIDATE CONSTRAINT chk_rate_snapshot_minimum_one_guest_per_room;
+
 -- Final operator-visible summary.
 SELECT version, description, success
 FROM flyway_schema_history

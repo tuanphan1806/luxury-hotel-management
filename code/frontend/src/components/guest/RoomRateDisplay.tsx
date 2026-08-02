@@ -14,11 +14,15 @@ export interface PublicRoomRate {
   overnightPrice?: number | null;
   dailyPrice?: number | null;
   extraGuestPrice?: number | null;
+  estimatedPricePerRoom?: number | null;
+  estimatedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY" | null;
+  totalHours?: number | null;
 }
 
 interface RoomRateCompactProps {
   rate: PublicRoomRate;
   className?: string;
+  display?: "published" | "stay-estimate";
 }
 
 interface RoomRatePanelProps {
@@ -46,23 +50,60 @@ const formatVND = (value?: number | string | null) => {
 export const comparablePublicRoomPrice = (rate: PublicRoomRate) =>
   publicRateAmount(rate.overnightPrice) ?? 0;
 
-export function RoomRateCompact({ rate, className = "" }: RoomRateCompactProps) {
-  const { localize } = useLanguage();
-  const overnightPrice = publicRateAmount(rate.overnightPrice);
+export const compactStayRate = (
+  rate: PublicRoomRate,
+  display: RoomRateCompactProps["display"] = "published",
+) => {
+  if (display === "stay-estimate") {
+    const amount = publicRateAmount(rate.estimatedPricePerRoom);
+    if (amount != null && rate.estimatedPackage) {
+      return {
+        amount,
+        packageCode: rate.estimatedPackage,
+        totalHours: publicRateAmount(rate.totalHours),
+      };
+    }
+  }
 
-  if (overnightPrice == null) {
+  const amount = publicRateAmount(rate.overnightPrice);
+  return amount == null
+    ? null
+    : { amount, packageCode: "OVERNIGHT" as const, totalHours: undefined };
+};
+
+export function RoomRateCompact({ rate, className = "", display = "published" }: RoomRateCompactProps) {
+  const { localize } = useLanguage();
+  const compactRate = compactStayRate(rate, display);
+
+  if (!compactRate) {
     return null;
   }
+
+  const packageLabel = compactRate.packageCode === "HOURLY"
+    ? localize("Nghỉ giờ", "Hourly stay")
+    : compactRate.packageCode === "DAILY"
+      ? localize("Ngày đêm", "Daily stay")
+      : localize("Qua đêm", "Overnight stay");
+  const note = display === "stay-estimate"
+    ? [
+        compactRate.totalHours != null
+          ? localize(`${compactRate.totalHours} giờ`, `${compactRate.totalHours} hours`)
+          : null,
+        packageLabel,
+      ].filter(Boolean).join(" · ")
+    : "20:00–08:00";
 
   return (
     <div className={`min-w-[10.5rem] rounded-xl border border-white/75 bg-[#FBFAF6]/96 px-3.5 py-2.5 text-[#0F2A43] shadow-[0_10px_28px_rgba(9,30,48,0.18)] backdrop-blur-sm ${className}`}>
       <p className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#80632F]">
-        {localize("Giá qua đêm", "Overnight rate")}
+        {display === "stay-estimate"
+          ? localize("Giá kỳ lưu trú", "Selected stay price")
+          : localize("Giá qua đêm", "Overnight rate")}
       </p>
       <strong className="mt-0.5 block font-sans text-lg font-extrabold tabular-nums tracking-[-0.02em]">
-        {formatVND(overnightPrice)}
+        {formatVND(compactRate.amount)}
       </strong>
-      <p className="mt-1 text-[9px] font-bold text-[#66727C]">20:00–08:00</p>
+      <p className="mt-1 text-[9px] font-bold text-[#66727C]">{note}</p>
     </div>
   );
 }

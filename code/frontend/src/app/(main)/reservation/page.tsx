@@ -627,6 +627,7 @@ export default function ReservationPage() {
                   )}
                   <RoomRateCompact
                     rate={room}
+                    display="stay-estimate"
                     className="absolute right-4 top-4"
                   />
                 </div>
