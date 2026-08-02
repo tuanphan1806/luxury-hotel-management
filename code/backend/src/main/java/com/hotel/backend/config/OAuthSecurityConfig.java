@@ -62,6 +62,10 @@ public class OAuthSecurityConfig {
             OAuth2AuthorizedClientService authorizedClientService,
             OAuthAuthenticationSuccessHandler successHandler,
             OAuthAuthenticationFailureHandler failureHandler) throws Exception {
+        // These endpoints implement the OAuth redirect handshake. Spring
+        // Security validates the provider state parameter; they do not expose
+        // cookie-authenticated business mutations. CSRF is therefore disabled
+        // only on this dedicated, ordered filter chain.
         http.securityMatcher("/oauth2/**", "/login/oauth2/**")
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
