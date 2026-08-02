@@ -10,7 +10,7 @@ export default function robots(): MetadataRoute.Robots {
         "/dashboard",
         "/account",
         "/my-bookings",
-        "/booking/",
+        "/booking",
         "/reservation",
         "/login",
         "/signup",
