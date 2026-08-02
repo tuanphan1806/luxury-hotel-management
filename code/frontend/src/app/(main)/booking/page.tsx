@@ -915,13 +915,13 @@ function BookingFormContent() {
                           <p className="font-medium text-text-dark mt-0.5">{bookingData.checkInDate}</p>
                         </div>
                         <div>
-                          <p className="text-[10px] text-text-light font-bold uppercase tracking-wider">Trả phòng</p>
+                          <p className="text-[10px] text-text-light font-bold uppercase tracking-wider">{localize("Trả phòng", "Check-out")}</p>
                           <p className="font-medium text-text-dark mt-0.5">{bookingData.checkOutDate}</p>
                         </div>
                       </div>
                       <div>
-                        <p className="text-[10px] text-text-light font-bold uppercase tracking-wider">Số khách</p>
-                        <p className="font-medium text-text-dark mt-0.5">{bookingData.adultsCount} người lớn, {bookingData.childrenCount} trẻ em</p>
+                        <p className="text-[10px] text-text-light font-bold uppercase tracking-wider">{localize("Số khách", "Guests")}</p>
+                        <p className="font-medium text-text-dark mt-0.5">{bookingData.adultsCount} {localize("người lớn", "adults")}, {bookingData.childrenCount} {localize("trẻ em", "children")}</p>
                       </div>
                     </div>
                   </div>
@@ -933,7 +933,7 @@ function BookingFormContent() {
                   <div className="text-right">
                     <span className="text-xl sm:text-2xl font-bold text-accent-gold">{formatVND(total)}</span>
                     <p className="text-[10px] text-white/50 uppercase tracking-widest font-semibold mt-0.5">
-                      {paymentPlan === "PREPAY_100" ? "Thanh toán trước 100%" : "Đặt cọc 50%"}: {formatVND(amountDueNow)}
+                      {paymentPlan === "PREPAY_100" ? localize("Thanh toán trước 100%", "Pay 100% now") : localize("Đặt cọc 50%", "50% deposit")}: {formatVND(amountDueNow)}
                     </p>
                   </div>
                 </div>
@@ -1195,7 +1195,7 @@ function BookingFormContent() {
                     <div className="h-2.5 w-2.5 rounded-full bg-[#80632F]" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-primary-navy">Thanh toán QR</p>
+                    <p className="text-sm font-bold text-primary-navy">{localize("Thanh toán QR", "QR payment")}</p>
                     <p className="mt-0.5 text-[11px] font-medium text-text-light">
                       {localize("Quét mã bằng ứng dụng ngân hàng để chuyển khoản", "Scan with your banking app to transfer")}
                     </p>
@@ -1207,7 +1207,7 @@ function BookingFormContent() {
 
             <div className="space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
               <h3 className="border-b border-gray-100 pb-3 font-serif text-xl font-bold text-primary-navy">
-                Xác nhận điều khoản
+                {localize("Xác nhận điều khoản", "Accept the terms")}
               </h3>
               <p className="text-sm text-text-light font-medium leading-relaxed">
                 {localize(
@@ -1227,7 +1227,7 @@ function BookingFormContent() {
                   required
                 />
                 <span>
-                  Tôi đã đọc và đồng ý với các <Link href="/terms" className="text-accent-gold hover:underline">Điều khoản & Điều kiện</Link> và <Link href="/privacy" className="text-accent-gold hover:underline">Chính sách bảo mật</Link> của Luxury Hotel.
+                  {localize("Tôi đã đọc và đồng ý với", "I have read and agree to the")} <Link href="/terms" className="text-accent-gold hover:underline">{localize("Điều khoản & Điều kiện", "Terms & Conditions")}</Link> {localize("và", "and")} <Link href="/privacy" className="text-accent-gold hover:underline">{localize("Chính sách bảo mật", "Privacy Policy")}</Link> {localize("của Luxury Hotel.", "of Luxury Hotel.")}
                 </span>
               </label>
               {paymentError && (
@@ -1469,11 +1469,11 @@ function BookingFormContent() {
               )}
               {displayedAddOnTotal > 0 && <div className="flex justify-between text-text-light font-medium"><span>{localize("Dịch vụ thêm", "Add-on services")}</span><span>{formatVND(displayedAddOnTotal)}</span></div>}
               <div className="flex justify-between text-text-light font-medium">
-                <span>{paymentPlan === "PREPAY_100" ? "Thanh toán trước 100%" : "Đặt cọc 50%"}</span>
+                <span>{paymentPlan === "PREPAY_100" ? localize("Thanh toán trước 100%", "Pay 100% now") : localize("Đặt cọc 50%", "50% deposit")}</span>
                 <span>{formatVND(amountDueNow)}</span>
               </div>
               <div className="flex justify-between border-t border-gray-200 pt-3 text-base font-bold text-primary-navy">
-                <span>THANH TOÁN HÔM NAY</span>
+                <span>{localize("THANH TOÁN HÔM NAY", "DUE TODAY")}</span>
                 <span className="text-accent-gold">{formatVND(amountDueNow)}</span>
               </div>
             </div>
@@ -1492,7 +1492,7 @@ function BookingFormContent() {
             </button>
 
             <p className="text-center text-[10px] text-text-light font-medium">
-              Thanh toán thành công sẽ tạo đơn DRAFT; đơn chỉ được CONFIRMED sau khi khách sạn xác nhận.
+              {localize("Thanh toán thành công sẽ tạo đơn DRAFT; đơn chỉ được CONFIRMED sau khi khách sạn xác nhận.", "A successful payment creates a DRAFT reservation; it becomes CONFIRMED only after hotel approval.")}
             </p>
           </div>
 
@@ -1530,7 +1530,7 @@ function BookingFormContent() {
               <div className="flex items-end justify-between gap-4 border-b border-[#0F2A43]/10 pb-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#66727C]">{paymentPlan === "PREPAY_100" ? localize("Trả trước 100%", "Pay 100% now") : localize("Đặt cọc 50%", "50% deposit")}</p>
-                  <p className="mt-1 text-sm text-[#66727C]">Thanh toán QR</p>
+                  <p className="mt-1 text-sm text-[#66727C]">{localize("Thanh toán QR", "QR payment")}</p>
                 </div>
                 <strong className="text-xl tabular-nums text-[#80632F]">{formatVND(amountDueNow)}</strong>
               </div>

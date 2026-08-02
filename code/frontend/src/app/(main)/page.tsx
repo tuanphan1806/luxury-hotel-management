@@ -243,7 +243,7 @@ export default function HomePage() {
             <div className="mb-5 flex flex-wrap items-center gap-3 text-xs font-semibold text-[#D8C398]">
               <span className="uppercase tracking-[0.26em]">{localize("Đặt phòng trực tiếp", "Book direct")}</span>
               <span aria-hidden="true" className="h-px w-8 bg-[#B8944F]/70" />
-              <span className="flex items-center gap-2 text-white/76"><span className="h-2 w-2 rounded-full bg-emerald-400" /> Thanh toán QR</span>
+              <span className="flex items-center gap-2 text-white/76"><span className="h-2 w-2 rounded-full bg-emerald-400" /> {localize("Thanh toán QR", "QR payment")}</span>
             </div>
             <h1 className="font-serif text-[2.55rem] font-bold leading-[1.14] text-white sm:text-5xl lg:text-7xl">
               {localize("Một kỳ nghỉ được chuẩn bị chỉn chu từ trước.", "A stay thoughtfully prepared before you arrive.")}

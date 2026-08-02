@@ -20,8 +20,17 @@ URL mặc định sau deploy:
 - Frontend: `https://<vercel-project>.vercel.app`.
 - Backend: `https://<render-service>.onrender.com`.
 
-Hai URL khác site nên cookie refresh bắt buộc dùng `Secure` và `SameSite=None`.
-CORS chỉ allow-list đúng URL Vercel, không dùng `*`.
+Backend và frontend có hai URL hạ tầng khác nhau, nhưng trình duyệt **không gọi
+API xác thực trực tiếp sang Render**. Mọi request ứng dụng đi qua rewrite
+`/backend_proxy` của Vercel, vì vậy cookie refresh là first-party đối với origin
+frontend và production dùng `Secure` + `SameSite=Lax`. OAuth bắt đầu bằng điều
+hướng top-level tới backend rồi quay về frontend bằng exchange ticket dùng một
+lần; luồng này không phụ thuộc third-party cookie của domain Render.
+
+Chỉ chuyển sang `SameSite=None` khi chủ động bỏ proxy và cho browser gọi Render
+cross-site. Trường hợp đó bắt buộc `Secure`, CORS allow-list đúng URL Vercel và
+phải test lại login, refresh, logout, Google/Facebook OAuth trên browser thật.
+Không dùng `*` cho CORS.
 
 ## 1. Gate trước khi thao tác trên nền tảng
 
@@ -54,7 +63,16 @@ cache hoặc thay đổi chưa được review.
 - Render Blueprint dùng `autoDeployTrigger: checksPass`, vì vậy backend trên
   `main` chỉ deploy sau khi các GitHub checks của commit thành công.
 - Ruleset của GitHub chặn xóa/force-push, yêu cầu pull request, lịch sử tuyến
-  tính và chỉ cho phép squash hoặc rebase trên `develop`/`main`.
+  tính và chỉ cho phép squash hoặc rebase trên `develop`/`main`. Ruleset phải
+  bắt buộc ba status checks `Branch policy`, `Backend and PostgreSQL 16` và
+  `Frontend`, đồng thời bật “Require branches to be up to date before merging”.
+- Sau khi tạo ruleset, thử một pull request có check đỏ để xác nhận GitHub thật
+  sự chặn Merge; CI xanh đơn thuần chưa chứng minh branch protection hoạt động.
+- Trong Vercel > Project Settings > Build and Deployment > Deployment Checks,
+  bật hai Native Deployment Checks `Lint` và `Typecheck`, đồng thời đánh dấu cả
+  hai là blocking cho Production. Các check này giữ deployment chưa được gán
+  production domain nếu script tương ứng chưa pass; repository phải duy trì
+  scripts `lint` và `typecheck` trong `code/frontend/package.json`.
 - `hotfix/*` phải tách từ `main`, sau khi kiểm thử phải merge vào cả `main` và
   `develop` để hai nhánh không bị lệch.
 
@@ -101,7 +119,7 @@ nhân; không coi cửa sổ restore ngắn của free tier là backup duy nhấ
 
 ```dotenv
 BACKEND_INTERNAL_URL=https://placeholder.invalid
-NEXT_PUBLIC_API_URL=https://placeholder.invalid
+NEXT_PUBLIC_API_URL=/backend_proxy
 NEXT_PUBLIC_BACKEND_URL=https://placeholder.invalid
 NEXT_PUBLIC_SITE_URL=https://<vercel-project>.vercel.app
 HOTEL_NAME=Luxury Hotel
@@ -145,7 +163,7 @@ CORS_ALLOWED_ORIGINS=https://<vercel-project>.vercel.app
 ```dotenv
 SPRING_PROFILES_ACTIVE=prod
 AUTH_COOKIE_SECURE=true
-AUTH_COOKIE_SAME_SITE=None
+AUTH_COOKIE_SAME_SITE=Lax
 DB_POOL_MAX_SIZE=5
 DB_POOL_MIN_IDLE=0
 SPRING_DATA_JPA_REPOSITORIES_BOOTSTRAP_MODE=default
@@ -154,7 +172,9 @@ APP_UPLOAD_STORAGE=cloudinary
 APP_SEED_DEMO_USERS_ENABLED=false
 ```
 
-Pool và JVM đã được giảm để phù hợp giới hạn RAM của Render Free. Không tăng các
+Pool và JVM đã được giảm để phù hợp giới hạn RAM của Render Free. `SameSite=Lax`
+khớp kiến trúc proxy cùng origin mô tả ở đầu tài liệu; không đổi riêng biến này
+mà không đổi và kiểm thử lại toàn bộ topology auth. Không tăng các
 giá trị này nếu chưa xem log memory và connection của Neon.
 
 ### Đăng nhập Google/Facebook

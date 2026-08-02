@@ -30,6 +30,10 @@ services:
         value: Lax
       - key: OAUTH_EXCHANGE_TICKET_TTL_SECONDS
         value: "120"
+      - key: CHATBOT_API_TIMEOUT_SECONDS
+        value: "4"
+      - key: GEMINI_API_TIMEOUT_SECONDS
+        value: "10"
       - key: APP_UPLOAD_STORAGE
         value: cloudinary
       - key: APP_STATIC_MEDIA_MIGRATION_ENABLED

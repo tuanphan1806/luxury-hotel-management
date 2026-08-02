@@ -1,5 +1,12 @@
 # Full-system QA report
 
+> Current verification note (2026-08-02): the latest automated counts and
+> release-gate disposition are in
+> `docs/qa/release-readiness-2026-08-02.md` (522 backend unit + 27 PostgreSQL
+> integration tests, 71 frontend unit tests and 47 frontend routes). Counts
+> below are retained as evidence for the 2026-07-26/30 audited revision, not as
+> the current HEAD inventory.
+
 Status: AUTOMATED QA + PRODUCTION CASH UAT + NEON RESTORE COMPLETE; REAL-BANK/LOAD/EMAIL GATES PARTIAL
 Baseline date: 2026-07-26
 Audited branch/ref: `release/2026-07-26-system-hardening`, based on

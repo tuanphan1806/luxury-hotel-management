@@ -7,6 +7,7 @@ import {
   buildChatBookingUrl,
   type ChatBookingPayload,
 } from "@/lib/chat-booking";
+import { useLanguage } from "@/components/i18n/LanguageProvider";
 
 /**
  * ChatWidget - Floating chatbot widget tích hợp API /api/chat
@@ -31,16 +32,22 @@ interface ChatApiResponse {
 const INITIAL_BOT_MESSAGE: ChatMessage = {
   id: "welcome",
   role: "bot",
-  content:
-    "Xin chào! Tôi là trợ lý AI của Luxury Hotel. Tôi có thể hỗ trợ bạn về phòng, giá, tiện nghi và thông tin đặt phòng. Hãy hỏi tôi bất cứ điều gì! 🏨",
+  content: "",
   // Giá trị ổn định cho SSR/hydration. Các tin nhắn phát sinh trên client vẫn
   // dùng thời gian thực tế; tin chào hiển thị nhãn "Bây giờ".
   timestamp: null,
 };
 
 export default function ChatWidget() {
+  const { locale, localize } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_BOT_MESSAGE]);
+  const welcomeMessage = localize(
+    "Xin chào! Tôi là trợ lý AI của Luxury Hotel. Tôi có thể hỗ trợ bạn về phòng, giá, tiện nghi và thông tin đặt phòng. Hãy hỏi tôi bất cứ điều gì! 🏨",
+    "Hello! I am Luxury Hotel's virtual assistant. I can help with rooms, rates, facilities, and booking information. Ask me anything! 🏨",
+  );
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { ...INITIAL_BOT_MESSAGE, content: welcomeMessage },
+  ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
@@ -60,6 +67,12 @@ export default function ChatWidget() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    setMessages((current) => current.map((message) => (
+      message.id === "welcome" ? { ...message, content: welcomeMessage } : message
+    )));
+  }, [welcomeMessage]);
 
   // Focus vào input khi mở chat
   useEffect(() => {
@@ -109,26 +122,36 @@ export default function ChatWidget() {
     const serverMessage = payload?.message || payload?.error || payload?.answer;
 
     if (status === 401) {
-      return "Bạn cần đăng nhập để thực hiện thao tác này.";
+      return localize("Bạn cần đăng nhập để thực hiện thao tác này.", "Please sign in to perform this action.");
     }
 
     if (status === 403) {
-      return "Tài khoản của bạn không có quyền thực hiện thao tác này.";
+      return localize("Tài khoản của bạn không có quyền thực hiện thao tác này.", "Your account is not allowed to perform this action.");
     }
 
     if (serverMessage) {
-      return `Không thể xử lý yêu cầu: ${serverMessage}`;
+      return localize(`Không thể xử lý yêu cầu: ${serverMessage}`, `Unable to process the request: ${serverMessage}`);
+    }
+
+    if (axios.isAxiosError(error) && ["ECONNABORTED", "ETIMEDOUT"].includes(error.code || "")) {
+      return localize(
+        "Hệ thống tư vấn đang phản hồi chậm. Vui lòng thử lại hoặc liên hệ lễ tân.",
+        "The assistant is taking too long to respond. Please retry or contact reception.",
+      );
     }
 
     if (axios.isAxiosError(error) && error.code === "ERR_NETWORK") {
-      return "Không thể kết nối tới hệ thống. Bạn vui lòng kiểm tra backend đang chạy hoặc thử lại sau.";
+      return localize("Không thể kết nối tới hệ thống. Vui lòng thử lại sau.", "Unable to connect. Please try again later.");
     }
 
     if (error instanceof Error && error.message) {
-      return `Không thể xử lý yêu cầu: ${error.message}`;
+      return localize(`Không thể xử lý yêu cầu: ${error.message}`, `Unable to process the request: ${error.message}`);
     }
 
-    return "Xin lỗi, đã có lỗi xảy ra khi kết nối. Vui lòng thử lại sau hoặc liên hệ lễ tân để được hỗ trợ.";
+    return localize(
+      "Xin lỗi, đã có lỗi xảy ra khi kết nối. Vui lòng thử lại sau hoặc liên hệ lễ tân để được hỗ trợ.",
+      "Sorry, a connection error occurred. Please retry or contact reception for help.",
+    );
   };
 
   const sendMessage = async () => {
@@ -149,13 +172,13 @@ export default function ChatWidget() {
     try {
       if (pendingChatContext && isReservationCancellation(trimmed)) {
         setPendingChatContext(null);
-        appendBotMessage("Mình đã hủy yêu cầu tư vấn đặt phòng đang nhập. Chưa có reservation nào được tạo.");
+        appendBotMessage(localize("Mình đã hủy yêu cầu tư vấn đặt phòng đang nhập. Chưa có đơn nào được tạo.", "The booking inquiry has been cancelled. No reservation was created."));
         return;
       }
 
       if (pendingReservationPayload && isReservationCancellation(trimmed)) {
         setPendingReservationPayload(null);
-        appendBotMessage("Mình đã hủy yêu cầu đặt phòng đang chờ xác nhận. Bạn có thể gửi lại thông tin mới bất cứ lúc nào.");
+        appendBotMessage(localize("Mình đã hủy yêu cầu đặt phòng đang chờ xác nhận. Bạn có thể gửi lại thông tin mới bất cứ lúc nào.", "The pending booking request has been cancelled. You can send new details at any time."));
         return;
       }
 
@@ -174,10 +197,10 @@ export default function ChatWidget() {
         conversationId: chatSessionIdRef.current ||= typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `chat_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      });
+      }, { timeout: 20_000 });
       const chatResponse = response.data as ChatApiResponse;
 
-      const answer = chatResponse?.answer || "Xin lỗi, tôi chưa thể trả lời câu hỏi này.";
+      const answer = chatResponse?.answer || localize("Xin lỗi, tôi chưa thể trả lời câu hỏi này.", "Sorry, I cannot answer that question yet.");
 
       if (chatResponse?.action === "CONTINUE_RESERVATION") {
         const continuation = chatResponse.payload as { context?: string } | undefined;
@@ -214,8 +237,8 @@ export default function ChatWidget() {
   };
 
   const formatTime = (date: Date | null) => {
-    if (!date) return "Bây giờ";
-    return date.toLocaleTimeString("vi-VN", {
+    if (!date) return localize("Bây giờ", "Now");
+    return date.toLocaleTimeString(locale === "vi" ? "vi-VN" : "en-US", {
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -253,17 +276,17 @@ export default function ChatWidget() {
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-white font-bold text-sm tracking-wide">
-                Trợ lý Luxury Hotel
+                {localize("Trợ lý Luxury Hotel", "Luxury Hotel assistant")}
               </h3>
               <p className="text-white/50 text-xs font-medium">
-                Trợ lý ảo 24/7
+                {localize("Trợ lý ảo 24/7", "Virtual assistant 24/7")}
               </p>
             </div>
             {/* Close button */}
             <button
               onClick={() => setIsOpen(false)}
               className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors text-white/60 hover:text-white"
-              aria-label="Đóng chat"
+              aria-label={localize("Đóng chat", "Close chat")}
             >
               <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M18 6 6 18M6 6l12 12" />
@@ -328,7 +351,7 @@ export default function ChatWidget() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Nhập câu hỏi của bạn..."
+                placeholder={localize("Nhập câu hỏi của bạn...", "Type your question...")}
                 disabled={isLoading}
                 className="flex-1 bg-[#F1F0EA] border border-[#D8DDE1] rounded-xl px-4 py-2.5 text-sm text-[#0F2A43] placeholder:text-[#66727C] focus:outline-none focus:border-[#C8A35B] focus:ring-1 focus:ring-[#C8A35B]/30 transition-colors disabled:opacity-50"
               />
@@ -336,7 +359,7 @@ export default function ChatWidget() {
                 onClick={sendMessage}
                 disabled={!input.trim() || isLoading}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0F2A43] text-white transition-all hover:bg-[#091E30] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
-                aria-label="Gửi tin nhắn"
+                aria-label={localize("Gửi tin nhắn", "Send message")}
               >
                 <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
@@ -344,7 +367,7 @@ export default function ChatWidget() {
               </button>
             </div>
             <p className="text-[10px] text-[#aaa] text-center mt-2">
-              Trợ lý AI • Hỗ trợ tiếng Việt và English
+              {localize("Trợ lý AI • Hỗ trợ tiếng Việt và English", "AI assistant • Vietnamese and English support")}
             </p>
           </div>
         </div>
@@ -358,7 +381,7 @@ export default function ChatWidget() {
             ? "rotate-0 bg-[#0F2A43] hover:bg-[#091E30]"
             : "bg-gradient-to-br from-[#C8A35B] to-[#c99a4e] hover:from-[#d4a85e] hover:to-[#b8893f] hover:shadow-xl hover:shadow-[#C8A35B]/25"
         }`}
-        aria-label={isOpen ? "Đóng chat" : "Mở chat hỗ trợ"}
+        aria-label={isOpen ? localize("Đóng chat", "Close chat") : localize("Mở chat hỗ trợ", "Open support chat")}
       >
         {/* Unread badge */}
         {hasUnread && !isOpen && (

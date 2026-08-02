@@ -15,7 +15,11 @@ import { getPublicRoomTypes } from "@/lib/public-catalog";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 import { RoomRateCompact } from "@/components/guest/RoomRateDisplay";
-import { isStayWithinMaximum, MAX_STAY_DAYS } from "@/lib/stay-window";
+import { MAX_STAY_DAYS } from "@/lib/stay-window";
+import {
+  getStaySearchValidationIssue,
+  type StaySearchValidationIssue,
+} from "@/lib/reservation-search-validation";
 
 type ReservationRoomOption = ReservationRoomQuickViewItem;
 
@@ -133,6 +137,7 @@ export default function ReservationPage() {
   const [selectedRooms, setSelectedRooms] = useState<Record<number, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isFormReady, setIsFormReady] = useState(false);
+  const [didRestoreInvalidQuery, setDidRestoreInvalidQuery] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [loadedAvailabilityKey, setLoadedAvailabilityKey] = useState("");
   const [preferredRoomTypeId, setPreferredRoomTypeId] = useState<number | null>(null);
@@ -159,7 +164,6 @@ export default function ReservationPage() {
     const initialCheckIn = isDateTimeLocal(requestedCheckIn)
       ? requestedCheckIn : formatDateTimeLocal(defaultCheckIn);
     const initialCheckOut = isDateTimeLocal(requestedCheckOut)
-      && new Date(requestedCheckOut) > new Date(initialCheckIn)
       ? requestedCheckOut : formatDateTimeLocal(defaultCheckOut);
     const initialAdults = /^\d{1,2}$/.test(requestedAdults) && Number(requestedAdults) >= 1 && Number(requestedAdults) <= 12
       ? requestedAdults : "2";
@@ -174,11 +178,51 @@ export default function ReservationPage() {
     setAdults(initialAdults);
     setChildrenCount(initialChildren);
     setPreferredRoomTypeId(preferredId);
+    setDidRestoreInvalidQuery(
+      Boolean(
+        (requestedCheckIn && !isDateTimeLocal(requestedCheckIn))
+        || (requestedCheckOut && !isDateTimeLocal(requestedCheckOut)),
+      ),
+    );
     setIsLoading(false);
     setIsFormReady(true);
   }, []);
 
+  useEffect(() => {
+    if (!didRestoreInvalidQuery) return;
+    setToast({
+      message: localize(
+        "Thời gian trong liên kết không hợp lệ nên hệ thống đã khôi phục thời gian mặc định. Vui lòng kiểm tra lại.",
+        "The stay time in this link was invalid, so the default time was restored. Please review it.",
+      ),
+      type: "error",
+    });
+  }, [didRestoreInvalidQuery, localize]);
+
   const totalGuests = useMemo(() => Number(adults || 0) + Number(childrenCount || 0), [adults, childrenCount]);
+  const stayValidationIssue = useMemo(
+    () => getStaySearchValidationIssue(checkIn, checkOut, totalGuests),
+    [checkIn, checkOut, totalGuests],
+  );
+  const getStayValidationMessage = (issue: StaySearchValidationIssue) => {
+    switch (issue) {
+      case "MISSING":
+        return localize("Vui lòng chọn thời gian nhận và trả phòng.", "Please select check-in and check-out times.");
+      case "INVALID":
+        return localize("Ngày hoặc giờ chưa đúng định dạng.", "The date or time format is invalid.");
+      case "CHECK_IN_NOT_FUTURE":
+        return localize("Thời gian nhận phòng phải sau thời điểm hiện tại.", "Check-in must be after the current time.");
+      case "CHECK_OUT_NOT_AFTER_CHECK_IN":
+        return localize("Thời gian trả phòng phải sau thời gian nhận phòng.", "Check-out must be after check-in.");
+      case "STAY_TOO_LONG":
+        return localize(
+          `Một đơn chỉ hỗ trợ tối đa ${MAX_STAY_DAYS} ngày. Vui lòng chia kỳ lưu trú hoặc liên hệ khách sạn.`,
+          `A booking supports up to ${MAX_STAY_DAYS} days. Split the stay or contact the hotel.`,
+        );
+      case "NO_GUESTS":
+        return localize("Số khách phải từ 1 người trở lên.", "At least one guest is required.");
+    }
+  };
   const currentAvailabilityKey = useMemo(
     () => `${checkIn}|${checkOut}|${totalGuests}`,
     [checkIn, checkOut, totalGuests],
@@ -214,14 +258,8 @@ export default function ReservationPage() {
     && loadedAvailabilityKey !== ""
     && loadedAvailabilityKey === currentAvailabilityKey;
   const canAutoCheckAvailability = useMemo(() => {
-    if (!checkIn || !checkOut || totalGuests < 1) return false;
-    const checkInDate = new Date(checkIn);
-    const checkOutDate = new Date(checkOut);
-    if (Number.isNaN(checkInDate.getTime()) || Number.isNaN(checkOutDate.getTime())) return false;
-    return checkInDate > new Date()
-      && checkOutDate > checkInDate
-      && isStayWithinMaximum(checkInDate, checkOutDate);
-  }, [checkIn, checkOut, totalGuests]);
+    return stayValidationIssue === null;
+  }, [stayValidationIssue]);
 
   useEffect(() => {
     if (!isFormReady) return;
@@ -318,38 +356,9 @@ export default function ReservationPage() {
   ]);
 
   const validateDates = () => {
-    if (!checkIn || !checkOut) {
-      setToast({ message: localize("Vui lòng chọn thời gian nhận và trả phòng.", "Please select check-in and check-out times."), type: "error" });
-      return false;
-    }
-
-    const today = new Date();
-    const checkInDate = new Date(checkIn);
-    const checkOutDate = new Date(checkOut);
-
-    if (checkInDate <= today) {
-      setToast({ message: localize("Thời gian nhận phòng phải sau thời điểm hiện tại.", "Check-in must be after the current time."), type: "error" });
-      return false;
-    }
-
-    if (checkOutDate <= checkInDate) {
-      setToast({ message: localize("Thời gian trả phòng phải sau thời gian nhận phòng.", "Check-out must be after check-in."), type: "error" });
-      return false;
-    }
-
-    if (!isStayWithinMaximum(checkInDate, checkOutDate)) {
-      setToast({
-        message: localize(
-          `Một đơn chỉ hỗ trợ tối đa ${MAX_STAY_DAYS} ngày. Vui lòng chia kỳ lưu trú hoặc liên hệ khách sạn.`,
-          `A booking supports up to ${MAX_STAY_DAYS} days. Split the stay or contact the hotel.`,
-        ),
-        type: "error",
-      });
-      return false;
-    }
-
-    if (totalGuests < 1) {
-      setToast({ message: "Số khách phải từ 1 người trở lên.", type: "error" });
+    const issue = getStaySearchValidationIssue(checkIn, checkOut, totalGuests);
+    if (issue) {
+      setToast({ message: getStayValidationMessage(issue), type: "error" });
       return false;
     }
 
@@ -512,6 +521,11 @@ export default function ReservationPage() {
               onValueChange={setCheckOut}
             />
           </div>
+          {isFormReady && stayValidationIssue && (
+            <p role="alert" className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
+              {getStayValidationMessage(stayValidationIssue)}
+            </p>
+          )}
 
           <div className="mt-6 grid gap-4 border-t border-[#0F2A43]/12 pt-5 sm:grid-cols-2 lg:grid-cols-[0.8fr_0.8fr_0.7fr_auto] lg:items-end">
             <label className="grid gap-2 text-sm font-semibold text-[#66727C]">
