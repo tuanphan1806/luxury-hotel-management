@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useId, useRef, useState } from "react";
+import Image from "next/image";
 import { getApiErrorMessage } from "@/lib/api";
 import {
   formatUploadFileSize,
@@ -210,8 +211,15 @@ export default function ImageUploadField({
               PDF
             </div>
           ) : previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- blob previews and backend-hosted URLs are intentionally dynamic.
-            <img key={previewUrl} src={previewUrl} alt={alt} className="image-preview-enter h-full w-full object-cover" />
+            <Image
+              key={previewUrl}
+              src={previewUrl}
+              alt={alt}
+              fill
+              unoptimized
+              sizes={aspect === "square" ? "80px" : "112px"}
+              className="image-preview-enter object-cover"
+            />
           ) : (
             <div className={`flex h-full items-center justify-center px-2 text-center text-[10px] font-bold ${isDark ? "text-white/55" : "text-[#66727C]"}`}>
               {localize("Chưa có ảnh", "No image")}

@@ -16,7 +16,7 @@ remain evidence only for the revisions on which they were produced.
 
 | Gate | Current result |
 | --- | --- |
-| Backend unit suite | PASS — 523 tests, 0 failures/errors/skips |
+| Backend unit suite | PASS — 526 tests, 0 failures/errors/skips |
 | PostgreSQL/Flyway integration suite | PASS — 27 tests, 0 failures/errors/skips |
 | Fresh and legacy PostgreSQL 16 migration | PASS — V1 through V33 plus Hibernate schema validation |
 | Local retained database migration | PASS — V33 applied; zero public `NOT VALID` constraints remain |
@@ -41,9 +41,14 @@ remain evidence only for the revisions on which they were produced.
   canonical `code/frontend/pnpm-lock.yaml`. The remaining dev-only
   `brace-expansion` advisory was upgraded to 1.1.17 and the full audit is clean.
 - CodeQL default setup is enabled for GitHub Actions, Java/Kotlin and
-  JavaScript/TypeScript. The first complete scan must finish before making its
-  result a required merge check, otherwise all merges could be blocked without
-  an established baseline.
+  JavaScript/TypeScript. Its first baseline identified two actionable findings:
+  an uncontrolled polynomial email regex and a raw image-preview DOM sink.
+  Both are fixed by bounded linear validation and Next Image respectively.
+- Two CSRF alerts were reviewed against the actual threat model rather than
+  changing authentication blindly: business APIs use bearer tokens, the only
+  credential cookie is `Secure` + `SameSite=Lax` behind the same-origin proxy,
+  and the isolated OAuth filter chain uses Spring Security state validation.
+  The intentional decisions are documented next to their filter chains.
 - GitHub private vulnerability reporting is enabled and `SECURITY.md` defines
   the private disclosure path.
 - Vercel Production and Preview both have `Lint` and `Typecheck` Deployment
@@ -115,7 +120,7 @@ remain evidence only for the revisions on which they were produced.
 | Area | Status | Evidence still required |
 | --- | --- | --- |
 | Production deployment | PENDING | Merge this revision, wait for GitHub/Vercel/Render gates, then repeat browser smoke checks |
-| CodeQL baseline | PENDING | Initial default-setup scan completes without unresolved high-severity finding |
+| CodeQL remediation | PENDING | Candidate scan verifies the two fixes; dismiss the two reviewed CSRF alerts with the documented threat-model reason |
 | Full English localization | PARTIAL | Language-specific server metadata and complete English copy require locale-aware routes or equivalent server routing |
 | CSP nonce architecture | PARTIAL | Remove `unsafe-inline` only through a tested nonce/hash rollout; deleting it directly would break current Next.js rendering |
 | Render Free latency | ACCEPTED LIMITATION | Monitoring reduces idle gaps but does not provide a paid SLA or eliminate all cold starts |
