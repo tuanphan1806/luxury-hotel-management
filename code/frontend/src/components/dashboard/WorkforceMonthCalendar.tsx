@@ -38,9 +38,11 @@ interface WorkforceMonthCalendarProps {
   onScheduleChanged?: () => Promise<void> | void;
   onEditAssignment?: (assignmentId: number) => Promise<void> | void;
   onCancelAssignment?: (assignmentId: number) => Promise<void> | void;
-  onCreateDailyShift?: (date: string) => void;
+  onCreateDailyShift?: (date: string, usedTemplateIds: number[]) => void;
   onEditDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
   onCancelDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
+  onRestoreDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
+  onDeleteDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
   onBulkCreateDailyShifts?: () => void;
 }
 
@@ -230,6 +232,8 @@ export default function WorkforceMonthCalendar({
   onCreateDailyShift,
   onEditDailyShift,
   onCancelDailyShift,
+  onRestoreDailyShift,
+  onDeleteDailyShift,
   onBulkCreateDailyShifts,
 }: WorkforceMonthCalendarProps) {
   const [month, setMonth] = useState(currentMonthKey);
@@ -867,7 +871,7 @@ export default function WorkforceMonthCalendar({
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              onCreateDailyShift(day.date);
+                              onCreateDailyShift(day.date, day.slots.map((slot) => slot.shiftTemplateId));
                             }}
                             className="flex min-h-[62px] w-full cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#0F2A43]/15 bg-white/55 text-[10px] font-black text-[#526372] transition hover:border-[#B8944F] hover:bg-[#FFF9EA] hover:text-[#0F2A43] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
                           >
@@ -1000,13 +1004,13 @@ export default function WorkforceMonthCalendar({
                           }) : (
                             <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#0F2A43]/15 bg-[#F8F5EE]/60 px-4 text-center text-xs font-bold text-[#66727C]">
                               <span>{day.slots.length === 0 ? "Ngày này chưa mở ca làm việc" : "Không có ca phù hợp bộ lọc"}</span>
-                              {isAdmin && onCreateDailyShift && !day.past && day.slots.length === 0 ? (
+                              {isAdmin && onCreateDailyShift && !day.past ? (
                                 <button
                                   type="button"
-                                  onClick={() => onCreateDailyShift(day.date)}
+                                  onClick={() => onCreateDailyShift(day.date, day.slots.map((slot) => slot.shiftTemplateId))}
                                   className="min-h-10 cursor-pointer rounded-lg bg-[#0F2A43] px-4 text-xs font-black text-white transition hover:bg-[#173D5F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
                                 >
-                                  + Tạo ca ngày này
+                                  {day.slots.length === 0 ? "+ Tạo ca ngày này" : "+ Thêm ca khác"}
                                 </button>
                               ) : null}
                             </div>
@@ -1076,6 +1080,21 @@ export default function WorkforceMonthCalendar({
                 ))}
               </div>
 
+              {isAdmin && onCreateDailyShift && !selectedDay.past && selectedDay.slots.length > 0 ? (
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => onCreateDailyShift(
+                      selectedDay.date,
+                      selectedDay.slots.map((slot) => slot.shiftTemplateId),
+                    )}
+                    className="min-h-10 cursor-pointer rounded-lg border border-[#B8944F] bg-[#FFF9EA] px-4 text-xs font-black text-[#0F2A43] transition hover:bg-[#F4E7C6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                  >
+                    {selectedDay.slots.length === 0 ? "+ Tạo ca ngày này" : "+ Thêm ca khác"}
+                  </button>
+                </div>
+              ) : null}
+
               <div className="mt-4 grid gap-3 lg:grid-cols-3">
               {selectedDay.slots.length === 0 && isAdmin && onCreateDailyShift && !selectedDay.past ? (
                 <div className="flex min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-[#0F2A43]/15 bg-white px-5 text-center lg:col-span-3">
@@ -1083,7 +1102,7 @@ export default function WorkforceMonthCalendar({
                   <p className="mt-1 text-xs leading-5 text-[#66727C]">Tạo một ca riêng hoặc dùng Tạo nhanh để lập lịch nhiều ngày.</p>
                   <button
                     type="button"
-                    onClick={() => onCreateDailyShift(selectedDay.date)}
+                    onClick={() => onCreateDailyShift(selectedDay.date, [])}
                     className="mt-4 min-h-11 cursor-pointer rounded-xl bg-[#0F2A43] px-5 text-xs font-black text-white transition hover:bg-[#173D5F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
                   >
                     + Tạo ca ngày này
@@ -1319,6 +1338,29 @@ export default function WorkforceMonthCalendar({
                           className="min-h-10 rounded-lg border border-rose-200 bg-white px-3 text-[10px] font-black text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-45"
                         >
                           Hủy ca
+                        </button>
+                      ) : null}
+                      {onRestoreDailyShift && selected.slot.dailyShiftStatus === "CANCELLED" ? (
+                        <button
+                          type="button"
+                          disabled={submitting || selected.slot.started}
+                          onClick={() => onRestoreDailyShift(selected.day.date, selected.slot)}
+                          className="min-h-10 rounded-lg border border-emerald-200 bg-white px-3 text-[10px] font-black text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Khôi phục ca
+                        </button>
+                      ) : null}
+                      {onDeleteDailyShift
+                      && !selected.slot.started
+                      && selected.slot.assignments.length === 0
+                      && selected.slot.requests.length === 0 ? (
+                        <button
+                          type="button"
+                          disabled={submitting}
+                          onClick={() => onDeleteDailyShift(selected.day.date, selected.slot)}
+                          className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-[10px] font-black text-slate-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Xóa ca trống
                         </button>
                       ) : null}
                     </div>

@@ -54,6 +54,10 @@ public interface WorkShiftRegistrationRequestRepository
             LocalDate workDate,
             WorkShiftRegistrationStatus status);
 
+    boolean existsByShiftTemplateIdAndWorkDate(
+            Long shiftTemplateId,
+            LocalDate workDate);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select request from WorkShiftRegistrationRequest request

@@ -12,7 +12,10 @@ import {
   unwrapWorkScheduleApiData,
   workScheduleDisplayStatus,
   workShiftCalendarStatus,
+  workShiftColorForStartTime,
   workShiftPeriod,
+  workShiftPeriodFromStartTime,
+  workShiftSortOrderForStartTime,
   workShiftStaffingSegments,
 } from "./work-schedules";
 
@@ -132,7 +135,22 @@ describe("work schedule helpers", () => {
     expect(staffCalendarSlotLabel({
       ...slot,
       registrationOpen: false,
-    })).toBe("Đã qua");
+    })).toBe("Không mở đăng ký");
+    expect(workShiftCalendarStatus({
+      ...slot,
+      registrationOpen: false,
+    }, false, false)).toMatchObject({
+      label: "Không mở đăng ký",
+      compactLabel: "Đóng đăng ký",
+    });
+    expect(workShiftCalendarStatus({
+      ...slot,
+      registrationOpen: false,
+      assignmentPolicy: "ADMIN_ONLY" as const,
+    }, false, false)).toMatchObject({
+      label: "Chỉ ADMIN phân công",
+      compactLabel: "Đóng đăng ký",
+    });
     expect(staffCalendarSlotLabel({ ...slot, availableSlots: 0 })).toBe("Đã đủ nhân sự");
     expect(staffCalendarSlotLabel({
       ...slot,
@@ -299,6 +317,16 @@ describe("work schedule helpers", () => {
       startTime: "22:00",
       crossesMidnight: true,
     }))).toBe("T");
+  });
+
+  it("derives fixed period colours and ordering from the start time", () => {
+    expect(workShiftPeriodFromStartTime("07:00")).toBe("MORNING");
+    expect(workShiftColorForStartTime("07:00")).toBe("#B8944F");
+    expect(workShiftPeriodFromStartTime("13:00")).toBe("AFTERNOON");
+    expect(workShiftColorForStartTime("13:00")).toBe("#2F7D78");
+    expect(workShiftPeriodFromStartTime("18:00")).toBe("NIGHT");
+    expect(workShiftColorForStartTime("18:00")).toBe("#4E5D8C");
+    expect(workShiftSortOrderForStartTime("22:00")).toBe(30);
   });
 
   it("normalizes staffing into three compact progress segments", () => {
