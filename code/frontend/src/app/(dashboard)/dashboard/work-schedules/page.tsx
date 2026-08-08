@@ -11,6 +11,9 @@ import ViewportModal from "@/components/UI/ViewportModal";
 import WorkAttendanceStatistics from "@/components/dashboard/WorkAttendanceStatistics";
 import WorkScheduleListView from "@/components/dashboard/WorkScheduleListView";
 import WorkforceMonthCalendar from "@/components/dashboard/WorkforceMonthCalendar";
+import WorkDailyShiftModals, {
+  type WorkDailyShiftAction,
+} from "@/components/dashboard/WorkDailyShiftModals";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import {
   formatShiftTime,
@@ -176,6 +179,7 @@ export default function WorkSchedulesPage() {
   const [viewMode, setViewMode] = useState<WorkScheduleView>("calendar");
   const [calendarRefreshSignal, setCalendarRefreshSignal] = useState(0);
   const [calendarOverlayActive, setCalendarOverlayActive] = useState(false);
+  const [dailyShiftAction, setDailyShiftAction] = useState<WorkDailyShiftAction>(null);
   const lastVisibilityRefreshAt = useRef(0);
   const latestLoadRequest = useRef(0);
 
@@ -277,14 +281,6 @@ export default function WorkSchedulesPage() {
     setRangePreset(preset);
     setFrom(range.from);
     setTo(range.to);
-  };
-
-  const openCreateSchedule = () => {
-    setCalendarOverlayActive(false);
-    setScheduleEditing(null);
-    setScheduleForm({ ...emptyScheduleForm(), employeeId: employees[0]?.id || 0, shiftTemplateId: activeTemplates[0]?.id || 0 });
-    setScheduleError("");
-    setScheduleModalOpen(true);
   };
 
   const openEditSchedule = (schedule: WorkSchedule, fromCalendar = false) => {
@@ -417,10 +413,16 @@ export default function WorkSchedulesPage() {
     finally { setSubmitting(false); }
   };
 
+  const handleDailyShiftChanged = async (message: string) => {
+    setToast({ type: "success", message });
+    setCalendarRefreshSignal((current) => current + 1);
+    await loadData(false, true);
+  };
+
   if (!role || loading) return <div className="ops-page mx-auto w-full max-w-[1600px] space-y-4 p-5 md:p-8"><div className="h-32 animate-pulse rounded-xl bg-[#0F2A43]/8" /><div className="h-96 animate-pulse rounded-xl bg-[#0F2A43]/5" /></div>;
 
   return <div className="ops-page mx-auto w-full max-w-[1600px] space-y-6 p-5 md:p-8">
-    <header className="ops-panel-strong overflow-hidden rounded-xl border"><div className="grid gap-6 px-5 py-6 md:grid-cols-[1fr_auto] md:items-end md:px-7"><div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#80632F]">{isAdmin ? "Quản lý nhân sự" : "Ca làm việc của tôi"}</p><h1 className="mt-2 font-serif text-3xl font-bold text-[#0F2A43] md:text-4xl">Lịch làm việc & điểm danh</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#66727C]">{isAdmin ? "Phân ca, theo dõi đi muộn/vắng mặt và lịch sử làm việc. Dữ liệu điểm danh và ca thu ngân luôn được liên kết." : "Check-in để bắt đầu ca làm việc và mở ca thu ngân tự động. Check-out sẽ kết thúc cả hai trong cùng một thao tác."}</p></div>{isAdmin && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setTemplatesModalOpen(true); openTemplateEditor(); }} className="min-h-11 rounded-lg border border-[#0F2A43]/18 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F8F4EA]">Mẫu ca</button><button type="button" onClick={openCreateSchedule} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#173D5F]">+ Phân ca</button></div>}</div></header>
+    <header className="ops-panel-strong overflow-hidden rounded-xl border"><div className="grid gap-6 px-5 py-6 md:grid-cols-[1fr_auto] md:items-end md:px-7"><div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#80632F]">{isAdmin ? "Quản lý nhân sự" : "Ca làm việc của tôi"}</p><h1 className="mt-2 font-serif text-3xl font-bold text-[#0F2A43] md:text-4xl">Lịch làm việc & điểm danh</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#66727C]">{isAdmin ? "Chủ động mở ca theo từng ngày, tạo nhanh theo tuần/tháng rồi phân công nhân viên. Điểm danh và ca thu ngân vẫn được liên kết nguyên tử." : "Check-in để bắt đầu ca làm việc và mở ca thu ngân tự động. Check-out sẽ kết thúc cả hai trong cùng một thao tác."}</p></div>{isAdmin && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setTemplatesModalOpen(true); openTemplateEditor(); }} className="min-h-11 rounded-lg border border-[#0F2A43]/18 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F8F4EA]">Mẫu ca</button><button type="button" onClick={() => setDailyShiftAction({ kind: "bulk" })} className="min-h-11 rounded-lg border border-[#B8944F] bg-[#FFF9EA] px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F4E7C6]">Tạo nhanh</button><button type="button" onClick={() => setDailyShiftAction({ kind: "create", date: dateKey() })} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#173D5F]">+ Tạo ca</button></div>}</div></header>
 
     <section className="flex flex-col gap-3 rounded-xl border border-[#0F2A43]/10 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div className="px-1">
@@ -442,10 +444,14 @@ export default function WorkSchedulesPage() {
         isStaff={isStaff}
         employees={employees}
         refreshSignal={calendarRefreshSignal}
-        editorOverlayOpen={calendarOverlayActive && (scheduleModalOpen || Boolean(cancelTarget))}
+        editorOverlayOpen={Boolean(dailyShiftAction) || (calendarOverlayActive && (scheduleModalOpen || Boolean(cancelTarget)))}
         onScheduleChanged={() => loadData(false, true)}
         onEditAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "edit", true)}
         onCancelAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "cancel", true)}
+        onCreateDailyShift={(date) => setDailyShiftAction({ kind: "create", date })}
+        onEditDailyShift={(date, slot) => setDailyShiftAction({ kind: "edit", date, slot })}
+        onCancelDailyShift={(date, slot) => setDailyShiftAction({ kind: "cancel", date, slot })}
+        onBulkCreateDailyShifts={() => setDailyShiftAction({ kind: "bulk" })}
       />
     ) : viewMode === "statistics" ? (
       <>
@@ -547,6 +553,13 @@ export default function WorkSchedulesPage() {
     <ViewportModal open={Boolean(cancelTarget)} onClose={() => { setCancelTarget(null); setCancelError(""); setCalendarOverlayActive(false); }} labelledBy="cancel-schedule-title" busy={submitting} panelClassName="max-w-lg" backdropClassName="bg-[#091E30]/48 backdrop-blur-[2px]" zIndexClassName="z-[115]"><div className="flex min-h-0 flex-1 flex-col"><header className="border-b px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-700">Thay đổi lịch</p><h2 id="cancel-schedule-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Hủy lịch làm việc</h2></header><div className="p-5"><p className="text-sm leading-6 text-[#66727C]">{cancelTarget && `Hủy ${cancelTarget.shiftName} của ${cancelTarget.employeeName} ngày ${formatWorkDate(cancelTarget.workDate)}.`}</p><label className="mt-4 block"><span className={labelClass}>Lý do hủy *</span><textarea data-modal-autofocus value={cancelReason} maxLength={500} onChange={(event) => { setCancelReason(event.target.value); if (cancelError) setCancelError(""); }} rows={4} className={`${inputClass} resize-y`} /></label>{cancelError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{cancelError}</p>}</div><footer className="flex justify-end gap-2 border-t px-5 py-4"><button type="button" onClick={() => { setCancelTarget(null); setCancelError(""); setCalendarOverlayActive(false); }} className="min-h-11 rounded-lg border px-4 text-sm font-bold">{calendarOverlayActive ? "Quay lại chi tiết ca" : "Quay lại"}</button><button type="button" disabled={submitting} onClick={() => void cancelSchedule()} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white disabled:opacity-60">{submitting ? "Đang hủy..." : "Xác nhận hủy"}</button></footer></div></ViewportModal>
 
     <ViewportModal open={Boolean(checkoutTarget)} onClose={() => setCheckoutTarget(null)} labelledBy="work-checkout-title" busy={submitting} panelClassName="max-w-lg"><div className="flex min-h-0 flex-1 flex-col"><header className="border-b px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">Kết thúc phiên làm việc</p><h2 id="work-checkout-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Check-out cuối ca</h2></header><div className="p-5"><p className="rounded-lg bg-[#0F2A43]/5 p-3 text-sm leading-6 text-[#27445F]">Ca thu ngân liên kết sẽ được đóng tự động trong cùng giao dịch. Nếu thao tác lỗi, cả hai trạng thái đều được giữ nguyên.</p><label className="mt-4 block"><span className={labelClass}>{checkoutTarget && now.getTime() < new Date(checkoutTarget.scheduledEndUtc).getTime() ? "Lý do checkout sớm *" : "Ghi chú bàn giao"}</span><textarea data-modal-autofocus value={attendanceNote} maxLength={1000} onChange={(event) => setAttendanceNote(event.target.value)} rows={4} className={`${inputClass} resize-y`} /></label>{attendanceError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{attendanceError}</p>}</div><footer className="flex justify-end gap-2 border-t px-5 py-4"><button type="button" onClick={() => setCheckoutTarget(null)} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Chưa kết thúc</button><button type="button" disabled={submitting} onClick={() => void checkOut()} className="min-h-11 rounded-lg bg-[#B8944F] px-5 text-sm font-bold text-[#0F2A43] disabled:opacity-60">{submitting ? "Đang xử lý..." : "Xác nhận check-out"}</button></footer></div></ViewportModal>
+
+    <WorkDailyShiftModals
+      action={dailyShiftAction}
+      templates={templates}
+      onClose={() => setDailyShiftAction(null)}
+      onChanged={handleDailyShiftChanged}
+    />
 
     {toast && <Toast {...toast} onClose={() => setToast(null)} />}
   </div>;

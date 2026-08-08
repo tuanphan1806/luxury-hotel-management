@@ -2,7 +2,9 @@ package com.hotel.backend.service;
 
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserType;
+import com.hotel.backend.constant.WorkDailyShiftStatus;
 import com.hotel.backend.constant.WorkScheduleStatus;
+import com.hotel.backend.constant.WorkShiftAssignmentPolicy;
 import com.hotel.backend.constant.WorkShiftRegistrationStatus;
 import com.hotel.backend.constant.WorkShiftSessionStatus;
 import com.hotel.backend.dto.request.WorkScheduleAssignmentRequest;
@@ -26,7 +28,6 @@ import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.WorkScheduleAssignmentRepository;
 import com.hotel.backend.repository.WorkShiftRegistrationRequestRepository;
 import com.hotel.backend.repository.WorkShiftRequirementRepository;
-import com.hotel.backend.repository.WorkShiftTemplateRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -51,11 +52,8 @@ import java.util.Objects;
 public class WorkforceCalendarService {
 
     static final ZoneId HOTEL_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
-    private static final int DEFAULT_REQUIRED_STAFF = 1;
-
     private final WorkShiftRequirementRepository requirementRepository;
     private final WorkShiftRegistrationRequestRepository registrationRepository;
-    private final WorkShiftTemplateRepository templateRepository;
     private final WorkScheduleAssignmentRepository assignmentRepository;
     private final WorkScheduleService workScheduleService;
     private final ReservationAuditService auditService;
@@ -65,14 +63,12 @@ public class WorkforceCalendarService {
     public WorkforceCalendarService(
             WorkShiftRequirementRepository requirementRepository,
             WorkShiftRegistrationRequestRepository registrationRepository,
-            WorkShiftTemplateRepository templateRepository,
             WorkScheduleAssignmentRepository assignmentRepository,
             WorkScheduleService workScheduleService,
             ReservationAuditService auditService) {
         this(
                 requirementRepository,
                 registrationRepository,
-                templateRepository,
                 assignmentRepository,
                 workScheduleService,
                 auditService,
@@ -82,14 +78,12 @@ public class WorkforceCalendarService {
     WorkforceCalendarService(
             WorkShiftRequirementRepository requirementRepository,
             WorkShiftRegistrationRequestRepository registrationRepository,
-            WorkShiftTemplateRepository templateRepository,
             WorkScheduleAssignmentRepository assignmentRepository,
             WorkScheduleService workScheduleService,
             ReservationAuditService auditService,
             Clock clock) {
         this.requirementRepository = requirementRepository;
         this.registrationRepository = registrationRepository;
-        this.templateRepository = templateRepository;
         this.assignmentRepository = assignmentRepository;
         this.workScheduleService = workScheduleService;
         this.auditService = auditService;
@@ -136,8 +130,6 @@ public class WorkforceCalendarService {
         Instant fromUtc = from.atStartOfDay(HOTEL_ZONE).toInstant();
         Instant toUtc = to.plusDays(1).atStartOfDay(HOTEL_ZONE).toInstant();
 
-        List<WorkShiftTemplate> allTemplates =
-                templateRepository.findAllByOrderBySortOrderAscStartTimeAscIdAsc();
         List<WorkShiftRequirement> requirements =
                 requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(from, to);
         boolean staffView = actor.getType() == UserType.STAFF;
@@ -157,14 +149,8 @@ public class WorkforceCalendarService {
                         to,
                         actor.getType() == UserType.STAFF ? actor.getId() : null);
 
-        Map<SlotKey, WorkShiftRequirement> requirementBySlot = new HashMap<>();
-        requirements.forEach(item -> requirementBySlot.put(
-                new SlotKey(item.getWorkDate(), item.getShiftTemplate().getId()),
-                item));
         Map<SlotKey, List<WorkScheduleAssignment>> assignmentsBySlot = new HashMap<>();
-        assignments.stream()
-                .filter(item -> item.getStatus() != WorkScheduleStatus.CANCELLED)
-                .forEach(item -> assignmentsBySlot
+        assignments.forEach(item -> assignmentsBySlot
                         .computeIfAbsent(
                                 new SlotKey(item.getWorkDate(), item.getShiftTemplate().getId()),
                                 ignored -> new ArrayList<>())
@@ -176,7 +162,12 @@ public class WorkforceCalendarService {
                     Math.toIntExact(item.getAssignedCount())));
         } else {
             assignmentsBySlot.forEach((key, value) ->
-                    assignedCountBySlot.put(key, value.size()));
+                    assignedCountBySlot.put(
+                            key,
+                            (int) value.stream()
+                                    .filter(item -> item.getStatus()
+                                            != WorkScheduleStatus.CANCELLED)
+                                    .count()));
         }
         Map<SlotKey, List<WorkShiftRegistrationRequest>> requestsBySlot = new HashMap<>();
         requests.forEach(item -> requestsBySlot
@@ -185,33 +176,26 @@ public class WorkforceCalendarService {
                         ignored -> new ArrayList<>())
                 .add(item));
 
-        var referencedTemplateIds = new java.util.HashSet<Long>();
-        requirementBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
-        assignedCountBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
-        assignmentsBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
-        requestsBySlot.keySet().forEach(key -> referencedTemplateIds.add(key.shiftTemplateId()));
-        List<WorkShiftTemplate> visibleTemplates = allTemplates.stream()
-                .filter(item -> Boolean.TRUE.equals(item.getActive())
-                        || referencedTemplateIds.contains(item.getId()))
-                .toList();
-
         LocalDate today = LocalDate.now(clock.withZone(HOTEL_ZONE));
         List<WorkShiftCalendarDayResponse> days = new ArrayList<>();
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            LocalDate currentDate = date;
             List<WorkShiftCalendarSlotResponse> slots = new ArrayList<>();
-            for (WorkShiftTemplate template : visibleTemplates) {
+            List<WorkShiftRequirement> dailyRequirements = requirements.stream()
+                    .filter(item -> item.getWorkDate().equals(currentDate))
+                    .sorted(Comparator
+                            .comparing(WorkShiftRequirement::getSortOrderSnapshot)
+                            .thenComparing(WorkShiftRequirement::getStartTimeSnapshot)
+                            .thenComparing(WorkShiftRequirement::getId))
+                    .toList();
+            for (WorkShiftRequirement requirement : dailyRequirements) {
+                WorkShiftTemplate template = requirement.getShiftTemplate();
                 SlotKey key = new SlotKey(date, template.getId());
-                WorkShiftRequirement requirement = requirementBySlot.get(key);
                 List<WorkScheduleAssignment> slotAssignments =
                         assignmentsBySlot.getOrDefault(key, List.of());
                 List<WorkShiftRegistrationRequest> slotRequests =
                         requestsBySlot.getOrDefault(key, List.of());
-                int requiredStaff = requirement != null
-                        ? requirement.getRequiredStaff()
-                        : DEFAULT_REQUIRED_STAFF;
                 int assignedCount = assignedCountBySlot.getOrDefault(key, 0);
-                boolean registrationOpen =
-                        clock.instant().isBefore(window(template, date).endUtc());
                 int pendingCount = actor.getType() == UserType.ADMIN
                         ? (int) slotRequests.stream()
                                 .filter(item -> item.getStatus()
@@ -227,20 +211,45 @@ public class WorkforceCalendarService {
                 WorkShiftRegistrationRequest ownRequest = actor.getType() == UserType.STAFF
                         ? preferredOwnRequest(slotRequests)
                         : null;
+                boolean open = requirement.getStatus() == WorkDailyShiftStatus.OPEN;
+                if (actor.getType() == UserType.STAFF
+                        && !open
+                        && ownAssignment == null
+                        && ownRequest == null) {
+                    continue;
+                }
+                boolean registrationOpen = open
+                        && Boolean.TRUE.equals(requirement.getRegistrationOpen())
+                        && requirement.getAssignmentPolicySnapshot()
+                                != WorkShiftAssignmentPolicy.ADMIN_ONLY
+                        && clock.instant().isBefore(window(requirement).endUtc());
+                int availableSlots = open && clock.instant().isBefore(window(requirement).endUtc())
+                        ? Math.max(0, requirement.getRequiredStaff() - assignedCount)
+                        : 0;
                 slots.add(new WorkShiftCalendarSlotResponse(
+                        requirement.getId(),
+                        requirement.getStatus(),
                         template.getId(),
-                        template.getCode(),
-                        template.getName(),
-                        template.getColor(),
-                        template.getStartTime().toString(),
-                        template.getEndTime().toString(),
-                        !template.getEndTime().isAfter(template.getStartTime()),
-                        requiredStaff,
+                        requirement.getShiftCodeSnapshot(),
+                        requirement.getShiftNameSnapshot(),
+                        requirement.getShiftColorSnapshot(),
+                        requirement.getStartTimeSnapshot().toString(),
+                        requirement.getEndTimeSnapshot().toString(),
+                        !requirement.getEndTimeSnapshot()
+                                .isAfter(requirement.getStartTimeSnapshot()),
+                        !clock.instant().isBefore(window(requirement).startUtc()),
+                        !clock.instant().isBefore(window(requirement).endUtc()),
+                        requirement.getCompletedAtUtc(),
+                        requirement.getCancellationReason(),
+                        requirement.getCheckInEarlyMinutesSnapshot(),
+                        requirement.getLateToleranceMinutesSnapshot(),
+                        requirement.getRequiredStaff(),
                         assignedCount,
                         pendingCount,
-                        Math.max(0, requiredStaff - assignedCount),
+                        availableSlots,
                         registrationOpen,
-                        requirement != null ? requirement.getNote() : null,
+                        requirement.getAssignmentPolicySnapshot(),
+                        requirement.getNote(),
                         ownAssignment != null ? toAssignmentResponse(ownAssignment) : null,
                         ownRequest != null ? toRegistrationResponse(ownRequest) : null,
                         actor.getType() == UserType.ADMIN
@@ -276,10 +285,17 @@ public class WorkforceCalendarService {
         if (request.workDate().isBefore(today)) {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_PAST_DATE);
         }
-        WorkShiftTemplate template = templateRepository.findById(request.shiftTemplateId())
-                .filter(item -> Boolean.TRUE.equals(item.getActive()))
-                .orElseThrow(() -> new AppException(ErrorCode.WORK_SHIFT_TEMPLATE_NOT_FOUND));
-        ShiftWindow window = window(template, request.workDate());
+        WorkShiftRequirement requirement = requirementRepository
+                .findForUpdate(request.shiftTemplateId(), request.workDate())
+                .orElseThrow(() -> new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_FOUND));
+        if (requirement.getStatus() != WorkDailyShiftStatus.OPEN
+                || !Boolean.TRUE.equals(requirement.getRegistrationOpen())
+                || requirement.getAssignmentPolicySnapshot()
+                        == WorkShiftAssignmentPolicy.ADMIN_ONLY) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_OPEN);
+        }
+        WorkShiftTemplate template = requirement.getShiftTemplate();
+        ShiftWindow window = window(requirement);
         if (!clock.instant().isBefore(window.endUtc())) {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_PAST_DATE);
         }
@@ -301,10 +317,7 @@ public class WorkforceCalendarService {
                         WorkShiftRegistrationStatus.PENDING)) {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_DUPLICATE);
         }
-        int requiredStaff = requirementRepository
-                .findForUpdate(template.getId(), request.workDate())
-                .map(WorkShiftRequirement::getRequiredStaff)
-                .orElse(DEFAULT_REQUIRED_STAFF);
+        int requiredStaff = requirement.getRequiredStaff();
         long assignedCount = assignmentRepository
                 .countByShiftTemplateIdAndWorkDateAndStatusNot(
                         template.getId(),
@@ -314,25 +327,46 @@ public class WorkforceCalendarService {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_FULL);
         }
 
+        boolean autoAssign = requirement.getAssignmentPolicySnapshot()
+                == WorkShiftAssignmentPolicy.AUTO_ASSIGN;
         WorkShiftRegistrationRequest registration =
                 WorkShiftRegistrationRequest.builder()
                         .employee(staff)
                         .shiftTemplate(template)
                         .workDate(request.workDate())
-                        .status(WorkShiftRegistrationStatus.PENDING)
+                        .status(autoAssign
+                                ? WorkShiftRegistrationStatus.APPROVED
+                                : WorkShiftRegistrationStatus.PENDING)
                         .staffNote(trimToNull(request.note()))
                         .build();
+        WorkScheduleResponse autoAssignment = null;
+        if (autoAssign) {
+            autoAssignment = workScheduleService.createAutomaticRegistration(
+                    requirement, staff, request.note());
+            registration.setReviewedAtUtc(clock.instant());
+            registration.setAdminReason("Tự động phân ca theo chính sách của ca làm việc");
+            registration.setAssignment(
+                    assignmentRepository.getReferenceById(autoAssignment.id()));
+        }
         try {
             registration = registrationRepository.saveAndFlush(registration);
         } catch (DataIntegrityViolationException duplicate) {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_DUPLICATE);
         }
+        Map<String, Object> auditDetail = new LinkedHashMap<>();
+        auditDetail.put("status", registration.getStatus());
+        auditDetail.put("assignmentPolicy", requirement.getAssignmentPolicySnapshot());
+        if (autoAssignment != null) auditDetail.put("assignmentId", autoAssignment.id());
         audit(
                 staff,
                 registration,
-                ReservationAuditAction.SHIFT_REQUEST_CREATED,
-                "Đăng ký " + template.getName() + " ngày " + request.workDate(),
-                Map.of("status", registration.getStatus()));
+                autoAssign
+                        ? ReservationAuditAction.SHIFT_REQUEST_AUTO_ASSIGNED
+                        : ReservationAuditAction.SHIFT_REQUEST_CREATED,
+                (autoAssign ? "Tự động nhận " : "Đăng ký ")
+                        + requirement.getShiftNameSnapshot()
+                        + " ngày " + request.workDate(),
+                auditDetail);
         return toRegistrationResponse(registration);
     }
 
@@ -368,26 +402,40 @@ public class WorkforceCalendarService {
             WorkShiftRegistrationReviewRequest request,
             User currentUser) {
         User admin = requireAdmin(currentUser);
+        WorkShiftRegistrationRequest lookup = registrationRepository.findById(requestId)
+                .orElseThrow(() -> new AppException(
+                        ErrorCode.WORK_SHIFT_REGISTRATION_NOT_FOUND));
+        Long shiftTemplateId = lookup.getShiftTemplate().getId();
+        LocalDate workDate = lookup.getWorkDate();
+        // Keep the same lock order as cancelling a daily shift:
+        // daily shift -> registration request -> assignment.
+        WorkShiftRequirement requirement = requirementRepository
+                .findForUpdate(
+                        shiftTemplateId,
+                        workDate)
+                .orElseThrow(() -> new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_FOUND));
         WorkShiftRegistrationRequest registration = requireRequestForUpdate(requestId);
+        if (!registration.getShiftTemplate().getId().equals(shiftTemplateId)
+                || !registration.getWorkDate().equals(workDate)) {
+            throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_CANNOT_MODIFY);
+        }
         if (registration.getStatus() == WorkShiftRegistrationStatus.APPROVED) {
             return toRegistrationResponse(registration);
         }
         ensurePending(registration);
 
-        WorkShiftTemplate template = templateRepository
-                .findByIdForUpdate(registration.getShiftTemplate().getId())
-                .orElseThrow(() -> new AppException(ErrorCode.WORK_SHIFT_TEMPLATE_NOT_FOUND));
-        if (!Boolean.TRUE.equals(template.getActive())) {
-            throw new AppException(ErrorCode.WORK_SHIFT_TEMPLATE_NOT_FOUND);
+        if (requirement.getStatus() != WorkDailyShiftStatus.OPEN
+                || !Boolean.TRUE.equals(requirement.getRegistrationOpen())
+                || requirement.getAssignmentPolicySnapshot()
+                        != WorkShiftAssignmentPolicy.MANUAL_APPROVAL) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_OPEN);
         }
-        ShiftWindow window = window(template, registration.getWorkDate());
+        WorkShiftTemplate template = requirement.getShiftTemplate();
+        ShiftWindow window = window(requirement);
         if (!clock.instant().isBefore(window.endUtc())) {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_PAST_DATE);
         }
-        int requiredStaff = requirementRepository
-                .findForUpdate(template.getId(), registration.getWorkDate())
-                .map(WorkShiftRequirement::getRequiredStaff)
-                .orElse(DEFAULT_REQUIRED_STAFF);
+        int requiredStaff = requirement.getRequiredStaff();
         long assignedCount = assignmentRepository
                 .countByShiftTemplateIdAndWorkDateAndStatusNot(
                         template.getId(),
@@ -466,9 +514,14 @@ public class WorkforceCalendarService {
         if (workDate.isBefore(today)) {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_PAST_DATE);
         }
-        WorkShiftTemplate template = templateRepository.findByIdForUpdate(shiftTemplateId)
-                .orElseThrow(() -> new AppException(ErrorCode.WORK_SHIFT_TEMPLATE_NOT_FOUND));
-        if (!clock.instant().isBefore(window(template, workDate).endUtc())) {
+        WorkShiftRequirement requirement = requirementRepository
+                .findForUpdate(shiftTemplateId, workDate)
+                .orElseThrow(() -> new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_FOUND));
+        if (requirement.getStatus() != WorkDailyShiftStatus.OPEN) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_OPEN);
+        }
+        WorkShiftTemplate template = requirement.getShiftTemplate();
+        if (!clock.instant().isBefore(window(requirement).endUtc())) {
             throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_PAST_DATE);
         }
         long assignedCount = assignmentRepository
@@ -479,15 +532,7 @@ public class WorkforceCalendarService {
         if (request.requiredStaff() < assignedCount) {
             throw new AppException(ErrorCode.WORK_SHIFT_REQUIREMENT_BELOW_ASSIGNED);
         }
-        WorkShiftRequirement requirement = requirementRepository
-                .findForUpdate(template.getId(), workDate)
-                .orElseGet(() -> WorkShiftRequirement.builder()
-                        .shiftTemplate(template)
-                        .workDate(workDate)
-                        .build());
-        int previous = requirement.getRequiredStaff() != null
-                ? requirement.getRequiredStaff()
-                : DEFAULT_REQUIRED_STAFF;
+        int previous = requirement.getRequiredStaff();
         requirement.setRequiredStaff(request.requiredStaff());
         requirement.setNote(trimToNull(request.note()));
         requirement.setUpdatedBy(admin);
@@ -511,20 +556,36 @@ public class WorkforceCalendarService {
             WorkShiftTemplate template,
             WorkShiftRequirement requirement,
             int assignedCount) {
+        boolean acceptingAssignments = requirement.getStatus() == WorkDailyShiftStatus.OPEN
+                && clock.instant().isBefore(window(requirement).endUtc());
         return new WorkShiftCalendarSlotResponse(
+                requirement.getId(),
+                requirement.getStatus(),
                 template.getId(),
-                template.getCode(),
-                template.getName(),
-                template.getColor(),
-                template.getStartTime().toString(),
-                template.getEndTime().toString(),
-                !template.getEndTime().isAfter(template.getStartTime()),
+                requirement.getShiftCodeSnapshot(),
+                requirement.getShiftNameSnapshot(),
+                requirement.getShiftColorSnapshot(),
+                requirement.getStartTimeSnapshot().toString(),
+                requirement.getEndTimeSnapshot().toString(),
+                !requirement.getEndTimeSnapshot()
+                        .isAfter(requirement.getStartTimeSnapshot()),
+                !clock.instant().isBefore(window(requirement).startUtc()),
+                !clock.instant().isBefore(window(requirement).endUtc()),
+                requirement.getCompletedAtUtc(),
+                requirement.getCancellationReason(),
+                requirement.getCheckInEarlyMinutesSnapshot(),
+                requirement.getLateToleranceMinutesSnapshot(),
                 requirement.getRequiredStaff(),
                 assignedCount,
                 0,
-                Math.max(0, requirement.getRequiredStaff() - assignedCount),
-                clock.instant().isBefore(
-                        window(template, requirement.getWorkDate()).endUtc()),
+                acceptingAssignments
+                        ? Math.max(0, requirement.getRequiredStaff() - assignedCount)
+                        : 0,
+                acceptingAssignments
+                        && Boolean.TRUE.equals(requirement.getRegistrationOpen())
+                        && requirement.getAssignmentPolicySnapshot()
+                                != WorkShiftAssignmentPolicy.ADMIN_ONLY,
+                requirement.getAssignmentPolicySnapshot(),
                 requirement.getNote(),
                 null,
                 null,
@@ -624,12 +685,16 @@ public class WorkforceCalendarService {
         return actor;
     }
 
-    private ShiftWindow window(WorkShiftTemplate template, LocalDate workDate) {
-        LocalDateTime localStart = LocalDateTime.of(workDate, template.getStartTime());
-        LocalDate endDate = template.getEndTime().isAfter(template.getStartTime())
+    private ShiftWindow window(WorkShiftRequirement requirement) {
+        LocalDate workDate = requirement.getWorkDate();
+        LocalDateTime localStart = LocalDateTime.of(
+                workDate, requirement.getStartTimeSnapshot());
+        LocalDate endDate = requirement.getEndTimeSnapshot()
+                .isAfter(requirement.getStartTimeSnapshot())
                 ? workDate
                 : workDate.plusDays(1);
-        LocalDateTime localEnd = LocalDateTime.of(endDate, template.getEndTime());
+        LocalDateTime localEnd = LocalDateTime.of(
+                endDate, requirement.getEndTimeSnapshot());
         return new ShiftWindow(
                 localStart.atZone(HOTEL_ZONE).toInstant(),
                 localEnd.atZone(HOTEL_ZONE).toInstant());

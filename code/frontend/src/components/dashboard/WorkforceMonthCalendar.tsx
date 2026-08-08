@@ -38,6 +38,10 @@ interface WorkforceMonthCalendarProps {
   onScheduleChanged?: () => Promise<void> | void;
   onEditAssignment?: (assignmentId: number) => Promise<void> | void;
   onCancelAssignment?: (assignmentId: number) => Promise<void> | void;
+  onCreateDailyShift?: (date: string) => void;
+  onEditDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
+  onCancelDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
+  onBulkCreateDailyShifts?: () => void;
 }
 
 type SlotKey = { date: string; shiftTemplateId: number };
@@ -194,14 +198,24 @@ function drawerActionLabel(slot: WorkShiftCalendarSlot, isAdmin: boolean) {
 
 function assignmentAttendanceLabel(assignment: WorkShiftCalendarAssignment) {
   if (assignment.status === "ABSENT") return "Vắng mặt";
+  if (assignment.sessionStatus === "AUTO_CLOSED") {
+    return assignment.late && assignment.lateMinutes > 0
+      ? `Muộn ${assignment.lateMinutes} phút · hệ thống kết ca`
+      : "Hệ thống đã kết ca";
+  }
   if (assignment.late) return assignment.lateMinutes > 0 ? `Muộn ${assignment.lateMinutes} phút` : "Đi muộn";
   if (assignment.sessionStatus === "ACTIVE") return "Đang làm việc";
   if (
     assignment.status === "FULFILLED"
     || assignment.sessionStatus === "CLOSED"
-    || assignment.sessionStatus === "AUTO_CLOSED"
   ) return "Đã hoàn thành";
   return "Đã phân công";
+}
+
+function assignmentPolicyLabel(slot: WorkShiftCalendarSlot) {
+  if (slot.assignmentPolicy === "AUTO_ASSIGN") return "STAFF đăng ký và nhận ca ngay";
+  if (slot.assignmentPolicy === "ADMIN_ONLY") return "Chỉ ADMIN phân công";
+  return "STAFF đăng ký, ADMIN duyệt";
 }
 
 export default function WorkforceMonthCalendar({
@@ -213,6 +227,10 @@ export default function WorkforceMonthCalendar({
   onScheduleChanged,
   onEditAssignment,
   onCancelAssignment,
+  onCreateDailyShift,
+  onEditDailyShift,
+  onCancelDailyShift,
+  onBulkCreateDailyShifts,
 }: WorkforceMonthCalendarProps) {
   const [month, setMonth] = useState(currentMonthKey);
   const [focusDate, setFocusDate] = useState(currentDateKey);
@@ -569,6 +587,7 @@ export default function WorkforceMonthCalendar({
 
     return displayedDays.reduce((summary, day) => {
       day.slots
+        .filter((slot) => slot.dailyShiftStatus === "OPEN")
         .filter((slot) => shiftFilter === "ALL" || workShiftPeriod(slot) === shiftFilter)
         .forEach((slot) => {
         summary.required += slot.requiredStaff;
@@ -649,6 +668,15 @@ export default function WorkforceMonthCalendar({
                   ))}
                 </select>
               </label>
+              {isAdmin && onBulkCreateDailyShifts ? (
+                <button
+                  type="button"
+                  onClick={onBulkCreateDailyShifts}
+                  className="min-h-11 cursor-pointer rounded-xl border border-[#D8C398]/60 bg-[#D8C398] px-4 text-xs font-black text-[#0F2A43] transition hover:bg-[#E8D6B0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                  Tạo nhanh
+                </button>
+              ) : null}
               <div className="flex items-center gap-2" aria-label="Điều hướng lịch làm việc">
                 <button
                   type="button"
@@ -834,7 +862,20 @@ export default function WorkforceMonthCalendar({
                           </button>
                         );
                       }) : (
-                        <span className="flex min-h-[70px] items-center justify-center text-xs font-bold text-[#98A1A8]" aria-hidden="true">—</span>
+                        isAdmin && onCreateDailyShift && !day.past && day.slots.length === 0 ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onCreateDailyShift(day.date);
+                            }}
+                            className="flex min-h-[62px] w-full cursor-pointer items-center justify-center rounded-lg border border-dashed border-[#0F2A43]/15 bg-white/55 text-[10px] font-black text-[#526372] transition hover:border-[#B8944F] hover:bg-[#FFF9EA] hover:text-[#0F2A43] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                          >
+                            + Tạo ca
+                          </button>
+                        ) : (
+                          <span className="flex min-h-[70px] items-center justify-center text-xs font-bold text-[#98A1A8]" aria-hidden="true">—</span>
+                        )
                       )}
                     </span>
                     </div>
@@ -957,8 +998,17 @@ export default function WorkforceMonthCalendar({
                               </button>
                             );
                           }) : (
-                            <div className="flex min-h-32 items-center justify-center rounded-xl border border-dashed border-[#0F2A43]/15 bg-[#F8F5EE]/60 px-4 text-center text-xs font-bold text-[#66727C]">
-                              Không có ca phù hợp bộ lọc
+                            <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[#0F2A43]/15 bg-[#F8F5EE]/60 px-4 text-center text-xs font-bold text-[#66727C]">
+                              <span>{day.slots.length === 0 ? "Ngày này chưa mở ca làm việc" : "Không có ca phù hợp bộ lọc"}</span>
+                              {isAdmin && onCreateDailyShift && !day.past && day.slots.length === 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onCreateDailyShift(day.date)}
+                                  className="min-h-10 cursor-pointer rounded-lg bg-[#0F2A43] px-4 text-xs font-black text-white transition hover:bg-[#173D5F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                                >
+                                  + Tạo ca ngày này
+                                </button>
+                              ) : null}
                             </div>
                           )}
                         </div>
@@ -1027,6 +1077,19 @@ export default function WorkforceMonthCalendar({
               </div>
 
               <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              {selectedDay.slots.length === 0 && isAdmin && onCreateDailyShift && !selectedDay.past ? (
+                <div className="flex min-h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-[#0F2A43]/15 bg-white px-5 text-center lg:col-span-3">
+                  <p className="font-bold text-[#0F2A43]">Ngày này chưa có ca làm việc</p>
+                  <p className="mt-1 text-xs leading-5 text-[#66727C]">Tạo một ca riêng hoặc dùng Tạo nhanh để lập lịch nhiều ngày.</p>
+                  <button
+                    type="button"
+                    onClick={() => onCreateDailyShift(selectedDay.date)}
+                    className="mt-4 min-h-11 cursor-pointer rounded-xl bg-[#0F2A43] px-5 text-xs font-black text-white transition hover:bg-[#173D5F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                  >
+                    + Tạo ca ngày này
+                  </button>
+                </div>
+              ) : null}
               {selectedDay.slots.map((slot) => {
                 const period = workShiftPeriod(slot);
                 const visual = shiftVisuals[period];
@@ -1163,6 +1226,26 @@ export default function WorkforceMonthCalendar({
                 ))}
               </div>
 
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-[#0F2A43]/10 bg-[#FBFAF6] px-3 py-2.5">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#66727C]">Cách nhận ca</p>
+                  <p className="mt-1 text-xs font-bold text-[#0F2A43]">{assignmentPolicyLabel(selected.slot)}</p>
+                </div>
+                <div className="rounded-xl border border-[#0F2A43]/10 bg-[#FBFAF6] px-3 py-2.5">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#66727C]">Đăng ký</p>
+                  <p className="mt-1 text-xs font-bold text-[#0F2A43]">
+                    {selected.slot.registrationOpen ? "Đang mở" : "Đã đóng"}
+                  </p>
+                </div>
+              </div>
+
+              {selected.slot.dailyShiftStatus === "CANCELLED" && selected.slot.cancellationReason ? (
+                <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-rose-700">Lý do hủy ca</p>
+                  <p className="mt-1 text-sm font-semibold leading-6 text-rose-900">{selected.slot.cancellationReason}</p>
+                </div>
+              ) : null}
+
               {isAdmin && (
                 <div className="mt-5 grid gap-5 lg:grid-cols-2">
                   <section className="rounded-xl border border-[#0F2A43]/10 p-4">
@@ -1215,8 +1298,30 @@ export default function WorkforceMonthCalendar({
                   </section>
 
                   <section className="rounded-xl border border-[#0F2A43]/10 p-4">
-                    <h3 className="text-sm font-bold text-[#0F2A43]">Nhu cầu nhân sự</h3>
-                    <p className="mt-1 text-xs text-[#66727C]">Không thể đặt thấp hơn số nhân viên đã phân.</p>
+                    <h3 className="text-sm font-bold text-[#0F2A43]">Thiết lập ca làm việc</h3>
+                    <p className="mt-1 text-xs text-[#66727C]">Sửa giờ, chính sách nhận ca và nhu cầu nhân sự tại một nơi.</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {onEditDailyShift ? (
+                        <button
+                          type="button"
+                          disabled={submitting || selected.slot.started || selected.slot.dailyShiftStatus !== "OPEN"}
+                          onClick={() => onEditDailyShift(selected.day.date, selected.slot)}
+                          className="min-h-10 rounded-lg border border-[#0F2A43]/15 bg-white px-3 text-[10px] font-black text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#FFF9EA] disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Sửa thông tin ca
+                        </button>
+                      ) : null}
+                      {onCancelDailyShift ? (
+                        <button
+                          type="button"
+                          disabled={submitting || selected.slot.started || selected.slot.dailyShiftStatus !== "OPEN"}
+                          onClick={() => onCancelDailyShift(selected.day.date, selected.slot)}
+                          className="min-h-10 rounded-lg border border-rose-200 bg-white px-3 text-[10px] font-black text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Hủy ca
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-[120px_1fr]">
                       <label>
                         <span className={labelClass}>Số người cần</span>
@@ -1225,7 +1330,7 @@ export default function WorkforceMonthCalendar({
                           min={selected.slot.assignedCount}
                           max={100}
                           value={requiredStaff}
-                          disabled={selected.day.past || selected.slot.registrationOpen === false}
+                          disabled={selected.day.past || selected.slot.dailyShiftStatus !== "OPEN"}
                           onChange={(event) => setRequiredStaff(Number(event.target.value))}
                           className={inputClass}
                         />
@@ -1235,7 +1340,7 @@ export default function WorkforceMonthCalendar({
                         <input
                           value={requirementNote}
                           maxLength={500}
-                          disabled={selected.day.past || selected.slot.registrationOpen === false}
+                          disabled={selected.day.past || selected.slot.dailyShiftStatus !== "OPEN"}
                           onChange={(event) => setRequirementNote(event.target.value)}
                           placeholder="Ví dụ: cuối tuần cần tăng cường"
                           className={inputClass}
@@ -1244,7 +1349,7 @@ export default function WorkforceMonthCalendar({
                     </div>
                     <button
                       type="button"
-                      disabled={submitting || selected.day.past || selected.slot.registrationOpen === false}
+                      disabled={submitting || selected.day.past || selected.slot.dailyShiftStatus !== "OPEN"}
                       onClick={() => void saveRequirement()}
                       className="mt-3 min-h-11 w-full rounded-lg border border-[#B8944F] bg-[#FFF9EA] px-4 text-xs font-bold text-[#0F2A43] transition hover:bg-[#F4E7C6] disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -1304,7 +1409,7 @@ export default function WorkforceMonthCalendar({
                 </section>
               )}
 
-              {isAdmin && !selected.day.past && selected.slot.registrationOpen !== false && (
+              {isAdmin && !selected.day.past && selected.slot.dailyShiftStatus === "OPEN" && (
                 <section className="mt-5 rounded-xl border border-[#0F2A43]/10 bg-[#FBFAF6] p-4">
                   <h3 className="text-sm font-bold text-[#0F2A43]">Phân ca trực tiếp</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">

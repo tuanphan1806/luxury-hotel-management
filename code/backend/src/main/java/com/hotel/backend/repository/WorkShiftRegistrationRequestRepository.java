@@ -48,4 +48,23 @@ public interface WorkShiftRegistrationRequestRepository
             Long shiftTemplateId,
             LocalDate workDate,
             WorkShiftRegistrationStatus status);
+
+    boolean existsByShiftTemplateIdAndWorkDateAndStatus(
+            Long shiftTemplateId,
+            LocalDate workDate,
+            WorkShiftRegistrationStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select request from WorkShiftRegistrationRequest request
+            join fetch request.employee
+            where request.shiftTemplate.id = :shiftTemplateId
+              and request.workDate = :workDate
+              and request.status = :status
+            order by request.id asc
+            """)
+    List<WorkShiftRegistrationRequest> findSlotByStatusForUpdate(
+            @Param("shiftTemplateId") Long shiftTemplateId,
+            @Param("workDate") LocalDate workDate,
+            @Param("status") WorkShiftRegistrationStatus status);
 }

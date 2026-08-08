@@ -1,6 +1,8 @@
 export type WorkScheduleStatus = "SCHEDULED" | "FULFILLED" | "CANCELLED" | "ABSENT";
 export type WorkShiftSessionStatus = "ACTIVE" | "CLOSED" | "AUTO_CLOSED";
 export type WorkShiftRegistrationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+export type WorkDailyShiftStatus = "OPEN" | "COMPLETED" | "CANCELLED";
+export type WorkShiftAssignmentPolicy = "ADMIN_ONLY" | "MANUAL_APPROVAL" | "AUTO_ASSIGN";
 
 export interface WorkShiftTemplate {
   id: number;
@@ -105,6 +107,8 @@ export interface WorkShiftCalendarAssignment {
 }
 
 export interface WorkShiftCalendarSlot {
+  dailyShiftId: number;
+  dailyShiftStatus: WorkDailyShiftStatus;
   shiftTemplateId: number;
   shiftCode: string;
   shiftName: string;
@@ -112,11 +116,18 @@ export interface WorkShiftCalendarSlot {
   startTime: string;
   endTime: string;
   crossesMidnight: boolean;
+  started?: boolean;
+  ended?: boolean;
+  completedAtUtc?: string | null;
+  cancellationReason?: string | null;
+  checkInEarlyMinutes: number;
+  lateToleranceMinutes: number;
   requiredStaff: number;
   assignedCount: number;
   pendingRequestCount: number;
   availableSlots: number;
-  registrationOpen?: boolean;
+  registrationOpen: boolean;
+  assignmentPolicy: WorkShiftAssignmentPolicy;
   requirementNote?: string | null;
   currentUserAssignment?: WorkShiftCalendarAssignment | null;
   currentUserRequest?: WorkShiftRegistration | null;
@@ -136,6 +147,66 @@ export interface WorkShiftMonthCalendar {
   from: string;
   to: string;
   days: WorkShiftCalendarDay[];
+}
+
+export interface WorkDailyShiftForm {
+  shiftTemplateId: number;
+  workDate: string;
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+  requiredStaff: number;
+  registrationOpen: boolean;
+  assignmentPolicy: WorkShiftAssignmentPolicy;
+  checkInEarlyMinutes: number;
+  lateToleranceMinutes: number;
+  color: string;
+  note: string;
+}
+
+export interface WorkDailyShiftBulkItem {
+  shiftTemplateId: number;
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+  requiredStaff: number;
+  registrationOpen: boolean;
+  assignmentPolicy: WorkShiftAssignmentPolicy;
+  checkInEarlyMinutes: number;
+  lateToleranceMinutes: number;
+  color: string;
+  note: string | null;
+}
+
+export interface WorkDailyShiftBulkRequest {
+  from: string;
+  to: string;
+  weekdays: Array<"MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY" | "SUNDAY">;
+  shifts: WorkDailyShiftBulkItem[];
+}
+
+export interface WorkDailyShiftBulkPreviewItem {
+  workDate: string;
+  shiftTemplateId: number;
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+  action: "CREATE" | "SKIP_EXISTING";
+  reason?: string | null;
+}
+
+export interface WorkDailyShiftBulkPreview {
+  candidateCount: number;
+  creatableCount: number;
+  skippedExistingCount: number;
+  items: WorkDailyShiftBulkPreviewItem[];
+}
+
+export interface WorkDailyShiftBulkCreateResult {
+  requestedCount: number;
+  createdCount: number;
+  skippedExistingCount: number;
+  createdShifts: WorkShiftCalendarSlot[];
 }
 
 export type WorkShiftPeriod = "MORNING" | "AFTERNOON" | "NIGHT";
@@ -291,6 +362,8 @@ export function staffCalendarSlotLabel(slot: WorkShiftCalendarSlot, past = false
   if (slot.currentUserRequest?.status === "PENDING") return "Chờ duyệt";
   if (slot.currentUserRequest?.status === "APPROVED") return "Đã duyệt";
   if (slot.currentUserRequest?.status === "REJECTED") return "Đã từ chối";
+  if (slot.dailyShiftStatus === "COMPLETED") return "Đã hoàn tất";
+  if (slot.ended && slot.dailyShiftStatus === "OPEN") return "Chờ kết ca";
   if (past || slot.registrationOpen === false) return "Đã qua";
   if (slot.availableSlots > 0) return `Còn ${slot.availableSlots} chỗ`;
   return "Đã đủ nhân sự";
@@ -306,11 +379,23 @@ export function workShiftCalendarStatus(
   isAdmin: boolean,
   past = false,
 ): WorkShiftCalendarStatus {
+  if (slot.dailyShiftStatus === "CANCELLED") {
+    return { label: "Ca đã hủy", compactLabel: "Đã hủy", tone: "muted" };
+  }
   if (!isAdmin) {
     const assignment = slot.currentUserAssignment;
     if (assignment) {
       if (assignment.status === "ABSENT") {
         return { label: "Vắng mặt", compactLabel: "Vắng", tone: "danger" };
+      }
+      if (assignment.sessionStatus === "AUTO_CLOSED") {
+        return {
+          label: assignment.late && assignment.lateMinutes > 0
+            ? `Muộn ${assignment.lateMinutes} phút · hệ thống kết ca`
+            : "Hệ thống đã kết ca",
+          compactLabel: "Tự kết ca",
+          tone: "warning",
+        };
       }
       if (assignment.late) {
         return {
@@ -327,7 +412,6 @@ export function workShiftCalendarStatus(
       if (
         assignment.status === "FULFILLED"
         || assignment.sessionStatus === "CLOSED"
-        || assignment.sessionStatus === "AUTO_CLOSED"
       ) {
         return { label: "Đã hoàn thành", compactLabel: "Hoàn tất", tone: "success" };
       }
@@ -345,6 +429,12 @@ export function workShiftCalendarStatus(
     }
     if (slot.currentUserRequest?.status === "REJECTED") {
       return { label: "Yêu cầu bị từ chối", compactLabel: "Từ chối", tone: "danger" };
+    }
+    if (slot.dailyShiftStatus === "COMPLETED") {
+      return { label: "Ca đã hoàn tất", compactLabel: "Hoàn tất", tone: "success" };
+    }
+    if (slot.ended && slot.dailyShiftStatus === "OPEN") {
+      return { label: "Đang chờ kết ca", compactLabel: "Chờ kết ca", tone: "warning" };
     }
     if (past || slot.registrationOpen === false) {
       return { label: "Đã qua", compactLabel: "Đã qua", tone: "muted" };
@@ -364,10 +454,12 @@ export function workShiftCalendarStatus(
     assignment.status !== "ABSENT" && assignment.late
   )).length;
   const activeCount = slot.assignments.filter((assignment) => assignment.sessionStatus === "ACTIVE").length;
+  const autoClosedCount = slot.assignments.filter((assignment) => (
+    assignment.sessionStatus === "AUTO_CLOSED"
+  )).length;
   const completedCount = slot.assignments.filter((assignment) => (
     assignment.status === "FULFILLED"
     || assignment.sessionStatus === "CLOSED"
-    || assignment.sessionStatus === "AUTO_CLOSED"
   )).length;
   const unrecordedCount = past
     ? slot.assignments.filter((assignment) => (
@@ -379,6 +471,7 @@ export function workShiftCalendarStatus(
   if (absentCount > 0) attendanceParts.push(`${absentCount} vắng`);
   if (lateCount > 0) attendanceParts.push(`${lateCount} muộn`);
   if (activeCount > 0) attendanceParts.push(`${activeCount} đang ca`);
+  if (autoClosedCount > 0) attendanceParts.push(`${autoClosedCount} hệ thống kết ca`);
   if (unrecordedCount > 0) attendanceParts.push(`${unrecordedCount} chưa chấm`);
 
   if (attendanceParts.length > 0) {
@@ -401,6 +494,12 @@ export function workShiftCalendarStatus(
   }
   if (past && slot.assignedCount === 0) {
     return { label: "Không phân ca", compactLabel: "Không phân", tone: "muted" };
+  }
+  if (slot.dailyShiftStatus === "COMPLETED") {
+    return { label: "Ca đã hoàn tất", compactLabel: "Hoàn tất", tone: "success" };
+  }
+  if (slot.ended && slot.dailyShiftStatus === "OPEN") {
+    return { label: "Đang chờ kết ca", compactLabel: "Chờ kết ca", tone: "warning" };
   }
   if (slot.pendingRequestCount > 0) {
     return {

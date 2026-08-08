@@ -99,6 +99,11 @@ public enum ErrorCode {
     WORK_SHIFT_REGISTRATION_CANNOT_MODIFY(5113, "Yêu cầu đăng ký ca đã được xử lý", HttpStatus.CONFLICT),
     WORK_SHIFT_REGISTRATION_PAST_DATE(5114, "Không thể đăng ký hoặc điều chỉnh ca đã qua", HttpStatus.BAD_REQUEST),
     WORK_SHIFT_REQUIREMENT_BELOW_ASSIGNED(5115, "Số nhân sự cần không thể thấp hơn số đã phân ca", HttpStatus.CONFLICT),
+    WORK_DAILY_SHIFT_NOT_FOUND(5116, "Không tìm thấy ca làm việc trong ngày", HttpStatus.NOT_FOUND),
+    WORK_DAILY_SHIFT_ALREADY_EXISTS(5117, "Ca này đã được mở trong ngày đã chọn", HttpStatus.CONFLICT),
+    WORK_DAILY_SHIFT_CANNOT_CANCEL(5118, "Không thể hủy ca đã bắt đầu hoặc đã có nhân viên check-in", HttpStatus.CONFLICT),
+    WORK_DAILY_SHIFT_NOT_OPEN(5119, "Ca làm việc không còn mở", HttpStatus.CONFLICT),
+    WORK_DAILY_SHIFT_CANNOT_MODIFY(5120, "Chỉ có thể chỉnh sửa ca đang mở và chưa phát sinh dữ liệu không tương thích", HttpStatus.CONFLICT),
 
 
     ;
