@@ -2,6 +2,9 @@ package com.hotel.backend.controller;
 
 import com.hotel.backend.constant.WorkScheduleStatus;
 import com.hotel.backend.dto.request.CancelWorkScheduleRequest;
+import com.hotel.backend.dto.request.CancelWorkDailyShiftRequest;
+import com.hotel.backend.dto.request.WorkDailyShiftBulkRequest;
+import com.hotel.backend.dto.request.WorkDailyShiftRequest;
 import com.hotel.backend.dto.request.WorkAttendanceRequest;
 import com.hotel.backend.dto.request.WorkScheduleAssignmentRequest;
 import com.hotel.backend.dto.request.WorkShiftTemplateRequest;
@@ -9,6 +12,8 @@ import com.hotel.backend.dto.request.WorkShiftRegistrationCreateRequest;
 import com.hotel.backend.dto.request.WorkShiftRegistrationReviewRequest;
 import com.hotel.backend.dto.request.WorkShiftRequirementRequest;
 import com.hotel.backend.dto.response.ApiResponse;
+import com.hotel.backend.dto.response.WorkDailyShiftBulkCreateResponse;
+import com.hotel.backend.dto.response.WorkDailyShiftBulkPreviewResponse;
 import com.hotel.backend.dto.response.WorkShiftCalendarSlotResponse;
 import com.hotel.backend.dto.response.WorkShiftMonthCalendarResponse;
 import com.hotel.backend.dto.response.WorkShiftRegistrationResponse;
@@ -16,6 +21,7 @@ import com.hotel.backend.dto.response.WorkScheduleResponse;
 import com.hotel.backend.dto.response.WorkShiftTemplateResponse;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.service.IdempotencyService;
+import com.hotel.backend.service.WorkDailyShiftService;
 import com.hotel.backend.service.WorkScheduleService;
 import com.hotel.backend.service.WorkShiftTemplateService;
 import com.hotel.backend.service.WorkforceCalendarService;
@@ -49,6 +55,7 @@ public class WorkScheduleController {
     private static final ZoneId HOTEL_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final WorkScheduleService workScheduleService;
+    private final WorkDailyShiftService dailyShiftService;
     private final WorkShiftTemplateService templateService;
     private final WorkforceCalendarService calendarService;
     private final IdempotencyService idempotencyService;
@@ -69,6 +76,90 @@ public class WorkScheduleController {
                 ? month
                 : YearMonth.now(HOTEL_ZONE);
         return ApiResponse.success(calendarService.month(safeMonth, currentUser));
+    }
+
+    @PostMapping("/daily-shifts")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftCalendarSlotResponse> createDailyShift(
+            @Valid @RequestBody WorkDailyShiftRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftCalendarSlotResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_DAILY_SHIFT_CREATE",
+                idempotencyService.actorScope(currentUser, null),
+                request,
+                "WORK_DAILY_SHIFT",
+                () -> dailyShiftService.create(request, currentUser),
+                item -> String.valueOf(item.dailyShiftId()),
+                itemId -> dailyShiftService.get(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success("Đã mở ca làm việc trong ngày", response);
+    }
+
+    @PutMapping("/daily-shifts/{dailyShiftId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftCalendarSlotResponse> updateDailyShift(
+            @PathVariable Long dailyShiftId,
+            @Valid @RequestBody WorkDailyShiftRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftCalendarSlotResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_DAILY_SHIFT_UPDATE",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of("dailyShiftId", dailyShiftId, "request", request),
+                "WORK_DAILY_SHIFT",
+                () -> dailyShiftService.update(dailyShiftId, request, currentUser),
+                item -> String.valueOf(item.dailyShiftId()),
+                itemId -> dailyShiftService.get(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success("Đã cập nhật ca làm việc trong ngày", response);
+    }
+
+    @PostMapping("/daily-shifts/{dailyShiftId}/cancel")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftCalendarSlotResponse> cancelDailyShift(
+            @PathVariable Long dailyShiftId,
+            @Valid @RequestBody CancelWorkDailyShiftRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftCalendarSlotResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_DAILY_SHIFT_CANCEL",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of("dailyShiftId", dailyShiftId, "request", request),
+                "WORK_DAILY_SHIFT",
+                () -> dailyShiftService.cancel(dailyShiftId, request, currentUser),
+                item -> String.valueOf(item.dailyShiftId()),
+                itemId -> dailyShiftService.get(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success("Đã hủy ca làm việc trong ngày", response);
+    }
+
+    @PostMapping("/daily-shifts/bulk/preview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkDailyShiftBulkPreviewResponse> previewDailyShifts(
+            @Valid @RequestBody WorkDailyShiftBulkRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        return ApiResponse.success(dailyShiftService.previewBulk(request, currentUser));
+    }
+
+    @PostMapping("/daily-shifts/bulk")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkDailyShiftBulkCreateResponse> createDailyShifts(
+            @Valid @RequestBody WorkDailyShiftBulkRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkDailyShiftBulkCreateResponse response = idempotencyService.executeSnapshot(
+                idempotencyKey,
+                "WORK_DAILY_SHIFT_BULK_CREATE",
+                idempotencyService.actorScope(currentUser, null),
+                request,
+                "WORK_DAILY_SHIFT_BULK",
+                request.from() + "_" + request.to(),
+                () -> dailyShiftService.createBulk(request, currentUser),
+                WorkDailyShiftBulkCreateResponse.class);
+        return ApiResponse.success(
+                "Đã tạo nhanh các ca hợp lệ; ca trùng được giữ nguyên",
+                response);
     }
 
     @PostMapping("/registration-requests")

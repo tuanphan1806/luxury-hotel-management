@@ -10,6 +10,7 @@ import com.hotel.backend.dto.request.WorkScheduleAssignmentRequest;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.entity.WorkScheduleAssignment;
 import com.hotel.backend.entity.WorkShiftSession;
+import com.hotel.backend.entity.WorkShiftRequirement;
 import com.hotel.backend.entity.WorkShiftTemplate;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
@@ -49,7 +50,7 @@ class WorkScheduleServiceTest {
     @Mock WorkScheduleAssignmentRepository repository;
     @Mock WorkShiftSessionRepository sessionRepository;
     @Mock UserRepository userRepository;
-    @Mock WorkShiftTemplateService templateService;
+    @Mock WorkDailyShiftService dailyShiftService;
     @Mock CashierShiftService cashierShiftService;
     @Mock ReservationAuditService auditService;
 
@@ -64,7 +65,7 @@ class WorkScheduleServiceTest {
                 repository,
                 sessionRepository,
                 userRepository,
-                templateService,
+                dailyShiftService,
                 cashierShiftService,
                 auditService,
                 Clock.fixed(NOW, ZoneOffset.UTC));
@@ -87,7 +88,8 @@ class WorkScheduleServiceTest {
     @Test
     void createSnapshotsOvernightWindowInHotelTimezone() {
         when(userRepository.findById(7L)).thenReturn(Optional.of(staff));
-        when(templateService.requireActive(3L)).thenReturn(nightTemplate);
+        when(dailyShiftService.requireOpen(3L, LocalDate.of(2026, 8, 1)))
+                .thenReturn(dailyShift(LocalDate.of(2026, 8, 1)));
         when(repository.saveAndFlush(any(WorkScheduleAssignment.class)))
                 .thenAnswer(invocation -> {
                     WorkScheduleAssignment assignment = invocation.getArgument(0);
@@ -224,6 +226,7 @@ class WorkScheduleServiceTest {
         assertEquals(NOW, response.actualCheckOutUtc());
         assertFalse(response.autoCheckOut());
         verify(cashierShiftService).closeForWorkSession(session, staff, "Bàn giao đủ");
+        verify(dailyShiftService).completeIfEligible(3L, LocalDate.of(2026, 8, 1));
     }
 
     @Test
@@ -375,6 +378,23 @@ class WorkScheduleServiceTest {
                 .scheduledEndUtc(scheduledEnd)
                 .status(status)
                 .createdBy(admin)
+                .build();
+    }
+
+    private WorkShiftRequirement dailyShift(LocalDate workDate) {
+        return WorkShiftRequirement.builder()
+                .id(301L)
+                .shiftTemplate(nightTemplate)
+                .workDate(workDate)
+                .requiredStaff(1)
+                .shiftCodeSnapshot(nightTemplate.getCode())
+                .shiftNameSnapshot(nightTemplate.getName())
+                .shiftColorSnapshot(nightTemplate.getColor())
+                .startTimeSnapshot(nightTemplate.getStartTime())
+                .endTimeSnapshot(nightTemplate.getEndTime())
+                .checkInEarlyMinutesSnapshot(30)
+                .lateToleranceMinutesSnapshot(15)
+                .sortOrderSnapshot(30)
                 .build();
     }
 

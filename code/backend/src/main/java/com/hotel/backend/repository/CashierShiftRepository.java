@@ -58,4 +58,17 @@ public interface CashierShiftRepository extends JpaRepository<CashierShift, Long
             where shift.businessDate = :businessDate
             """)
     BigDecimal sumVarianceByBusinessDate(@Param("businessDate") LocalDate businessDate);
+
+    @Query("""
+            select (count(shift.id) > 0) from CashierShift shift
+            join shift.workShiftSession session
+            join session.assignment assignment
+            where assignment.shiftTemplate.id = :shiftTemplateId
+              and assignment.workDate = :workDate
+              and shift.status in :statuses
+            """)
+    boolean existsActiveForWorkShift(
+            @Param("shiftTemplateId") Long shiftTemplateId,
+            @Param("workDate") LocalDate workDate,
+            @Param("statuses") Collection<CashierShiftStatus> statuses);
 }

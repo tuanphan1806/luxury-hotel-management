@@ -19,4 +19,8 @@ public interface WorkShiftTemplateRepository extends JpaRepository<WorkShiftTemp
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select template from WorkShiftTemplate template where template.id = :id")
     Optional<WorkShiftTemplate> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select template from WorkShiftTemplate template where template.id in :ids order by template.id")
+    List<WorkShiftTemplate> findAllByIdForUpdate(@Param("ids") List<Long> ids);
 }

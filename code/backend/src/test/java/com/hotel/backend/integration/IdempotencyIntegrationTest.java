@@ -130,6 +130,41 @@ class IdempotencyIntegrationTest {
     }
 
     @Test
+    void snapshotResponseIsReplayedWithoutExecutingBulkActionTwice() {
+        String key = UUID.randomUUID().toString();
+        AtomicInteger executions = new AtomicInteger();
+
+        SnapshotResult first = idempotencyService.executeSnapshot(
+                key,
+                "TEST_BULK_COMMAND",
+                "TEST:admin-1",
+                Map.of("from", "2026-08-10", "to", "2026-08-16"),
+                "TEST_BULK",
+                "2026-08-10_2026-08-16",
+                () -> {
+                    executions.incrementAndGet();
+                    return new SnapshotResult(3, List.of(11L, 12L, 13L));
+                },
+                SnapshotResult.class);
+        SnapshotResult replayed = idempotencyService.executeSnapshot(
+                key,
+                "TEST_BULK_COMMAND",
+                "TEST:admin-1",
+                Map.of("from", "2026-08-10", "to", "2026-08-16"),
+                "TEST_BULK",
+                "2026-08-10_2026-08-16",
+                () -> {
+                    executions.incrementAndGet();
+                    return new SnapshotResult(99, List.of());
+                },
+                SnapshotResult.class);
+
+        assertThat(first).isEqualTo(new SnapshotResult(3, List.of(11L, 12L, 13L)));
+        assertThat(replayed).isEqualTo(first);
+        assertThat(executions).hasValue(1);
+    }
+
+    @Test
     void sameKeyWithDifferentPayloadIsRejectedWithoutSecondSideEffect() {
         String key = UUID.randomUUID().toString();
         AtomicInteger executions = new AtomicInteger();
@@ -167,5 +202,8 @@ class IdempotencyIntegrationTest {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while simulating financial work", exception);
         }
+    }
+
+    private record SnapshotResult(int createdCount, List<Long> ids) {
     }
 }

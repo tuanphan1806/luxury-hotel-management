@@ -67,6 +67,42 @@ public class IdempotencyService {
         throw new IllegalStateException("Unreachable idempotency execution state");
     }
 
+    public <T> T executeSnapshot(
+            String requestKey,
+            String operation,
+            String actorScope,
+            Object requestPayload,
+            String resourceType,
+            String resourceId,
+            Supplier<T> action,
+            Class<T> responseType) {
+        validate(requestKey, operation, actorScope);
+        String normalizedKey = requestKey.trim();
+        String requestHash = hash(requestPayload);
+        for (int attempt = 1; attempt <= MAX_CLAIM_ATTEMPTS; attempt++) {
+            try {
+                return transactionExecutor.executeSnapshot(
+                        normalizedKey,
+                        operation,
+                        actorScope,
+                        requestHash,
+                        resourceType,
+                        resourceId,
+                        action,
+                        responseType);
+            } catch (IdempotencyStore.ClaimConflictException race) {
+                businessMetrics.increment(
+                        "hotel.idempotency.claim.conflicts",
+                        "operation", businessMetrics.outcomeTag(operation));
+                if (attempt == MAX_CLAIM_ATTEMPTS) {
+                    throw new AppException(ErrorCode.DUPLICATE_RESOURCE,
+                            "Yêu cầu cùng idempotency key đang được xử lý");
+                }
+            }
+        }
+        throw new IllegalStateException("Unreachable idempotency execution state");
+    }
+
     public String actorScope(User user, String guestToken) {
         if (user != null && user.getId() != null) {
             return user.getType().name() + ":" + user.getId();

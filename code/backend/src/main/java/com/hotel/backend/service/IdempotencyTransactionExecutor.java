@@ -1,5 +1,6 @@
 package com.hotel.backend.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ import java.util.function.Supplier;
 public class IdempotencyTransactionExecutor {
 
     private final IdempotencyStore store;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public <T> T execute(
@@ -50,6 +52,49 @@ public class IdempotencyTransactionExecutor {
                     "Kết quả idempotency thiếu resource id");
         }
         store.complete(requestKey, operation, actorScope, resourceType, id);
+        return result;
+    }
+
+    @Transactional
+    public <T> T executeSnapshot(
+            String requestKey,
+            String operation,
+            String actorScope,
+            String requestHash,
+            String resourceType,
+            String resourceId,
+            Supplier<T> action,
+            Class<T> responseType) {
+        IdempotencyStore.Decision decision = store.begin(
+                requestKey, operation, actorScope, requestHash);
+        if (decision.replay()) {
+            if (decision.responseJson() == null || decision.responseJson().isBlank()) {
+                throw new AppException(ErrorCode.DUPLICATE_RESOURCE,
+                        "Yêu cầu đã hoàn tất nhưng thiếu response để replay");
+            }
+            try {
+                return objectMapper.readValue(decision.responseJson(), responseType);
+            } catch (Exception invalidSnapshot) {
+                throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION,
+                        "Không thể khôi phục kết quả idempotency");
+            }
+        }
+
+        T result = action.get();
+        try {
+            store.completeSnapshot(
+                    requestKey,
+                    operation,
+                    actorScope,
+                    resourceType,
+                    resourceId,
+                    objectMapper.writeValueAsString(result));
+        } catch (AppException exception) {
+            throw exception;
+        } catch (Exception serializationFailure) {
+            throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION,
+                    "Không thể lưu kết quả idempotency");
+        }
         return result;
     }
 }

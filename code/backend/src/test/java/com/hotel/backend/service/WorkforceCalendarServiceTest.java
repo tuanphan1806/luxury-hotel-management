@@ -3,7 +3,9 @@ package com.hotel.backend.service;
 import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
+import com.hotel.backend.constant.WorkDailyShiftStatus;
 import com.hotel.backend.constant.WorkScheduleStatus;
+import com.hotel.backend.constant.WorkShiftAssignmentPolicy;
 import com.hotel.backend.constant.WorkShiftRegistrationStatus;
 import com.hotel.backend.dto.request.WorkShiftRegistrationCreateRequest;
 import com.hotel.backend.dto.request.WorkShiftRegistrationReviewRequest;
@@ -19,7 +21,6 @@ import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.WorkScheduleAssignmentRepository;
 import com.hotel.backend.repository.WorkShiftRegistrationRequestRepository;
 import com.hotel.backend.repository.WorkShiftRequirementRepository;
-import com.hotel.backend.repository.WorkShiftTemplateRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,7 +57,6 @@ class WorkforceCalendarServiceTest {
 
     @Mock WorkShiftRequirementRepository requirementRepository;
     @Mock WorkShiftRegistrationRequestRepository registrationRepository;
-    @Mock WorkShiftTemplateRepository templateRepository;
     @Mock WorkScheduleAssignmentRepository assignmentRepository;
     @Mock WorkScheduleService workScheduleService;
     @Mock ReservationAuditService auditService;
@@ -72,7 +72,6 @@ class WorkforceCalendarServiceTest {
         service = new WorkforceCalendarService(
                 requirementRepository,
                 registrationRepository,
-                templateRepository,
                 assignmentRepository,
                 workScheduleService,
                 auditService,
@@ -103,17 +102,10 @@ class WorkforceCalendarServiceTest {
         when(assignmentCount.getWorkDate()).thenReturn(WORK_DATE);
         when(assignmentCount.getShiftTemplateId()).thenReturn(10L);
         when(assignmentCount.getAssignedCount()).thenReturn(2L);
-        when(templateRepository.findAllByOrderBySortOrderAscStartTimeAscIdAsc())
-                .thenReturn(List.of(morning));
         when(requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(
                 LocalDate.of(2026, 8, 1),
                 LocalDate.of(2026, 8, 31)))
-                .thenReturn(List.of(WorkShiftRequirement.builder()
-                        .id(301L)
-                        .shiftTemplate(morning)
-                        .workDate(WORK_DATE)
-                        .requiredStaff(3)
-                        .build()));
+                .thenReturn(List.of(dailyShift(WORK_DATE, 3)));
         when(assignmentRepository.findInWindow(any(), any(), eq(7L), eq(null)))
                 .thenReturn(List.of(own));
         when(assignmentRepository.countAssignedBySlotInWindow(
@@ -150,12 +142,10 @@ class WorkforceCalendarServiceTest {
     void adminCalendarCanInspectAssignedEmployeesAndPendingRequests() {
         WorkScheduleAssignment assigned = assignment(101L, staff);
         WorkShiftRegistrationRequest pending = registration(201L, anotherStaff);
-        when(templateRepository.findAllByOrderBySortOrderAscStartTimeAscIdAsc())
-                .thenReturn(List.of(morning));
         when(requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(
                 LocalDate.of(2026, 8, 1),
                 LocalDate.of(2026, 8, 31)))
-                .thenReturn(List.of());
+                .thenReturn(List.of(dailyShift(WORK_DATE, 2)));
         when(assignmentRepository.findInWindow(any(), any(), eq(null), eq(null)))
                 .thenReturn(List.of(assigned));
         when(registrationRepository.findInWindow(
@@ -185,17 +175,16 @@ class WorkforceCalendarServiceTest {
         service = new WorkforceCalendarService(
                 requirementRepository,
                 registrationRepository,
-                templateRepository,
                 assignmentRepository,
                 workScheduleService,
                 auditService,
                 Clock.fixed(Instant.parse("2026-08-01T08:00:00Z"), ZoneOffset.UTC));
-        when(templateRepository.findAllByOrderBySortOrderAscStartTimeAscIdAsc())
-                .thenReturn(List.of(morning));
         when(requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(
                 LocalDate.of(2026, 8, 1),
                 LocalDate.of(2026, 8, 31)))
-                .thenReturn(List.of());
+                .thenReturn(List.of(
+                        dailyShift(LocalDate.of(2026, 8, 1), 1),
+                        dailyShift(LocalDate.of(2026, 8, 2), 1)));
         when(assignmentRepository.findInWindow(any(), any(), eq(7L), eq(null)))
                 .thenReturn(List.of());
         when(assignmentRepository.countAssignedBySlotInWindow(
@@ -213,12 +202,56 @@ class WorkforceCalendarServiceTest {
         var future = response.days().get(1).slots().get(0);
 
         assertFalse(endedToday.registrationOpen());
+        assertEquals(0, endedToday.availableSlots());
         assertTrue(future.registrationOpen());
+        assertEquals(1, future.availableSlots());
+    }
+
+    @Test
+    void staffCalendarKeepsCancelledAssignedShiftAsHistoryWithoutUsingCapacity() {
+        WorkShiftRequirement cancelledShift = dailyShift(WORK_DATE, 1);
+        cancelledShift.setStatus(WorkDailyShiftStatus.CANCELLED);
+        cancelledShift.setCancellationReason("Khách sạn điều chỉnh vận hành");
+        WorkScheduleAssignment cancelledAssignment = assignment(101L, staff);
+        cancelledAssignment.setStatus(WorkScheduleStatus.CANCELLED);
+        WorkScheduleAssignmentRepository.SlotAssignmentCount assignmentCount =
+                mock(WorkScheduleAssignmentRepository.SlotAssignmentCount.class);
+        when(assignmentCount.getWorkDate()).thenReturn(WORK_DATE);
+        when(assignmentCount.getShiftTemplateId()).thenReturn(10L);
+        when(assignmentCount.getAssignedCount()).thenReturn(0L);
+        when(requirementRepository.findAllByWorkDateBetweenOrderByWorkDateAsc(
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31)))
+                .thenReturn(List.of(cancelledShift));
+        when(assignmentRepository.findInWindow(any(), any(), eq(7L), eq(null)))
+                .thenReturn(List.of(cancelledAssignment));
+        when(assignmentRepository.countAssignedBySlotInWindow(
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31)))
+                .thenReturn(List.of(assignmentCount));
+        when(registrationRepository.findInWindow(
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31),
+                7L))
+                .thenReturn(List.of());
+
+        var response = service.month(YearMonth.of(2026, 8), staff);
+        var slot = response.days().stream()
+                .filter(day -> day.date().equals(WORK_DATE))
+                .findFirst()
+                .orElseThrow()
+                .slots()
+                .get(0);
+
+        assertEquals(WorkDailyShiftStatus.CANCELLED, slot.dailyShiftStatus());
+        assertNotNull(slot.currentUserAssignment());
+        assertEquals(WorkScheduleStatus.CANCELLED, slot.currentUserAssignment().status());
+        assertEquals(0, slot.assignedCount());
+        assertEquals(0, slot.availableSlots());
     }
 
     @Test
     void staffCannotRequestAFullShift() {
-        when(templateRepository.findById(10L)).thenReturn(Optional.of(morning));
         when(assignmentRepository.findInWindow(any(), any(), eq(7L), eq(null)))
                 .thenReturn(List.of());
         when(registrationRepository
@@ -226,7 +259,7 @@ class WorkforceCalendarServiceTest {
                         7L, 10L, WORK_DATE, WorkShiftRegistrationStatus.PENDING))
                 .thenReturn(false);
         when(requirementRepository.findForUpdate(10L, WORK_DATE))
-                .thenReturn(Optional.empty());
+                .thenReturn(Optional.of(dailyShift(WORK_DATE, 1)));
         when(assignmentRepository.countByShiftTemplateIdAndWorkDateAndStatusNot(
                 10L, WORK_DATE, WorkScheduleStatus.CANCELLED))
                 .thenReturn(1L);
@@ -245,12 +278,12 @@ class WorkforceCalendarServiceTest {
     @Test
     void approvingRequestRevalidatesCapacityAndCreatesExistingScheduleAtomically() {
         WorkShiftRegistrationRequest pending = registration(201L, staff);
+        when(registrationRepository.findById(201L))
+                .thenReturn(Optional.of(pending));
         when(registrationRepository.findByIdForUpdate(201L))
                 .thenReturn(Optional.of(pending));
-        when(templateRepository.findByIdForUpdate(10L))
-                .thenReturn(Optional.of(morning));
         when(requirementRepository.findForUpdate(10L, WORK_DATE))
-                .thenReturn(Optional.empty());
+                .thenReturn(Optional.of(dailyShift(WORK_DATE, 1)));
         when(assignmentRepository.countByShiftTemplateIdAndWorkDateAndStatusNot(
                 10L, WORK_DATE, WorkScheduleStatus.CANCELLED))
                 .thenReturn(0L);
@@ -280,8 +313,8 @@ class WorkforceCalendarServiceTest {
 
     @Test
     void requirementCannotBeReducedBelowAlreadyAssignedStaff() {
-        when(templateRepository.findByIdForUpdate(10L))
-                .thenReturn(Optional.of(morning));
+        when(requirementRepository.findForUpdate(10L, WORK_DATE))
+                .thenReturn(Optional.of(dailyShift(WORK_DATE, 3)));
         when(assignmentRepository.countByShiftTemplateIdAndWorkDateAndStatusNot(
                 10L, WORK_DATE, WorkScheduleStatus.CANCELLED))
                 .thenReturn(2L);
@@ -305,14 +338,13 @@ class WorkforceCalendarServiceTest {
         service = new WorkforceCalendarService(
                 requirementRepository,
                 registrationRepository,
-                templateRepository,
                 assignmentRepository,
                 workScheduleService,
                 auditService,
                 Clock.fixed(Instant.parse("2026-08-01T08:00:00Z"), ZoneOffset.UTC));
         LocalDate endedDate = LocalDate.of(2026, 8, 1);
-        when(templateRepository.findByIdForUpdate(10L))
-                .thenReturn(Optional.of(morning));
+        when(requirementRepository.findForUpdate(10L, endedDate))
+                .thenReturn(Optional.of(dailyShift(endedDate, 2)));
 
         AppException exception = assertThrows(
                 AppException.class,
@@ -338,6 +370,26 @@ class WorkforceCalendarServiceTest {
                 .staffNote("Có thể nhận ca")
                 .createdAtUtc(NOW)
                 .updatedAtUtc(NOW)
+                .build();
+    }
+
+    private WorkShiftRequirement dailyShift(LocalDate workDate, int requiredStaff) {
+        return WorkShiftRequirement.builder()
+                .id(300L + workDate.getDayOfMonth())
+                .shiftTemplate(morning)
+                .workDate(workDate)
+                .requiredStaff(requiredStaff)
+                .shiftCodeSnapshot(morning.getCode())
+                .shiftNameSnapshot(morning.getName())
+                .shiftColorSnapshot(morning.getColor())
+                .startTimeSnapshot(morning.getStartTime())
+                .endTimeSnapshot(morning.getEndTime())
+                .checkInEarlyMinutesSnapshot(30)
+                .lateToleranceMinutesSnapshot(15)
+                .sortOrderSnapshot(10)
+                .registrationOpen(true)
+                .assignmentPolicySnapshot(WorkShiftAssignmentPolicy.MANUAL_APPROVAL)
+                .status(WorkDailyShiftStatus.OPEN)
                 .build();
     }
 

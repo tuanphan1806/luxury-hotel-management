@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -54,4 +55,16 @@ public interface WorkShiftSessionRepository extends JpaRepository<WorkShiftSessi
             @Param("status") WorkShiftSessionStatus status,
             @Param("cutoff") Instant cutoff,
             Pageable pageable);
+
+    @Query("""
+            select (count(session.id) > 0) from WorkShiftSession session
+            join session.assignment assignment
+            where assignment.shiftTemplate.id = :shiftTemplateId
+              and assignment.workDate = :workDate
+              and session.status = :status
+            """)
+    boolean existsForWorkShiftByStatus(
+            @Param("shiftTemplateId") Long shiftTemplateId,
+            @Param("workDate") LocalDate workDate,
+            @Param("status") WorkShiftSessionStatus status);
 }
