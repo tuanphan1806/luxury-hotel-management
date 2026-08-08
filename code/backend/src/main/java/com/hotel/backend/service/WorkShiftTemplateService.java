@@ -59,8 +59,8 @@ public class WorkShiftTemplateService {
                 .endTime(request.endTime())
                 .checkInEarlyMinutes(request.checkInEarlyMinutes())
                 .lateToleranceMinutes(request.lateToleranceMinutes())
-                .color(request.color().toUpperCase())
-                .sortOrder(request.sortOrder())
+                .color(WorkShiftColorPolicy.forStartTime(request.startTime()))
+                .sortOrder(WorkShiftColorPolicy.sortOrderForStartTime(request.startTime()))
                 .active(request.active())
                 .createdBy(actor)
                 .updatedBy(actor)
@@ -99,8 +99,8 @@ public class WorkShiftTemplateService {
         template.setEndTime(request.endTime());
         template.setCheckInEarlyMinutes(request.checkInEarlyMinutes());
         template.setLateToleranceMinutes(request.lateToleranceMinutes());
-        template.setColor(request.color().toUpperCase());
-        template.setSortOrder(request.sortOrder());
+        template.setColor(WorkShiftColorPolicy.forStartTime(request.startTime()));
+        template.setSortOrder(WorkShiftColorPolicy.sortOrderForStartTime(request.startTime()));
         template.setActive(request.active());
         template.setUpdatedBy(actor);
         try {

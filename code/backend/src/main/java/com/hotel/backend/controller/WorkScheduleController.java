@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -132,6 +133,44 @@ public class WorkScheduleController {
                 item -> String.valueOf(item.dailyShiftId()),
                 itemId -> dailyShiftService.get(Long.valueOf(itemId), currentUser));
         return ApiResponse.success("Đã hủy ca làm việc trong ngày", response);
+    }
+
+    @PostMapping("/daily-shifts/{dailyShiftId}/restore")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftCalendarSlotResponse> restoreDailyShift(
+            @PathVariable Long dailyShiftId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftCalendarSlotResponse response = idempotencyService.execute(
+                idempotencyKey,
+                "WORK_DAILY_SHIFT_RESTORE",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of("dailyShiftId", dailyShiftId),
+                "WORK_DAILY_SHIFT",
+                () -> dailyShiftService.restore(dailyShiftId, currentUser),
+                item -> String.valueOf(item.dailyShiftId()),
+                itemId -> dailyShiftService.get(Long.valueOf(itemId), currentUser));
+        return ApiResponse.success(
+                "Đã khôi phục ca; phân công và yêu cầu cũ không tự khôi phục",
+                response);
+    }
+
+    @DeleteMapping("/daily-shifts/{dailyShiftId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<WorkShiftCalendarSlotResponse> deleteUnusedDailyShift(
+            @PathVariable Long dailyShiftId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal User currentUser) {
+        WorkShiftCalendarSlotResponse response = idempotencyService.executeSnapshot(
+                idempotencyKey,
+                "WORK_DAILY_SHIFT_DELETE_UNUSED",
+                idempotencyService.actorScope(currentUser, null),
+                Map.of("dailyShiftId", dailyShiftId),
+                "WORK_DAILY_SHIFT",
+                String.valueOf(dailyShiftId),
+                () -> dailyShiftService.deleteUnused(dailyShiftId, currentUser),
+                WorkShiftCalendarSlotResponse.class);
+        return ApiResponse.success("Đã xóa ca trống khỏi lịch", response);
     }
 
     @PostMapping("/daily-shifts/bulk/preview")

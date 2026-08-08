@@ -11,6 +11,8 @@ import {
   formatShiftTime,
   shiftWorkDate,
   unwrapWorkScheduleApiData,
+  workShiftColorForStartTime,
+  workShiftPeriodFromStartTime,
   type WorkDailyShiftBulkCreateResult,
   type WorkDailyShiftBulkPreview,
   type WorkDailyShiftBulkRequest,
@@ -20,9 +22,11 @@ import {
 } from "@/lib/work-schedules";
 
 export type WorkDailyShiftAction =
-  | { kind: "create"; date: string }
+  | { kind: "create"; date: string; usedTemplateIds?: number[] }
   | { kind: "edit"; date: string; slot: WorkShiftCalendarSlot }
   | { kind: "cancel"; date: string; slot: WorkShiftCalendarSlot }
+  | { kind: "restore"; date: string; slot: WorkShiftCalendarSlot }
+  | { kind: "delete"; date: string; slot: WorkShiftCalendarSlot }
   | { kind: "bulk" }
   | null;
 
@@ -100,7 +104,7 @@ function formFromTemplate(
     assignmentPolicy: "MANUAL_APPROVAL",
     checkInEarlyMinutes: template.checkInEarlyMinutes,
     lateToleranceMinutes: template.lateToleranceMinutes,
-    color: template.color,
+    color: workShiftColorForStartTime(formatShiftTime(template.startTime)),
     note: "",
   };
 }
@@ -115,6 +119,11 @@ export default function WorkDailyShiftModals({
     () => templates.filter((item) => item.active),
     [templates],
   );
+  const availableCreateTemplates = useMemo(() => {
+    if (action?.kind !== "create") return activeTemplates;
+    const used = new Set(action.usedTemplateIds || []);
+    return activeTemplates.filter((template) => !used.has(template.id));
+  }, [action, activeTemplates]);
   const [form, setForm] = useState<WorkDailyShiftForm | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [error, setError] = useState("");
@@ -142,7 +151,7 @@ export default function WorkDailyShiftModals({
     setPreview(null);
     if (!action) return;
     if (action.kind === "create") {
-      const template = activeTemplates[0];
+      const template = availableCreateTemplates[0];
       setForm(template ? formFromTemplate(template, action.date) : null);
       return;
     }
@@ -169,17 +178,24 @@ export default function WorkDailyShiftModals({
       setBulkFrom(today);
       setBulkTo(endOfWeek(today));
       setBulkWeekdays(weekdays.map((item) => item.value));
-      setBulkTemplateIds(activeTemplates[0] ? [activeTemplates[0].id] : []);
+      const commonTemplateIds = activeTemplates
+        .filter((template) => ["SANG", "CHIEU"].includes(template.code))
+        .map((template) => template.id);
+      setBulkTemplateIds(
+        commonTemplateIds.length > 0
+          ? commonTemplateIds
+          : activeTemplates.slice(0, 2).map((template) => template.id),
+      );
       setBulkStaffCounts(
         Object.fromEntries(activeTemplates.map((item) => [item.id, 1])),
       );
       setBulkRegistrationOpen(true);
       setBulkAssignmentPolicy("MANUAL_APPROVAL");
     }
-  }, [action, activeTemplates, templates]);
+  }, [action, activeTemplates, availableCreateTemplates, templates]);
 
   const selectTemplate = (templateId: number) => {
-    const template = activeTemplates.find((item) => item.id === templateId);
+    const template = availableCreateTemplates.find((item) => item.id === templateId);
     if (!template || !form) return;
     setForm({
       ...formFromTemplate(template, form.workDate),
@@ -204,7 +220,11 @@ export default function WorkDailyShiftModals({
     }
     setSubmitting(true);
     setError("");
-    const payload = { ...form, note: form.note.trim() || null };
+    const payload = {
+      ...form,
+      color: workShiftColorForStartTime(form.startTime),
+      note: form.note.trim() || null,
+    };
     const scope = `work-daily-shift:${action.kind}:${action.kind === "edit" ? action.slot.dailyShiftId : "new"}:${JSON.stringify(payload)}`;
     try {
       const config = {
@@ -262,6 +282,47 @@ export default function WorkDailyShiftModals({
     }
   };
 
+  const restoreShift = async () => {
+    if (!action || action.kind !== "restore") return;
+    setSubmitting(true);
+    setError("");
+    const scope = `work-daily-shift:restore:${action.slot.dailyShiftId}`;
+    try {
+      await apiClient.post(
+        `/api/work-schedules/daily-shifts/${action.slot.dailyShiftId}/restore`,
+        {},
+        { headers: { "Idempotency-Key": getOrCreateIdempotencyKey(scope) } },
+      );
+      clearIdempotencyKey(scope);
+      await onChanged("Đã khôi phục ca; hãy phân công lại nhân viên nếu cần");
+      onClose();
+    } catch (cause) {
+      setError(getApiErrorMessage(cause, "Không thể khôi phục ca làm việc"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const deleteShift = async () => {
+    if (!action || action.kind !== "delete") return;
+    setSubmitting(true);
+    setError("");
+    const scope = `work-daily-shift:delete:${action.slot.dailyShiftId}`;
+    try {
+      await apiClient.delete(
+        `/api/work-schedules/daily-shifts/${action.slot.dailyShiftId}`,
+        { headers: { "Idempotency-Key": getOrCreateIdempotencyKey(scope) } },
+      );
+      clearIdempotencyKey(scope);
+      await onChanged("Đã xóa ca trống khỏi lịch");
+      onClose();
+    } catch (cause) {
+      setError(getApiErrorMessage(cause, "Không thể xóa ca làm việc"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const applyBulkPreset = (preset: Exclude<BulkPreset, "CUSTOM">) => {
     const today = dateKey();
     setBulkPreset(preset);
@@ -296,7 +357,7 @@ export default function WorkDailyShiftModals({
         assignmentPolicy: bulkAssignmentPolicy,
         checkInEarlyMinutes: template.checkInEarlyMinutes,
         lateToleranceMinutes: template.lateToleranceMinutes,
-        color: template.color,
+        color: workShiftColorForStartTime(formatShiftTime(template.startTime)),
         note: null,
       };
     }),
@@ -358,6 +419,8 @@ export default function WorkDailyShiftModals({
     action && (action.kind === "create" || action.kind === "edit"),
   );
   const cancelOpen = Boolean(action?.kind === "cancel");
+  const restoreOpen = Boolean(action?.kind === "restore");
+  const deleteOpen = Boolean(action?.kind === "delete");
   const bulkOpen = Boolean(action?.kind === "bulk");
 
   return (
@@ -387,7 +450,7 @@ export default function WorkDailyShiftModals({
                   : "Mở ca làm việc"}
               </h2>
               <p className="mt-1 text-xs text-white/65">
-                Chỉ ca được mở ở đây mới xuất hiện cho ADMIN và STAFF.
+                Chọn mẫu để lấy giờ và quy tắc mặc định; thay đổi tại đây chỉ áp dụng cho ngày đã chọn.
               </p>
             </header>
             <div className="lux-scrollbar grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2">
@@ -402,7 +465,7 @@ export default function WorkDailyShiftModals({
                   }
                   className={inputClass}
                 >
-                  {activeTemplates.map((template) => (
+                  {availableCreateTemplates.map((template) => (
                     <option key={template.id} value={template.id}>
                       {template.name} · {formatShiftTime(template.startTime)}–
                       {formatShiftTime(template.endTime)}
@@ -440,7 +503,11 @@ export default function WorkDailyShiftModals({
                   type="time"
                   value={form.startTime}
                   onChange={(event) =>
-                    setForm({ ...form, startTime: event.target.value })
+                    setForm({
+                      ...form,
+                      startTime: event.target.value,
+                      color: workShiftColorForStartTime(event.target.value),
+                    })
                   }
                   className={inputClass}
                 />
@@ -472,17 +539,13 @@ export default function WorkDailyShiftModals({
                   className={inputClass}
                 />
               </label>
-              <label>
-                <span className={labelClass}>Màu nhận diện</span>
-                <input
-                  type="color"
-                  value={form.color}
-                  onChange={(event) =>
-                    setForm({ ...form, color: event.target.value })
-                  }
-                  className={`${inputClass} p-1`}
-                />
-              </label>
+              <div className="rounded-xl border border-[#0F2A43]/10 bg-[#F8F5EE] px-4 py-3">
+                <span className={labelClass}>Màu nhận diện tự động</span>
+                <span className="flex items-center gap-2 text-sm font-bold text-[#0F2A43]">
+                  <i className="h-4 w-4 rounded-full" style={{ backgroundColor: workShiftColorForStartTime(form.startTime) }} />
+                  {{ MORNING: "Ca sáng", AFTERNOON: "Ca chiều", NIGHT: "Ca tối" }[workShiftPeriodFromStartTime(form.startTime)]}
+                </span>
+              </div>
               <label>
                 <span className={labelClass}>Cách nhận ca *</span>
                 <select
@@ -602,6 +665,66 @@ export default function WorkDailyShiftModals({
               </button>
             </footer>
           </form>
+        ) : action?.kind === "create" ? (
+          <div className="flex min-h-72 flex-col items-center justify-center p-8 text-center">
+            <h2 id="daily-shift-form-title" className="font-serif text-2xl font-bold text-[#0F2A43]">Không còn mẫu ca khả dụng</h2>
+            <p className="mt-2 max-w-md text-sm leading-6 text-[#66727C]">Ngày này đã dùng tất cả mẫu ca đang hoạt động. Hãy chỉnh ca đã có hoặc tạo thêm một mẫu ca phù hợp.</p>
+            <button type="button" onClick={onClose} className="mt-5 min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white">Đóng</button>
+          </div>
+        ) : null}
+      </ViewportModal>
+
+      <ViewportModal
+        open={restoreOpen}
+        onClose={onClose}
+        labelledBy="daily-shift-restore-title"
+        busy={submitting}
+        panelClassName="max-w-lg"
+        zIndexClassName="z-[125]"
+      >
+        {action?.kind === "restore" ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <header className="border-b px-5 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Khôi phục kế hoạch</p>
+              <h2 id="daily-shift-restore-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Khôi phục {action.slot.shiftName}</h2>
+            </header>
+            <div className="p-5">
+              <p className="text-sm leading-6 text-[#66727C]">Ca sẽ mở lại với giờ và chính sách trước khi hủy. Phân công và yêu cầu đăng ký đã hủy không tự khôi phục; ADMIN cần phân công lại hoặc STAFF đăng ký lại.</p>
+              {error ? <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{error}</p> : null}
+            </div>
+            <footer className="flex justify-end gap-2 border-t px-5 py-4">
+              <button type="button" disabled={submitting} onClick={onClose} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Đóng</button>
+              <button type="button" disabled={submitting} onClick={() => void restoreShift()} className="min-h-11 rounded-lg bg-emerald-700 px-5 text-sm font-bold text-white disabled:opacity-50">{submitting ? "Đang khôi phục..." : "Khôi phục ca"}</button>
+            </footer>
+          </div>
+        ) : null}
+      </ViewportModal>
+
+      <ViewportModal
+        open={deleteOpen}
+        onClose={onClose}
+        labelledBy="daily-shift-delete-title"
+        busy={submitting}
+        panelClassName="max-w-lg"
+        zIndexClassName="z-[125]"
+      >
+        {action?.kind === "delete" ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <header className="border-b px-5 py-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-700">Dọn lịch chưa sử dụng</p>
+              <h2 id="daily-shift-delete-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Xóa {action.slot.shiftName}</h2>
+            </header>
+            <div className="p-5">
+              <p className="text-sm leading-6 text-[#66727C]">
+                Chỉ ca tương lai chưa từng có phân công, đăng ký hoặc check-in mới được xóa hẳn. Ca đã phát sinh lịch sử phải dùng Hủy ca để giữ dấu vận hành.
+              </p>
+              {error ? <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{error}</p> : null}
+            </div>
+            <footer className="flex justify-end gap-2 border-t px-5 py-4">
+              <button type="button" disabled={submitting} onClick={onClose} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Giữ lại</button>
+              <button type="button" disabled={submitting} onClick={() => void deleteShift()} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white disabled:opacity-50">{submitting ? "Đang xóa..." : "Xóa ca trống"}</button>
+            </footer>
+          </div>
         ) : null}
       </ViewportModal>
 

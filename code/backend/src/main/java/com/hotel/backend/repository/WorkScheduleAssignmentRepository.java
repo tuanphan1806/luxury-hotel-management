@@ -109,4 +109,8 @@ public interface WorkScheduleAssignmentRepository
             Long shiftTemplateId,
             LocalDate workDate,
             Collection<WorkScheduleStatus> statuses);
+
+    boolean existsByShiftTemplateIdAndWorkDate(
+            Long shiftTemplateId,
+            LocalDate workDate);
 }
