@@ -9,8 +9,9 @@ import {
 } from "@/lib/idempotency";
 import {
   formatShiftTime,
-  shiftWorkDate,
   unwrapWorkScheduleApiData,
+  workDateRangeForMonth,
+  workWeekRangesForMonth,
   workShiftColorForStartTime,
   workShiftPeriodFromStartTime,
   type WorkDailyShiftBulkCreateResult,
@@ -38,7 +39,10 @@ interface WorkDailyShiftModalsProps {
 }
 
 type Weekday = WorkDailyShiftBulkRequest["weekdays"][number];
-type BulkPreset = "DAY" | "WEEK" | "MONTH" | "CUSTOM";
+type BulkPreset = "DAY" | "WEEK" | "MONTH";
+type AssignmentMode =
+  | WorkDailyShiftForm["assignmentPolicy"]
+  | "REGISTRATION_CLOSED";
 
 const HOTEL_TIME_ZONE = "Asia/Ho_Chi_Minh";
 const inputClass =
@@ -63,31 +67,108 @@ const dateKey = () =>
     day: "2-digit",
   }).format(new Date());
 
-const weekdayForDate = (date: string): Weekday => {
-  const index = new Date(`${date}T12:00:00+07:00`).getUTCDay();
+const formatWorkDate = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "Chưa chọn";
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: HOTEL_TIME_ZONE,
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(`${value}T12:00:00+07:00`));
+};
+
+const weekRangeForDate = (date: string) => {
+  const ranges = workWeekRangesForMonth(date.slice(0, 7));
+  return ranges.find((range) => range.from <= date && range.to >= date) || ranges[0];
+};
+
+const assignmentOptions: Array<{
+  value: AssignmentMode;
+  title: string;
+  description: string;
+  badge: string;
+}> = [
+  {
+    value: "MANUAL_APPROVAL",
+    title: "Đăng ký cần duyệt",
+    description: "STAFF gửi yêu cầu; ADMIN kiểm tra rồi duyệt phân công.",
+    badge: "Phổ biến",
+  },
+  {
+    value: "AUTO_ASSIGN",
+    title: "Tự nhận khi còn chỗ",
+    description: "STAFF được xếp ca ngay nếu vẫn còn đủ vị trí.",
+    badge: "Tự động",
+  },
+  {
+    value: "ADMIN_ONLY",
+    title: "ADMIN phân công",
+    description: "Không mở đăng ký; chỉ ADMIN chọn nhân viên cho ca.",
+    badge: "Kiểm soát",
+  },
+  {
+    value: "REGISTRATION_CLOSED",
+    title: "Tạm đóng đăng ký",
+    description: "Giữ ca trên lịch nhưng tạm thời không nhận yêu cầu mới.",
+    badge: "Tạm dừng",
+  },
+];
+
+function assignmentModeFor(
+  policy: WorkDailyShiftForm["assignmentPolicy"],
+  registrationOpen: boolean,
+): AssignmentMode {
+  if (!registrationOpen && policy !== "ADMIN_ONLY") {
+    return "REGISTRATION_CLOSED";
+  }
+  return policy;
+}
+
+function AssignmentModePicker({
+  value,
+  onChange,
+}: {
+  value: AssignmentMode;
+  onChange: (
+    policy: WorkDailyShiftForm["assignmentPolicy"],
+    registrationOpen: boolean,
+  ) => void;
+}) {
   return (
-    [
-      "SUNDAY",
-      "MONDAY",
-      "TUESDAY",
-      "WEDNESDAY",
-      "THURSDAY",
-      "FRIDAY",
-      "SATURDAY",
-    ] as Weekday[]
-  )[index];
-};
-
-const endOfMonth = (date: string) => {
-  const [year, month] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-};
-
-const endOfWeek = (date: string) => {
-  const day = new Date(`${date}T12:00:00+07:00`).getUTCDay();
-  const mondayOffset = (day + 6) % 7;
-  return shiftWorkDate(date, 6 - mondayOffset);
-};
+    <div role="radiogroup" aria-label="Cách nhận ca" className="grid gap-2 sm:grid-cols-2">
+      {assignmentOptions.map((option) => {
+        const selected = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => {
+              if (option.value === "REGISTRATION_CLOSED") {
+                onChange("MANUAL_APPROVAL", false);
+              } else {
+                onChange(option.value, option.value !== "ADMIN_ONLY");
+              }
+            }}
+            className={`min-h-[92px] cursor-pointer rounded-xl border p-3 text-left transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B8944F] ${selected ? "border-[#B8944F] bg-[#FFF8E8] shadow-[0_8px_24px_rgba(15,42,67,0.08)]" : "border-[#D8E0E8] bg-white hover:-translate-y-0.5 hover:border-[#0F2A43]/35 hover:shadow-sm"}`}
+          >
+            <span className="flex items-start justify-between gap-3">
+              <span className="text-sm font-black text-[#0F2A43]">{option.title}</span>
+              <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[0.08em] ${selected ? "bg-[#0F2A43] text-white" : "bg-[#EEF2F3] text-[#66727C]"}`}>
+                {option.badge}
+              </span>
+            </span>
+            <span className="mt-2 block text-xs leading-5 text-[#66727C]">
+              {option.description}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function formFromTemplate(
   template: WorkShiftTemplate,
@@ -129,10 +210,22 @@ export default function WorkDailyShiftModals({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [bulkPreset, setBulkPreset] = useState<BulkPreset>("WEEK");
-  const [bulkFrom, setBulkFrom] = useState(dateKey);
-  const [bulkTo, setBulkTo] = useState(() => endOfWeek(dateKey()));
-  const [bulkWeekdays, setBulkWeekdays] = useState<Weekday[]>(
-    weekdays.map((item) => item.value),
+  const [bulkFrom, setBulkFrom] = useState(() => {
+    const range = weekRangeForDate(dateKey());
+    return range?.from || dateKey();
+  });
+  const [bulkTo, setBulkTo] = useState(() => {
+    const range = weekRangeForDate(dateKey());
+    return range?.to || dateKey();
+  });
+  const [bulkWeekMonthValue, setBulkWeekMonthValue] = useState(() =>
+    dateKey().slice(0, 7),
+  );
+  const [bulkWeekValue, setBulkWeekValue] = useState(
+    () => weekRangeForDate(dateKey())?.value || "",
+  );
+  const [bulkMonthValue, setBulkMonthValue] = useState(() =>
+    dateKey().slice(0, 7),
   );
   const [bulkTemplateIds, setBulkTemplateIds] = useState<number[]>([]);
   const [bulkStaffCounts, setBulkStaffCounts] = useState<
@@ -143,6 +236,10 @@ export default function WorkDailyShiftModals({
     useState<WorkDailyShiftForm["assignmentPolicy"]>("MANUAL_APPROVAL");
   const [preview, setPreview] = useState<WorkDailyShiftBulkPreview | null>(
     null,
+  );
+  const bulkWeekOptions = useMemo(
+    () => workWeekRangesForMonth(bulkWeekMonthValue),
+    [bulkWeekMonthValue],
   );
 
   useEffect(() => {
@@ -174,10 +271,13 @@ export default function WorkDailyShiftModals({
     }
     if (action.kind === "bulk") {
       const today = dateKey();
+      const weekRange = weekRangeForDate(today);
       setBulkPreset("WEEK");
-      setBulkFrom(today);
-      setBulkTo(endOfWeek(today));
-      setBulkWeekdays(weekdays.map((item) => item.value));
+      setBulkWeekMonthValue(today.slice(0, 7));
+      setBulkWeekValue(weekRange?.value || "");
+      setBulkMonthValue(today.slice(0, 7));
+      setBulkFrom(weekRange?.from || today);
+      setBulkTo(weekRange?.to || today);
       const commonTemplateIds = activeTemplates
         .filter((template) => ["SANG", "CHIEU"].includes(template.code))
         .map((template) => template.id);
@@ -323,19 +423,24 @@ export default function WorkDailyShiftModals({
     }
   };
 
-  const applyBulkPreset = (preset: Exclude<BulkPreset, "CUSTOM">) => {
+  const applyBulkPreset = (preset: BulkPreset) => {
     const today = dateKey();
     setBulkPreset(preset);
-    setBulkFrom(today);
     if (preset === "DAY") {
+      setBulkFrom(today);
       setBulkTo(today);
-      setBulkWeekdays([weekdayForDate(today)]);
     } else if (preset === "WEEK") {
-      setBulkTo(endOfWeek(today));
-      setBulkWeekdays(weekdays.map((item) => item.value));
+      const range = weekRangeForDate(today);
+      setBulkWeekMonthValue(today.slice(0, 7));
+      setBulkWeekValue(range?.value || "");
+      setBulkFrom(range?.from || today);
+      setBulkTo(range?.to || today);
     } else {
-      setBulkTo(endOfMonth(today));
-      setBulkWeekdays(weekdays.map((item) => item.value));
+      const monthValue = today.slice(0, 7);
+      const range = workDateRangeForMonth(monthValue);
+      setBulkMonthValue(monthValue);
+      setBulkFrom(range?.from || today);
+      setBulkTo(range?.to || today);
     }
     setPreview(null);
   };
@@ -343,7 +448,7 @@ export default function WorkDailyShiftModals({
   const bulkRequest = (): WorkDailyShiftBulkRequest => ({
     from: bulkFrom,
     to: bulkTo,
-    weekdays: bulkWeekdays,
+    weekdays: weekdays.map((item) => item.value),
     shifts: bulkTemplateIds.map((id) => {
       const template = activeTemplates.find((item) => item.id === id)!;
       return {
@@ -365,11 +470,16 @@ export default function WorkDailyShiftModals({
 
   const previewBulk = async () => {
     if (
+      !bulkFrom ||
+      !bulkTo ||
       bulkFrom > bulkTo ||
-      bulkWeekdays.length === 0 ||
+      (bulkPreset === "WEEK" &&
+        !bulkWeekOptions.some((option) => option.value === bulkWeekValue)) ||
+      (bulkPreset === "MONTH" &&
+        !workDateRangeForMonth(bulkMonthValue)) ||
       bulkTemplateIds.length === 0
     ) {
-      setError("Chọn khoảng ngày, ít nhất một thứ và ít nhất một mẫu ca.");
+      setError("Chọn khoảng ngày hợp lệ và ít nhất một mẫu ca.");
       return;
     }
     setSubmitting(true);
@@ -546,33 +656,22 @@ export default function WorkDailyShiftModals({
                   {{ MORNING: "Ca sáng", AFTERNOON: "Ca chiều", NIGHT: "Ca tối" }[workShiftPeriodFromStartTime(form.startTime)]}
                 </span>
               </div>
-              <label>
+              <div className="sm:col-span-2">
                 <span className={labelClass}>Cách nhận ca *</span>
-                <select
-                  value={form.assignmentPolicy}
-                  onChange={(event) => {
-                    const assignmentPolicy = event.target
-                      .value as WorkDailyShiftForm["assignmentPolicy"];
+                <AssignmentModePicker
+                  value={assignmentModeFor(
+                    form.assignmentPolicy,
+                    form.registrationOpen,
+                  )}
+                  onChange={(assignmentPolicy, registrationOpen) =>
                     setForm({
                       ...form,
                       assignmentPolicy,
-                      registrationOpen:
-                        assignmentPolicy === "ADMIN_ONLY"
-                          ? false
-                          : form.registrationOpen,
-                    });
-                  }}
-                  className={inputClass}
-                >
-                  <option value="MANUAL_APPROVAL">
-                    STAFF đăng ký, ADMIN duyệt
-                  </option>
-                  <option value="AUTO_ASSIGN">
-                    STAFF đăng ký và nhận ca ngay
-                  </option>
-                  <option value="ADMIN_ONLY">Chỉ ADMIN phân công</option>
-                </select>
-              </label>
+                      registrationOpen,
+                    })
+                  }
+                />
+              </div>
               <label>
                 <span className={labelClass}>Cho check-in sớm (phút)</span>
                 <input
@@ -604,23 +703,6 @@ export default function WorkDailyShiftModals({
                   }
                   className={inputClass}
                 />
-              </label>
-              <label className="sm:col-span-2 flex min-h-11 items-center gap-3 rounded-xl border bg-[#F8F5EE] px-4 py-3 text-sm font-bold text-[#0F2A43]">
-                <input
-                  type="checkbox"
-                  checked={form.registrationOpen}
-                  disabled={form.assignmentPolicy === "ADMIN_ONLY"}
-                  onChange={(event) =>
-                    setForm({ ...form, registrationOpen: event.target.checked })
-                  }
-                  className="h-4 w-4 accent-[#0F2A43] disabled:opacity-40"
-                />
-                <span>
-                  <span className="block">Mở đăng ký ca cho STAFF</span>
-                  <span className="mt-1 block text-[11px] font-medium text-[#66727C]">
-                    Ca chỉ do ADMIN phân công luôn đóng đăng ký.
-                  </span>
-                </span>
               </label>
               <label className="sm:col-span-2">
                 <span className={labelClass}>Ghi chú</span>
@@ -824,9 +906,9 @@ export default function WorkDailyShiftModals({
               <div className="flex flex-wrap gap-2">
                 {(
                   [
-                    ["DAY", "Một ngày"],
-                    ["WEEK", "Một tuần"],
-                    ["MONTH", "Một tháng"],
+                    ["DAY", "Ngày"],
+                    ["WEEK", "Tuần"],
+                    ["MONTH", "Tháng"],
                   ] as const
                 ).map(([value, label]) => (
                   <button
@@ -839,61 +921,137 @@ export default function WorkDailyShiftModals({
                   </button>
                 ))}
               </div>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <label>
-                  <span className={labelClass}>Từ ngày</span>
-                  <input
-                    type="date"
-                    min={dateKey()}
-                    value={bulkFrom}
-                    onChange={(event) => {
-                      setBulkFrom(event.target.value);
-                      setBulkPreset("CUSTOM");
-                      setPreview(null);
-                    }}
-                    className={inputClass}
-                  />
-                </label>
-                <label>
-                  <span className={labelClass}>Đến ngày</span>
-                  <input
-                    type="date"
-                    min={bulkFrom}
-                    value={bulkTo}
-                    onChange={(event) => {
-                      setBulkTo(event.target.value);
-                      setBulkPreset("CUSTOM");
-                      setPreview(null);
-                    }}
-                    className={inputClass}
-                  />
-                </label>
-              </div>
-              <div className="mt-4">
-                <span className={labelClass}>Áp dụng vào các thứ</span>
-                <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                  {weekdays.map((item) => {
-                    const checked = bulkWeekdays.includes(item.value);
-                    return (
-                      <button
-                        key={item.value}
-                        type="button"
-                        aria-pressed={checked}
-                        onClick={() => {
-                          setBulkWeekdays((current) =>
-                            checked
-                              ? current.filter((value) => value !== item.value)
-                              : [...current, item.value],
-                          );
-                          setPreview(null);
-                        }}
-                        className={`min-h-11 rounded-lg border text-xs font-bold ${checked ? "border-[#B8944F] bg-[#FFF4D6] text-[#0F2A43]" : "bg-white text-[#7A858D]"}`}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })}
+              {bulkPreset === "DAY" ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label>
+                    <span className={labelClass}>Ngày đầu *</span>
+                    <input
+                      type="date"
+                      min={dateKey()}
+                      value={bulkFrom}
+                      onChange={(event) => {
+                        const nextFrom = event.target.value;
+                        setBulkFrom(nextFrom);
+                        if (!bulkTo || bulkTo < nextFrom) setBulkTo(nextFrom);
+                        setPreview(null);
+                      }}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label>
+                    <span className={labelClass}>Ngày cuối *</span>
+                    <input
+                      type="date"
+                      min={bulkFrom || dateKey()}
+                      value={bulkTo}
+                      onChange={(event) => {
+                        setBulkTo(event.target.value);
+                        setPreview(null);
+                      }}
+                      className={inputClass}
+                    />
+                    <span className="mt-1.5 block text-[11px] leading-4 text-[#66727C]">
+                      Chọn cùng ngày nếu chỉ muốn tạo ca cho một ngày.
+                    </span>
+                  </label>
                 </div>
+              ) : bulkPreset === "WEEK" ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label>
+                    <span className={labelClass}>Tháng *</span>
+                    <input
+                      type="month"
+                      min={dateKey().slice(0, 7)}
+                      value={bulkWeekMonthValue}
+                      onChange={(event) => {
+                        const monthValue = event.target.value;
+                        const options = workWeekRangesForMonth(monthValue);
+                        const range =
+                          options.find((option) => option.to >= dateKey()) ||
+                          options[0];
+                        setBulkWeekMonthValue(monthValue);
+                        setBulkWeekValue(range?.value || "");
+                        if (range) {
+                          setBulkFrom(range.from);
+                          setBulkTo(range.to);
+                        }
+                        setPreview(null);
+                      }}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label>
+                    <span className={labelClass}>Tuần trong tháng *</span>
+                    <select
+                      value={bulkWeekValue}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        const range = bulkWeekOptions.find(
+                          (option) => option.value === value,
+                        );
+                        setBulkWeekValue(value);
+                        if (range) {
+                          setBulkFrom(range.from);
+                          setBulkTo(range.to);
+                        }
+                        setPreview(null);
+                      }}
+                      className={inputClass}
+                    >
+                      {bulkWeekOptions.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          disabled={option.to < dateKey()}
+                        >
+                          Tuần {option.position} · {option.from.slice(8, 10)}/
+                          {option.from.slice(5, 7)}–{option.to.slice(8, 10)}/
+                          {option.to.slice(5, 7)}
+                          {option.to < dateKey() ? " · đã qua" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-1.5 block text-[11px] leading-4 text-[#66727C]">
+                      Tuần đầu và cuối được giới hạn trong đúng tháng đã chọn.
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                <label className="mt-4 block max-w-md">
+                  <span className={labelClass}>Tháng áp dụng *</span>
+                  <input
+                    type="month"
+                    min={dateKey().slice(0, 7)}
+                    value={bulkMonthValue}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const range = workDateRangeForMonth(value);
+                      setBulkMonthValue(value);
+                      if (range) {
+                        setBulkFrom(range.from);
+                        setBulkTo(range.to);
+                      }
+                      setPreview(null);
+                    }}
+                    className={inputClass}
+                  />
+                  <span className="mt-1.5 block text-[11px] leading-4 text-[#66727C]">
+                    Hệ thống áp dụng cho toàn bộ ngày trong tháng đã chọn.
+                  </span>
+                </label>
+              )}
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D8E0E8] bg-[#F7F9FC] px-4 py-3">
+                <span>
+                  <span className="block text-[10px] font-black uppercase tracking-[0.1em] text-[#80632F]">
+                    Phạm vi sẽ tạo
+                  </span>
+                  <span className="mt-1 block text-sm font-bold text-[#0F2A43]">
+                    {formatWorkDate(bulkFrom)} → {formatWorkDate(bulkTo)}
+                  </span>
+                </span>
+                <span className="rounded-full bg-white px-3 py-1.5 text-[10px] font-bold text-[#66727C] shadow-sm">
+                  Áp dụng tất cả các ngày
+                </span>
               </div>
               <section className="mt-5 rounded-2xl border">
                 <header className="border-b bg-[#F8F5EE] px-4 py-3">
@@ -957,49 +1115,19 @@ export default function WorkDailyShiftModals({
                   })}
                 </div>
               </section>
-              <section className="mt-4 grid gap-4 rounded-2xl border bg-[#F8F5EE] p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] sm:items-end">
-                <label>
-                  <span className={labelClass}>Cách nhận ca *</span>
-                  <select
-                    value={bulkAssignmentPolicy}
-                    onChange={(event) => {
-                      const assignmentPolicy = event.target
-                        .value as WorkDailyShiftForm["assignmentPolicy"];
-                      setBulkAssignmentPolicy(assignmentPolicy);
-                      if (assignmentPolicy === "ADMIN_ONLY") {
-                        setBulkRegistrationOpen(false);
-                      }
-                      setPreview(null);
-                    }}
-                    className={inputClass}
-                  >
-                    <option value="MANUAL_APPROVAL">
-                      STAFF đăng ký, ADMIN duyệt
-                    </option>
-                    <option value="AUTO_ASSIGN">
-                      STAFF đăng ký và nhận ca ngay
-                    </option>
-                    <option value="ADMIN_ONLY">Chỉ ADMIN phân công</option>
-                  </select>
-                </label>
-                <label className="flex min-h-11 items-center gap-3 rounded-xl border bg-white px-4 py-3 text-sm font-bold text-[#0F2A43]">
-                  <input
-                    type="checkbox"
-                    checked={bulkRegistrationOpen}
-                    disabled={bulkAssignmentPolicy === "ADMIN_ONLY"}
-                    onChange={(event) => {
-                      setBulkRegistrationOpen(event.target.checked);
-                      setPreview(null);
-                    }}
-                    className="h-4 w-4 accent-[#0F2A43] disabled:opacity-40"
-                  />
-                  <span>
-                    <span className="block">Mở đăng ký ca cho STAFF</span>
-                    <span className="mt-1 block text-[11px] font-medium text-[#66727C]">
-                      Ca chỉ do ADMIN phân công luôn đóng đăng ký.
-                    </span>
-                  </span>
-                </label>
+              <section className="mt-4 rounded-2xl border bg-[#F8F5EE] p-4">
+                <span className={labelClass}>Cách nhận ca *</span>
+                <AssignmentModePicker
+                  value={assignmentModeFor(
+                    bulkAssignmentPolicy,
+                    bulkRegistrationOpen,
+                  )}
+                  onChange={(assignmentPolicy, registrationOpen) => {
+                    setBulkAssignmentPolicy(assignmentPolicy);
+                    setBulkRegistrationOpen(registrationOpen);
+                    setPreview(null);
+                  }}
+                />
               </section>
               {preview ? (
                 <section className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">

@@ -43,7 +43,6 @@ interface WorkforceMonthCalendarProps {
   onCancelDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
   onRestoreDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
   onDeleteDailyShift?: (date: string, slot: WorkShiftCalendarSlot) => void;
-  onBulkCreateDailyShifts?: () => void;
 }
 
 type SlotKey = { date: string; shiftTemplateId: number };
@@ -234,7 +233,6 @@ export default function WorkforceMonthCalendar({
   onCancelDailyShift,
   onRestoreDailyShift,
   onDeleteDailyShift,
-  onBulkCreateDailyShifts,
 }: WorkforceMonthCalendarProps) {
   const [month, setMonth] = useState(currentMonthKey);
   const [focusDate, setFocusDate] = useState(currentDateKey);
@@ -672,15 +670,6 @@ export default function WorkforceMonthCalendar({
                   ))}
                 </select>
               </label>
-              {isAdmin && onBulkCreateDailyShifts ? (
-                <button
-                  type="button"
-                  onClick={onBulkCreateDailyShifts}
-                  className="min-h-11 cursor-pointer rounded-xl border border-[#D8C398]/60 bg-[#D8C398] px-4 text-xs font-black text-[#0F2A43] transition hover:bg-[#E8D6B0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                >
-                  Tạo nhanh
-                </button>
-              ) : null}
               <div className="flex items-center gap-2" aria-label="Điều hướng lịch làm việc">
                 <button
                   type="button"

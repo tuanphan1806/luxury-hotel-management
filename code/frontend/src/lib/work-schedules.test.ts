@@ -17,6 +17,10 @@ import {
   workShiftPeriodFromStartTime,
   workShiftSortOrderForStartTime,
   workShiftStaffingSegments,
+  isoWeekValueForWorkDate,
+  workDateRangeForIsoWeek,
+  workDateRangeForMonth,
+  workWeekRangesForMonth,
 } from "./work-schedules";
 
 const schedule: WorkSchedule = {
@@ -334,5 +338,34 @@ describe("work schedule helpers", () => {
     expect(workShiftStaffingSegments(1, 3)).toEqual([true, false, false]);
     expect(workShiftStaffingSegments(2, 3)).toEqual([true, true, false]);
     expect(workShiftStaffingSegments(5, 5)).toEqual([true, true, true]);
+  });
+
+  it("maps work dates to complete ISO week ranges", () => {
+    expect(isoWeekValueForWorkDate("2026-08-09")).toBe("2026-W32");
+    expect(workDateRangeForIsoWeek("2026-W32")).toEqual({
+      from: "2026-08-03",
+      to: "2026-08-09",
+    });
+    expect(workDateRangeForIsoWeek("invalid")).toBeNull();
+  });
+
+  it("maps month controls to complete calendar ranges", () => {
+    expect(workDateRangeForMonth("2026-08")).toEqual({
+      from: "2026-08-01",
+      to: "2026-08-31",
+    });
+    expect(workDateRangeForMonth("2026-13")).toBeNull();
+  });
+
+  it("lists week choices inside a selected month without leaking adjacent days", () => {
+    expect(workWeekRangesForMonth("2026-08")).toEqual([
+      { value: "2026-08-1", position: 1, from: "2026-08-01", to: "2026-08-02" },
+      { value: "2026-08-2", position: 2, from: "2026-08-03", to: "2026-08-09" },
+      { value: "2026-08-3", position: 3, from: "2026-08-10", to: "2026-08-16" },
+      { value: "2026-08-4", position: 4, from: "2026-08-17", to: "2026-08-23" },
+      { value: "2026-08-5", position: 5, from: "2026-08-24", to: "2026-08-30" },
+      { value: "2026-08-6", position: 6, from: "2026-08-31", to: "2026-08-31" },
+    ]);
+    expect(workWeekRangesForMonth("invalid")).toEqual([]);
   });
 });
