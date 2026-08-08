@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "34";
+    private static final String LATEST_VERSION = "35";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -248,6 +248,18 @@ class FlywayPostgresMigrationIT {
             assertScalar(connection,
                     "SELECT count(*)::text FROM work_shift_templates WHERE active = true",
                     "3");
+            assertScalar(connection,
+                    "SELECT start_time::text || '|' || end_time::text || '|' || color "
+                            + "FROM work_shift_templates WHERE code = 'SANG'",
+                    "07:00:00|12:00:00|#B8944F");
+            assertScalar(connection,
+                    "SELECT start_time::text || '|' || end_time::text || '|' || color "
+                            + "FROM work_shift_templates WHERE code = 'CHIEU'",
+                    "13:00:00|18:00:00|#2F7D78");
+            assertScalar(connection,
+                    "SELECT start_time::text || '|' || end_time::text || '|' || color "
+                            + "FROM work_shift_templates WHERE code = 'TOI'",
+                    "18:00:00|22:00:00|#4E5D8C");
             assertScalar(connection,
                     "SELECT count(*)::text FROM pg_constraint "
                             + "WHERE connamespace = 'public'::regnamespace AND NOT convalidated",
@@ -1864,8 +1876,8 @@ class FlywayPostgresMigrationIT {
                                 WorkShiftTemplate.class)
                         .setParameter("code", "SANG")
                         .getSingleResult();
-                assertThat(morningShift.getStartTime()).isEqualTo(LocalTime.of(6, 0));
-                assertThat(morningShift.getEndTime()).isEqualTo(LocalTime.of(14, 0));
+                assertThat(morningShift.getStartTime()).isEqualTo(LocalTime.of(7, 0));
+                assertThat(morningShift.getEndTime()).isEqualTo(LocalTime.of(12, 0));
             } finally {
                 entityManager.close();
             }

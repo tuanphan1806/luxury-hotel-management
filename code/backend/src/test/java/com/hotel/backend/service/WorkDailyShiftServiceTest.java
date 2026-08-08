@@ -110,13 +110,14 @@ class WorkDailyShiftServiceTest {
                 WorkShiftAssignmentPolicy.MANUAL_APPROVAL,
                 30,
                 15,
-                "#B8944F",
+                "#FF0000",
                 "Cuối tuần"), admin);
 
         assertThat(response.dailyShiftStatus()).isEqualTo(WorkDailyShiftStatus.OPEN);
         assertThat(response.assignmentPolicy())
                 .isEqualTo(WorkShiftAssignmentPolicy.MANUAL_APPROVAL);
         assertThat(response.registrationOpen()).isTrue();
+        assertThat(response.shiftColor()).isEqualTo("#B8944F");
     }
 
     @Test
@@ -147,11 +148,78 @@ class WorkDailyShiftServiceTest {
         service.cancel(20L, new CancelWorkDailyShiftRequest("Khách sạn giảm nhu cầu"), admin);
 
         assertThat(requirement.getStatus()).isEqualTo(WorkDailyShiftStatus.CANCELLED);
+        assertThat(requirement.getRegistrationOpen()).isTrue();
         assertThat(requirement.getCancellationReason()).isEqualTo("Khách sạn giảm nhu cầu");
         assertThat(assignment.getStatus()).isEqualTo(WorkScheduleStatus.CANCELLED);
         assertThat(registration.getStatus()).isEqualTo(WorkShiftRegistrationStatus.CANCELLED);
         verify(assignmentRepository).saveAll(List.of(assignment));
         verify(registrationRepository).saveAll(List.of(registration));
+    }
+
+    @Test
+    void restoreReopensFutureCancelledShiftWithoutRestoringOldCommitments() {
+        WorkShiftRequirement requirement = futureRequirement();
+        requirement.setStatus(WorkDailyShiftStatus.CANCELLED);
+        requirement.setCancelledBy(admin);
+        requirement.setCancelledAtUtc(NOW.minusSeconds(60));
+        requirement.setCancellationReason("Giảm nhu cầu");
+        when(requirementRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(requirement));
+        when(requirementRepository.saveAndFlush(requirement)).thenReturn(requirement);
+
+        var response = service.restore(20L, admin);
+
+        assertThat(requirement.getStatus()).isEqualTo(WorkDailyShiftStatus.OPEN);
+        assertThat(requirement.getCancelledAtUtc()).isNull();
+        assertThat(requirement.getCancelledBy()).isNull();
+        assertThat(requirement.getCancellationReason()).isNull();
+        assertThat(requirement.getRegistrationOpen()).isTrue();
+        assertThat(response.assignedCount()).isZero();
+        verify(assignmentRepository, never()).saveAll(any());
+        verify(registrationRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void restoreRejectsShiftThatWasNotCancelled() {
+        WorkShiftRequirement requirement = futureRequirement();
+        when(requirementRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(requirement));
+
+        assertThatThrownBy(() -> service.restore(20L, admin))
+                .isInstanceOfSatisfying(AppException.class,
+                        error -> assertThat(error.getErrorCode())
+                                .isEqualTo(ErrorCode.WORK_DAILY_SHIFT_CANNOT_RESTORE));
+        verify(requirementRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void deleteUnusedRemovesOnlyFutureShiftWithoutOperationalHistory() {
+        WorkShiftRequirement requirement = futureRequirement();
+        when(requirementRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(requirement));
+        when(assignmentRepository.existsByShiftTemplateIdAndWorkDate(
+                2L, requirement.getWorkDate())).thenReturn(false);
+        when(registrationRepository.existsByShiftTemplateIdAndWorkDate(
+                2L, requirement.getWorkDate())).thenReturn(false);
+
+        var deleted = service.deleteUnused(20L, admin);
+
+        assertThat(deleted.dailyShiftId()).isEqualTo(20L);
+        verify(requirementRepository).delete(requirement);
+        verify(requirementRepository).flush();
+    }
+
+    @Test
+    void deleteUnusedRejectsShiftWithAnyRegistrationHistory() {
+        WorkShiftRequirement requirement = futureRequirement();
+        when(requirementRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(requirement));
+        when(assignmentRepository.existsByShiftTemplateIdAndWorkDate(
+                2L, requirement.getWorkDate())).thenReturn(false);
+        when(registrationRepository.existsByShiftTemplateIdAndWorkDate(
+                2L, requirement.getWorkDate())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.deleteUnused(20L, admin))
+                .isInstanceOfSatisfying(AppException.class,
+                        error -> assertThat(error.getErrorCode())
+                                .isEqualTo(ErrorCode.WORK_DAILY_SHIFT_CANNOT_DELETE));
+        verify(requirementRepository, never()).delete(any());
     }
 
     @Test

@@ -104,6 +104,8 @@ public enum ErrorCode {
     WORK_DAILY_SHIFT_CANNOT_CANCEL(5118, "Không thể hủy ca đã bắt đầu hoặc đã có nhân viên check-in", HttpStatus.CONFLICT),
     WORK_DAILY_SHIFT_NOT_OPEN(5119, "Ca làm việc không còn mở", HttpStatus.CONFLICT),
     WORK_DAILY_SHIFT_CANNOT_MODIFY(5120, "Chỉ có thể chỉnh sửa ca đang mở và chưa phát sinh dữ liệu không tương thích", HttpStatus.CONFLICT),
+    WORK_DAILY_SHIFT_CANNOT_RESTORE(5121, "Chỉ có thể khôi phục ca đã hủy và chưa bắt đầu", HttpStatus.CONFLICT),
+    WORK_DAILY_SHIFT_CANNOT_DELETE(5122, "Chỉ có thể xóa ca tương lai chưa phát sinh phân công, đăng ký hoặc chấm công", HttpStatus.CONFLICT),
 
 
     ;

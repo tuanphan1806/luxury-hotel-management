@@ -211,6 +211,12 @@ export interface WorkDailyShiftBulkCreateResult {
 
 export type WorkShiftPeriod = "MORNING" | "AFTERNOON" | "NIGHT";
 
+export const WORK_SHIFT_PERIOD_COLORS: Record<WorkShiftPeriod, string> = {
+  MORNING: "#B8944F",
+  AFTERNOON: "#2F7D78",
+  NIGHT: "#4E5D8C",
+};
+
 export type WorkShiftCalendarStatusTone =
   | "active"
   | "available"
@@ -310,9 +316,26 @@ export function workShiftPeriod(
   if (/\b(TOI|DEM|NIGHT)\b/.test(searchable) || slot.crossesMidnight) return "NIGHT";
 
   const startHour = Number(slot.startTime.slice(0, 2));
-  if (startHour < 12) return "MORNING";
-  if (startHour < 18) return "AFTERNOON";
+  if (startHour >= 5 && startHour < 13) return "MORNING";
+  if (startHour >= 13 && startHour < 18) return "AFTERNOON";
   return "NIGHT";
+}
+
+export function workShiftPeriodFromStartTime(startTime: string): WorkShiftPeriod {
+  const startHour = Number(startTime.slice(0, 2));
+  if (startHour >= 5 && startHour < 13) return "MORNING";
+  if (startHour >= 13 && startHour < 18) return "AFTERNOON";
+  return "NIGHT";
+}
+
+export function workShiftColorForStartTime(startTime: string) {
+  return WORK_SHIFT_PERIOD_COLORS[workShiftPeriodFromStartTime(startTime)];
+}
+
+export function workShiftSortOrderForStartTime(startTime: string) {
+  return { MORNING: 10, AFTERNOON: 20, NIGHT: 30 }[
+    workShiftPeriodFromStartTime(startTime)
+  ];
 }
 
 export function compactWorkShiftLabel(period: WorkShiftPeriod) {
@@ -364,7 +387,8 @@ export function staffCalendarSlotLabel(slot: WorkShiftCalendarSlot, past = false
   if (slot.currentUserRequest?.status === "REJECTED") return "Đã từ chối";
   if (slot.dailyShiftStatus === "COMPLETED") return "Đã hoàn tất";
   if (slot.ended && slot.dailyShiftStatus === "OPEN") return "Chờ kết ca";
-  if (past || slot.registrationOpen === false) return "Đã qua";
+  if (past) return "Đã qua";
+  if (slot.registrationOpen === false) return "Không mở đăng ký";
   if (slot.availableSlots > 0) return `Còn ${slot.availableSlots} chỗ`;
   return "Đã đủ nhân sự";
 }
@@ -436,8 +460,17 @@ export function workShiftCalendarStatus(
     if (slot.ended && slot.dailyShiftStatus === "OPEN") {
       return { label: "Đang chờ kết ca", compactLabel: "Chờ kết ca", tone: "warning" };
     }
-    if (past || slot.registrationOpen === false) {
+    if (past) {
       return { label: "Đã qua", compactLabel: "Đã qua", tone: "muted" };
+    }
+    if (slot.registrationOpen === false) {
+      return {
+        label: slot.assignmentPolicy === "ADMIN_ONLY"
+          ? "Chỉ ADMIN phân công"
+          : "Không mở đăng ký",
+        compactLabel: "Đóng đăng ký",
+        tone: "muted",
+      };
     }
     if (slot.availableSlots > 0) {
       return {

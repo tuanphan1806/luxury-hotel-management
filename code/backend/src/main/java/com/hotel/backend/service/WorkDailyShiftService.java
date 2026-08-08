@@ -137,7 +137,6 @@ public class WorkDailyShiftService {
                 request.assignmentPolicy(),
                 request.checkInEarlyMinutes(),
                 request.lateToleranceMinutes(),
-                request.color(),
                 request.note(),
                 admin);
         requirement = save(requirement);
@@ -190,12 +189,15 @@ public class WorkDailyShiftService {
             throw new AppException(ErrorCode.WORK_DAILY_SHIFT_CANNOT_MODIFY,
                     "Hãy xử lý các yêu cầu chờ duyệt trước khi đóng đăng ký hoặc đổi chính sách nhận ca");
         }
+        String automaticColor = WorkShiftColorPolicy.forStartTime(request.startTime());
+        int automaticSortOrder = WorkShiftColorPolicy.sortOrderForStartTime(request.startTime());
         boolean scheduleChanged = !requirement.getShiftNameSnapshot().equals(request.shiftName().trim())
                 || !requirement.getStartTimeSnapshot().equals(request.startTime())
                 || !requirement.getEndTimeSnapshot().equals(request.endTime())
                 || !requirement.getCheckInEarlyMinutesSnapshot().equals(request.checkInEarlyMinutes())
                 || !requirement.getLateToleranceMinutesSnapshot().equals(request.lateToleranceMinutes())
-                || !requirement.getShiftColorSnapshot().equalsIgnoreCase(request.color());
+                || !requirement.getShiftColorSnapshot().equalsIgnoreCase(automaticColor)
+                || !requirement.getSortOrderSnapshot().equals(automaticSortOrder);
         if (assignedCount > 0 && scheduleChanged) {
             throw new AppException(ErrorCode.WORK_DAILY_SHIFT_CANNOT_MODIFY);
         }
@@ -210,7 +212,6 @@ public class WorkDailyShiftService {
                 request.assignmentPolicy(),
                 request.checkInEarlyMinutes(),
                 request.lateToleranceMinutes(),
-                request.color(),
                 request.note());
         requirement.setUpdatedBy(admin);
         requirement = save(requirement);
@@ -285,7 +286,8 @@ public class WorkDailyShiftService {
             registrationRepository.saveAll(pendingRequests);
         }
         requirement.setStatus(WorkDailyShiftStatus.CANCELLED);
-        requirement.setRegistrationOpen(false);
+        // Status=CANCELLED already blocks registration. Keep the configured
+        // preference so a future restore does not silently change the policy.
         requirement.setCancelledBy(admin);
         requirement.setCancelledAtUtc(now);
         requirement.setCancellationReason(reason);
@@ -303,6 +305,78 @@ public class WorkDailyShiftService {
                         + " ngày " + requirement.getWorkDate(),
                 detail);
         return toResponse(requirement, 0);
+    }
+
+    @Transactional
+    public WorkShiftCalendarSlotResponse restore(Long id, User currentUser) {
+        User admin = requireAdmin(currentUser);
+        WorkShiftRequirement requirement = requireForUpdate(id);
+        if (requirement.getStatus() != WorkDailyShiftStatus.CANCELLED) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_CANNOT_RESTORE,
+                    "Chỉ ca đã hủy mới có thể khôi phục");
+        }
+        if (!clock.instant().isBefore(shiftStartUtc(requirement))) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_CANNOT_RESTORE,
+                    "Chỉ có thể khôi phục ca chưa bắt đầu");
+        }
+
+        String previousReason = requirement.getCancellationReason();
+        requirement.setStatus(WorkDailyShiftStatus.OPEN);
+        requirement.setCancelledBy(null);
+        requirement.setCancelledAtUtc(null);
+        requirement.setCancellationReason(null);
+        requirement.setUpdatedBy(admin);
+        requirement = save(requirement);
+
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("previousCancellationReason", previousReason);
+        detail.put("registrationOpen", requirement.getRegistrationOpen());
+        detail.put("assignmentsRestored", false);
+        detail.put("registrationRequestsRestored", false);
+        audit(
+                admin,
+                requirement,
+                ReservationAuditAction.DAILY_SHIFT_RESTORED,
+                "Khôi phục " + requirement.getShiftNameSnapshot()
+                        + " ngày " + requirement.getWorkDate(),
+                detail);
+        return toResponse(requirement, 0);
+    }
+
+    /**
+     * Permanently removes only an unused future calendar slot. Once any
+     * assignment or registration request exists, cancellation is the only
+     * supported operation so workforce history remains auditable.
+     */
+    @Transactional
+    public WorkShiftCalendarSlotResponse deleteUnused(Long id, User currentUser) {
+        User admin = requireAdmin(currentUser);
+        WorkShiftRequirement requirement = requireForUpdate(id);
+        if (!clock.instant().isBefore(shiftStartUtc(requirement))) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_CANNOT_DELETE,
+                    "Không thể xóa ca đã bắt đầu; hãy giữ lại để đối chiếu lịch sử");
+        }
+
+        Long templateId = requirement.getShiftTemplate().getId();
+        LocalDate workDate = requirement.getWorkDate();
+        if (assignmentRepository.existsByShiftTemplateIdAndWorkDate(templateId, workDate)
+                || registrationRepository.existsByShiftTemplateIdAndWorkDate(
+                        templateId, workDate)) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_CANNOT_DELETE,
+                    "Ca đã có phân công hoặc yêu cầu đăng ký; hãy hủy ca để giữ lịch sử");
+        }
+
+        WorkShiftCalendarSlotResponse response = toResponse(requirement, 0);
+        audit(
+                admin,
+                requirement,
+                ReservationAuditAction.DAILY_SHIFT_DELETED,
+                "Xóa ca trống " + requirement.getShiftNameSnapshot()
+                        + " ngày " + requirement.getWorkDate(),
+                snapshot(requirement));
+        requirementRepository.delete(requirement);
+        requirementRepository.flush();
+        return response;
     }
 
     /**
@@ -429,7 +503,6 @@ public class WorkDailyShiftService {
                     item.assignmentPolicy(),
                     item.checkInEarlyMinutes(),
                     item.lateToleranceMinutes(),
-                    item.color(),
                     item.note(),
                     admin));
         }
@@ -566,7 +639,6 @@ public class WorkDailyShiftService {
             WorkShiftAssignmentPolicy assignmentPolicy,
             int checkInEarlyMinutes,
             int lateToleranceMinutes,
-            String color,
             String note,
             User admin) {
         WorkShiftRequirement requirement = WorkShiftRequirement.builder()
@@ -589,7 +661,6 @@ public class WorkDailyShiftService {
                 assignmentPolicy,
                 checkInEarlyMinutes,
                 lateToleranceMinutes,
-                color,
                 note);
         return requirement;
     }
@@ -604,7 +675,6 @@ public class WorkDailyShiftService {
             WorkShiftAssignmentPolicy assignmentPolicy,
             int checkInEarlyMinutes,
             int lateToleranceMinutes,
-            String color,
             String note) {
         requirement.setShiftNameSnapshot(shiftName.trim());
         requirement.setStartTimeSnapshot(startTime);
@@ -615,7 +685,8 @@ public class WorkDailyShiftService {
         requirement.setAssignmentPolicySnapshot(assignmentPolicy);
         requirement.setCheckInEarlyMinutesSnapshot(checkInEarlyMinutes);
         requirement.setLateToleranceMinutesSnapshot(lateToleranceMinutes);
-        requirement.setShiftColorSnapshot(color.toUpperCase());
+        requirement.setShiftColorSnapshot(WorkShiftColorPolicy.forStartTime(startTime));
+        requirement.setSortOrderSnapshot(WorkShiftColorPolicy.sortOrderForStartTime(startTime));
         requirement.setNote(trimToNull(note));
     }
 

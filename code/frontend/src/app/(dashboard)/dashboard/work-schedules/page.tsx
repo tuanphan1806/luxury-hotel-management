@@ -14,6 +14,7 @@ import WorkforceMonthCalendar from "@/components/dashboard/WorkforceMonthCalenda
 import WorkDailyShiftModals, {
   type WorkDailyShiftAction,
 } from "@/components/dashboard/WorkDailyShiftModals";
+import WorkShiftTemplateManagerModal from "@/components/dashboard/WorkShiftTemplateManagerModal";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import {
   formatShiftTime,
@@ -23,6 +24,8 @@ import {
   unwrapWorkScheduleApiData,
   workScheduleDisplayStatus,
   workScheduleTone,
+  workShiftColorForStartTime,
+  workShiftSortOrderForStartTime,
   type WorkSchedule,
   type WorkScheduleEmployee,
   type WorkScheduleForm,
@@ -84,7 +87,7 @@ const emptyTemplateForm = (): WorkShiftTemplateForm => ({
   code: "",
   name: "",
   startTime: "07:00",
-  endTime: "15:00",
+  endTime: "12:00",
   checkInEarlyMinutes: 30,
   lateToleranceMinutes: 10,
   color: "#B8944F",
@@ -187,6 +190,13 @@ export default function WorkSchedulesPage() {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const color = workShiftColorForStartTime(templateForm.startTime);
+    const sortOrder = workShiftSortOrderForStartTime(templateForm.startTime);
+    if (templateForm.color === color && templateForm.sortOrder === sortOrder) return;
+    setTemplateForm((current) => ({ ...current, color, sortOrder }));
+  }, [templateForm.color, templateForm.sortOrder, templateForm.startTime]);
 
   useEffect(() => {
     if (rangePreset === "CUSTOM") return;
@@ -360,7 +370,7 @@ export default function WorkSchedulesPage() {
 
   const openTemplateEditor = (template?: WorkShiftTemplate) => {
     setTemplateEditing(template || null);
-    setTemplateForm(template ? { code: template.code, name: template.name, startTime: formatShiftTime(template.startTime), endTime: formatShiftTime(template.endTime), checkInEarlyMinutes: template.checkInEarlyMinutes, lateToleranceMinutes: template.lateToleranceMinutes, color: template.color, sortOrder: template.sortOrder, active: template.active } : emptyTemplateForm());
+    setTemplateForm(template ? { code: template.code, name: template.name, startTime: formatShiftTime(template.startTime), endTime: formatShiftTime(template.endTime), checkInEarlyMinutes: template.checkInEarlyMinutes, lateToleranceMinutes: template.lateToleranceMinutes, color: workShiftColorForStartTime(formatShiftTime(template.startTime)), sortOrder: workShiftSortOrderForStartTime(formatShiftTime(template.startTime)), active: template.active } : emptyTemplateForm());
     setTemplateError("");
   };
 
@@ -370,11 +380,16 @@ export default function WorkSchedulesPage() {
     if (templateForm.startTime === templateForm.endTime) return setTemplateError("Giờ bắt đầu và giờ kết thúc phải khác nhau.");
     setSubmitting(true);
     setTemplateError("");
-    const scope = `work-shift-template:${templateEditing ? `update:${templateEditing.id}` : "create"}:${JSON.stringify(templateForm)}`;
+    const payload = {
+      ...templateForm,
+      color: workShiftColorForStartTime(templateForm.startTime),
+      sortOrder: workShiftSortOrderForStartTime(templateForm.startTime),
+    };
+    const scope = `work-shift-template:${templateEditing ? `update:${templateEditing.id}` : "create"}:${JSON.stringify(payload)}`;
     try {
       const config = { headers: { "Idempotency-Key": getOrCreateIdempotencyKey(scope) } };
-      if (templateEditing) await apiClient.put(`/api/work-schedules/templates/${templateEditing.id}`, templateForm, config);
-      else await apiClient.post("/api/work-schedules/templates", templateForm, config);
+      if (templateEditing) await apiClient.put(`/api/work-schedules/templates/${templateEditing.id}`, payload, config);
+      else await apiClient.post("/api/work-schedules/templates", payload, config);
       clearIdempotencyKey(scope);
       setToast({ type: "success", message: templateEditing ? "Đã cập nhật mẫu ca" : "Đã tạo mẫu ca" });
       openTemplateEditor();
@@ -413,6 +428,11 @@ export default function WorkSchedulesPage() {
     finally { setSubmitting(false); }
   };
 
+  const openTemplateManager = () => {
+    setTemplatesModalOpen(true);
+    openTemplateEditor(templates.find((template) => template.active) || templates[0]);
+  };
+
   const handleDailyShiftChanged = async (message: string) => {
     setToast({ type: "success", message });
     setCalendarRefreshSignal((current) => current + 1);
@@ -422,7 +442,7 @@ export default function WorkSchedulesPage() {
   if (!role || loading) return <div className="ops-page mx-auto w-full max-w-[1600px] space-y-4 p-5 md:p-8"><div className="h-32 animate-pulse rounded-xl bg-[#0F2A43]/8" /><div className="h-96 animate-pulse rounded-xl bg-[#0F2A43]/5" /></div>;
 
   return <div className="ops-page mx-auto w-full max-w-[1600px] space-y-6 p-5 md:p-8">
-    <header className="ops-panel-strong overflow-hidden rounded-xl border"><div className="grid gap-6 px-5 py-6 md:grid-cols-[1fr_auto] md:items-end md:px-7"><div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#80632F]">{isAdmin ? "Quản lý nhân sự" : "Ca làm việc của tôi"}</p><h1 className="mt-2 font-serif text-3xl font-bold text-[#0F2A43] md:text-4xl">Lịch làm việc & điểm danh</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#66727C]">{isAdmin ? "Chủ động mở ca theo từng ngày, tạo nhanh theo tuần/tháng rồi phân công nhân viên. Điểm danh và ca thu ngân vẫn được liên kết nguyên tử." : "Check-in để bắt đầu ca làm việc và mở ca thu ngân tự động. Check-out sẽ kết thúc cả hai trong cùng một thao tác."}</p></div>{isAdmin && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setTemplatesModalOpen(true); openTemplateEditor(); }} className="min-h-11 rounded-lg border border-[#0F2A43]/18 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F8F4EA]">Mẫu ca</button><button type="button" onClick={() => setDailyShiftAction({ kind: "bulk" })} className="min-h-11 rounded-lg border border-[#B8944F] bg-[#FFF9EA] px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F4E7C6]">Tạo nhanh</button><button type="button" onClick={() => setDailyShiftAction({ kind: "create", date: dateKey() })} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#173D5F]">+ Tạo ca</button></div>}</div></header>
+    <header className="ops-panel-strong overflow-hidden rounded-xl border"><div className="grid gap-6 px-5 py-6 md:grid-cols-[1fr_auto] md:items-end md:px-7"><div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#80632F]">{isAdmin ? "Quản lý nhân sự" : "Ca làm việc của tôi"}</p><h1 className="mt-2 font-serif text-3xl font-bold text-[#0F2A43] md:text-4xl">Lịch làm việc & điểm danh</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#66727C]">{isAdmin ? "Chủ động mở nhiều ca theo từng ngày, tạo nhanh theo tuần/tháng rồi phân công nhân viên. Điểm danh và ca thu ngân vẫn được liên kết nguyên tử." : "Check-in để bắt đầu ca làm việc và mở ca thu ngân tự động. Check-out sẽ kết thúc cả hai trong cùng một thao tác."}</p></div>{isAdmin && <div className="flex flex-wrap gap-2"><button type="button" onClick={openTemplateManager} className="min-h-11 rounded-lg border border-[#0F2A43]/18 bg-white px-4 text-sm font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F8F4EA]">Thiết lập mẫu ca</button><button type="button" onClick={() => setDailyShiftAction({ kind: "bulk" })} className="min-h-11 rounded-lg border border-[#B8944F] bg-[#FFF9EA] px-4 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F4E7C6]">Tạo nhanh</button><button type="button" onClick={() => setDailyShiftAction({ kind: "create", date: dateKey() })} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#173D5F]">+ Tạo ca</button></div>}</div></header>
 
     <section className="flex flex-col gap-3 rounded-xl border border-[#0F2A43]/10 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div className="px-1">
@@ -448,9 +468,11 @@ export default function WorkSchedulesPage() {
         onScheduleChanged={() => loadData(false, true)}
         onEditAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "edit", true)}
         onCancelAssignment={(assignmentId) => loadAssignmentForAction(assignmentId, "cancel", true)}
-        onCreateDailyShift={(date) => setDailyShiftAction({ kind: "create", date })}
+        onCreateDailyShift={(date, usedTemplateIds) => setDailyShiftAction({ kind: "create", date, usedTemplateIds })}
         onEditDailyShift={(date, slot) => setDailyShiftAction({ kind: "edit", date, slot })}
         onCancelDailyShift={(date, slot) => setDailyShiftAction({ kind: "cancel", date, slot })}
+        onRestoreDailyShift={(date, slot) => setDailyShiftAction({ kind: "restore", date, slot })}
+        onDeleteDailyShift={(date, slot) => setDailyShiftAction({ kind: "delete", date, slot })}
         onBulkCreateDailyShifts={() => setDailyShiftAction({ kind: "bulk" })}
       />
     ) : viewMode === "statistics" ? (
@@ -548,7 +570,19 @@ export default function WorkSchedulesPage() {
 
     <ViewportModal open={scheduleModalOpen} onClose={() => { setScheduleModalOpen(false); setCalendarOverlayActive(false); }} labelledBy="schedule-form-title" busy={submitting} panelClassName="max-w-2xl" backdropClassName="bg-[#091E30]/48 backdrop-blur-[2px]" zIndexClassName="z-[115]"><form onSubmit={saveSchedule} className="flex min-h-0 flex-1 flex-col"><header className="border-b px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">Lịch làm việc</p><h2 id="schedule-form-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">{scheduleEditing ? "Điều chỉnh lịch" : "Phân ca cho nhân viên"}</h2></header><div className="lux-scrollbar grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2"><label><span className={labelClass}>Nhân viên *</span><select data-modal-autofocus value={scheduleForm.employeeId} onChange={(event) => setScheduleForm((current) => ({ ...current, employeeId: Number(event.target.value) }))} className={inputClass}><option value={0}>Chọn nhân viên</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName} · {employee.username}</option>)}</select></label><label><span className={labelClass}>Mẫu ca *</span><select value={scheduleForm.shiftTemplateId} onChange={(event) => setScheduleForm((current) => ({ ...current, shiftTemplateId: Number(event.target.value) }))} className={inputClass}><option value={0}>Chọn mẫu ca</option>{activeTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} · {formatShiftTime(template.startTime)}–{formatShiftTime(template.endTime)}</option>)}</select></label><label><span className={labelClass}>Ngày làm việc *</span><input type="date" value={scheduleForm.workDate} onChange={(event) => setScheduleForm((current) => ({ ...current, workDate: event.target.value }))} className={inputClass} /></label><label className="sm:col-span-2"><span className={labelClass}>Ghi chú</span><textarea value={scheduleForm.note} maxLength={1000} onChange={(event) => setScheduleForm((current) => ({ ...current, note: event.target.value }))} rows={3} className={`${inputClass} resize-y`} /></label>{scheduleError && <p role="alert" className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{scheduleError}</p>}</div><footer className="flex justify-end gap-2 border-t px-5 py-4"><button type="button" disabled={submitting} onClick={() => { setScheduleModalOpen(false); setCalendarOverlayActive(false); }} className="min-h-11 rounded-lg border px-4 text-sm font-bold">{calendarOverlayActive ? "Quay lại chi tiết ca" : "Đóng"}</button><button type="submit" disabled={submitting} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white disabled:opacity-60">{submitting ? "Đang lưu..." : "Lưu lịch"}</button></footer></form></ViewportModal>
 
-    <ViewportModal open={templatesModalOpen} onClose={() => setTemplatesModalOpen(false)} labelledBy="template-manager-title" busy={submitting} panelClassName="max-w-5xl"><div className="flex min-h-0 flex-1 flex-col"><header className="flex items-center justify-between gap-3 border-b px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">Cấu hình dùng chung</p><h2 id="template-manager-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Mẫu ca làm việc</h2></div><button type="button" onClick={() => openTemplateEditor()} className="min-h-10 rounded-lg border px-3 text-xs font-bold text-[#0F2A43]">+ Mẫu mới</button></header><div className="lux-scrollbar grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 lg:grid-cols-[0.85fr_1.15fr]"><div className="space-y-2">{templates.map((template) => <button type="button" key={template.id} onClick={() => openTemplateEditor(template)} className={`flex min-h-16 w-full items-center gap-3 rounded-xl border p-3 text-left transition hover:border-[#B8944F] ${templateEditing?.id === template.id ? "border-[#B8944F] bg-[#F8F4EA]" : "border-[#0F2A43]/10 bg-white"}`}><span className="h-9 w-2 rounded-full" style={{ backgroundColor: template.color }} /><span className="min-w-0 flex-1"><strong className="block truncate text-sm text-[#0F2A43]">{template.name}</strong><span className="mt-1 block text-xs text-[#66727C]">{formatShiftTime(template.startTime)}–{formatShiftTime(template.endTime)}{template.crossesMidnight ? " · qua ngày" : ""}</span></span><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${template.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{template.active ? "Đang dùng" : "Đã dừng"}</span></button>)}</div><form onSubmit={saveTemplate} className="grid content-start gap-4 rounded-xl border border-[#0F2A43]/10 bg-[#FBFAF6] p-4 sm:grid-cols-2"><label><span className={labelClass}>Mã ca *</span><input data-modal-autofocus value={templateForm.code} maxLength={32} onChange={(event) => setTemplateForm((current) => ({ ...current, code: event.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "") }))} className={inputClass} /></label><label><span className={labelClass}>Tên ca *</span><input value={templateForm.name} maxLength={100} onChange={(event) => setTemplateForm((current) => ({ ...current, name: event.target.value }))} className={inputClass} /></label><label><span className={labelClass}>Bắt đầu *</span><input type="time" value={templateForm.startTime} onChange={(event) => setTemplateForm((current) => ({ ...current, startTime: event.target.value }))} className={inputClass} /></label><label><span className={labelClass}>Kết thúc *</span><input type="time" value={templateForm.endTime} onChange={(event) => setTemplateForm((current) => ({ ...current, endTime: event.target.value }))} className={inputClass} /></label><label><span className={labelClass}>Cho check-in sớm (phút)</span><input type="number" min={0} max={240} value={templateForm.checkInEarlyMinutes} onChange={(event) => setTemplateForm((current) => ({ ...current, checkInEarlyMinutes: Number(event.target.value) }))} className={inputClass} /></label><label><span className={labelClass}>Ngưỡng đi muộn (phút)</span><input type="number" min={0} max={240} value={templateForm.lateToleranceMinutes} onChange={(event) => setTemplateForm((current) => ({ ...current, lateToleranceMinutes: Number(event.target.value) }))} className={inputClass} /></label><label><span className={labelClass}>Màu nhận diện</span><input type="color" value={templateForm.color} onChange={(event) => setTemplateForm((current) => ({ ...current, color: event.target.value }))} className={`${inputClass} cursor-pointer p-1`} /></label><label><span className={labelClass}>Thứ tự</span><input type="number" min={0} value={templateForm.sortOrder} onChange={(event) => setTemplateForm((current) => ({ ...current, sortOrder: Number(event.target.value) }))} className={inputClass} /></label><label className="flex min-h-11 items-center gap-3 sm:col-span-2"><input type="checkbox" checked={templateForm.active} onChange={(event) => setTemplateForm((current) => ({ ...current, active: event.target.checked }))} className="h-5 w-5 accent-[#0F2A43]" /><span className="text-sm font-bold text-[#0F2A43]">Cho phép dùng mẫu ca này khi phân lịch mới</span></label>{templateError && <p role="alert" className="sm:col-span-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">{templateError}</p>}<div className="flex justify-end sm:col-span-2"><button type="submit" disabled={submitting} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white disabled:opacity-60">{submitting ? "Đang lưu..." : templateEditing ? "Cập nhật mẫu" : "Tạo mẫu ca"}</button></div></form></div><footer className="flex justify-end border-t px-5 py-4"><button type="button" onClick={() => setTemplatesModalOpen(false)} className="min-h-11 rounded-lg border px-4 text-sm font-bold">Đóng</button></footer></div></ViewportModal>
+    <WorkShiftTemplateManagerModal
+      open={templatesModalOpen}
+      busy={submitting}
+      templates={templates}
+      editing={templateEditing}
+      form={templateForm}
+      error={templateError}
+      onClose={() => setTemplatesModalOpen(false)}
+      onNew={() => openTemplateEditor()}
+      onSelect={openTemplateEditor}
+      setForm={setTemplateForm}
+      onSubmit={saveTemplate}
+    />
 
     <ViewportModal open={Boolean(cancelTarget)} onClose={() => { setCancelTarget(null); setCancelError(""); setCalendarOverlayActive(false); }} labelledBy="cancel-schedule-title" busy={submitting} panelClassName="max-w-lg" backdropClassName="bg-[#091E30]/48 backdrop-blur-[2px]" zIndexClassName="z-[115]"><div className="flex min-h-0 flex-1 flex-col"><header className="border-b px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-700">Thay đổi lịch</p><h2 id="cancel-schedule-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">Hủy lịch làm việc</h2></header><div className="p-5"><p className="text-sm leading-6 text-[#66727C]">{cancelTarget && `Hủy ${cancelTarget.shiftName} của ${cancelTarget.employeeName} ngày ${formatWorkDate(cancelTarget.workDate)}.`}</p><label className="mt-4 block"><span className={labelClass}>Lý do hủy *</span><textarea data-modal-autofocus value={cancelReason} maxLength={500} onChange={(event) => { setCancelReason(event.target.value); if (cancelError) setCancelError(""); }} rows={4} className={`${inputClass} resize-y`} /></label>{cancelError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">{cancelError}</p>}</div><footer className="flex justify-end gap-2 border-t px-5 py-4"><button type="button" onClick={() => { setCancelTarget(null); setCancelError(""); setCalendarOverlayActive(false); }} className="min-h-11 rounded-lg border px-4 text-sm font-bold">{calendarOverlayActive ? "Quay lại chi tiết ca" : "Quay lại"}</button><button type="button" disabled={submitting} onClick={() => void cancelSchedule()} className="min-h-11 rounded-lg bg-rose-700 px-5 text-sm font-bold text-white disabled:opacity-60">{submitting ? "Đang hủy..." : "Xác nhận hủy"}</button></footer></div></ViewportModal>
 
