@@ -66,7 +66,7 @@ public class IdempotencyStore {
                     "Idempotency key đã được dùng với payload khác");
         }
         if (existing.getStatus() == IdempotencyStatus.COMPLETED) {
-            return Decision.replay(existing.getResourceId());
+            return Decision.replay(existing.getResourceId(), existing.getResponseJson());
         }
         if (existing.getStatus() == IdempotencyStatus.PROCESSING
                 && existing.getExpiresAtUtc().isAfter(Instant.now())) {
@@ -105,13 +105,33 @@ public class IdempotencyStore {
         repository.save(request);
     }
 
-    public record Decision(boolean replay, String resourceId) {
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void completeSnapshot(
+            String requestKey,
+            String operation,
+            String actorScope,
+            String resourceType,
+            String resourceId,
+            String responseJson) {
+        IdempotencyRequest request = repository
+                .findForUpdate(requestKey, operation, actorScope)
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND));
+        request.setStatus(IdempotencyStatus.COMPLETED);
+        request.setResponseStatus(200);
+        request.setResponseJson(responseJson);
+        request.setResourceType(resourceType);
+        request.setResourceId(resourceId);
+        request.setCompletedAtUtc(Instant.now());
+        repository.save(request);
+    }
+
+    public record Decision(boolean replay, String resourceId, String responseJson) {
         static Decision execute() {
-            return new Decision(false, null);
+            return new Decision(false, null, null);
         }
 
-        static Decision replay(String resourceId) {
-            return new Decision(true, resourceId);
+        static Decision replay(String resourceId, String responseJson) {
+            return new Decision(true, resourceId, responseJson);
         }
     }
 

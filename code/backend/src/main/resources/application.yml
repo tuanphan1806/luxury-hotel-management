@@ -102,6 +102,10 @@ app:
         startup-delay-ms: ${MAINTENANCE_STARTUP_DELAY_MS:60000}
         payment-interval-ms: ${PAYMENT_MAINTENANCE_INTERVAL_MS:300000}
         room-hold-interval-ms: ${ROOM_HOLD_MAINTENANCE_INTERVAL_MS:120000}
+    work-schedule:
+        # Khoảng đệm sau giờ kết thúc trước khi hệ thống đóng phiên chấm công
+        # còn ACTIVE do nhân viên quên checkout. Scheduler chạy mỗi 15 phút.
+        auto-checkout-grace-minutes: ${WORK_SCHEDULE_AUTO_CHECKOUT_GRACE_MINUTES:120}
     seed-media:
         base-url: ${SEED_MEDIA_BASE_URL:http://localhost:${server.port:8080}}
     cors:

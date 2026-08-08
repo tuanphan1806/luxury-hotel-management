@@ -4,6 +4,7 @@ import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.constant.WorkScheduleStatus;
+import com.hotel.backend.constant.WorkShiftAssignmentPolicy;
 import com.hotel.backend.constant.WorkShiftSessionStatus;
 import com.hotel.backend.dto.request.CancelWorkScheduleRequest;
 import com.hotel.backend.dto.request.WorkAttendanceRequest;
@@ -11,6 +12,7 @@ import com.hotel.backend.dto.request.WorkScheduleAssignmentRequest;
 import com.hotel.backend.dto.response.WorkScheduleResponse;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.entity.WorkScheduleAssignment;
+import com.hotel.backend.entity.WorkShiftRequirement;
 import com.hotel.backend.entity.WorkShiftTemplate;
 import com.hotel.backend.entity.WorkShiftSession;
 import com.hotel.backend.exception.AppException;
@@ -46,7 +48,7 @@ public class WorkScheduleService {
     private final WorkScheduleAssignmentRepository repository;
     private final WorkShiftSessionRepository sessionRepository;
     private final UserRepository userRepository;
-    private final WorkShiftTemplateService templateService;
+    private final WorkDailyShiftService dailyShiftService;
     private final CashierShiftService cashierShiftService;
     private final ReservationAuditService auditService;
     private final Clock clock;
@@ -56,10 +58,10 @@ public class WorkScheduleService {
             WorkScheduleAssignmentRepository repository,
             WorkShiftSessionRepository sessionRepository,
             UserRepository userRepository,
-            WorkShiftTemplateService templateService,
+            WorkDailyShiftService dailyShiftService,
             CashierShiftService cashierShiftService,
             ReservationAuditService auditService) {
-        this(repository, sessionRepository, userRepository, templateService, cashierShiftService,
+        this(repository, sessionRepository, userRepository, dailyShiftService, cashierShiftService,
                 auditService, Clock.systemUTC());
     }
 
@@ -67,14 +69,14 @@ public class WorkScheduleService {
             WorkScheduleAssignmentRepository repository,
             WorkShiftSessionRepository sessionRepository,
             UserRepository userRepository,
-            WorkShiftTemplateService templateService,
+            WorkDailyShiftService dailyShiftService,
             CashierShiftService cashierShiftService,
             ReservationAuditService auditService,
             Clock clock) {
         this.repository = repository;
         this.sessionRepository = sessionRepository;
         this.userRepository = userRepository;
-        this.templateService = templateService;
+        this.dailyShiftService = dailyShiftService;
         this.cashierShiftService = cashierShiftService;
         this.auditService = auditService;
         this.clock = clock;
@@ -128,15 +130,45 @@ public class WorkScheduleService {
             User currentUser) {
         User actor = requireAdmin(currentUser);
         User employee = requireActiveStaff(request.employeeId());
-        WorkShiftTemplate template = templateService.requireActive(request.shiftTemplateId());
+        WorkShiftRequirement dailyShift = dailyShiftService.requireOpen(
+                request.shiftTemplateId(), request.workDate());
+        return createAssignment(employee, dailyShift, actor, request.note(), "ADMIN_SCHEDULE");
+    }
+
+    /**
+     * Internal entry point for a daily shift configured with AUTO_ASSIGN.
+     * The public REST API never calls this directly; the registration workflow
+     * owns the locked daily-shift capacity check and invokes it atomically.
+     */
+    @Transactional
+    public WorkScheduleResponse createAutomaticRegistration(
+            WorkShiftRequirement dailyShift,
+            User currentStaff,
+            String note) {
+        User actor = requireStaff(currentStaff);
+        if (dailyShift.getAssignmentPolicySnapshot()
+                != WorkShiftAssignmentPolicy.AUTO_ASSIGN) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_OPEN);
+        }
+        User employee = requireActiveStaff(actor.getId());
+        return createAssignment(
+                employee, dailyShift, actor, note, "STAFF_REGISTRATION_AUTO_ASSIGN");
+    }
+
+    private WorkScheduleResponse createAssignment(
+            User employee,
+            WorkShiftRequirement dailyShift,
+            User actor,
+            String note,
+            String source) {
         WorkScheduleAssignment assignment = WorkScheduleAssignment.builder()
                 .employee(employee)
                 .createdBy(actor)
                 .updatedBy(actor)
                 .status(WorkScheduleStatus.SCHEDULED)
-                .note(trimToNull(request.note()))
+                .note(trimToNull(note))
                 .build();
-        applyScheduleSnapshot(assignment, employee, template, request.workDate());
+        applyScheduleSnapshot(assignment, employee, dailyShift);
         assignment = saveSchedule(assignment);
         auditSchedule(
                 actor,
@@ -144,7 +176,7 @@ public class WorkScheduleService {
                 ReservationAuditAction.WORK_SCHEDULE_CREATED,
                 "Phân lịch " + assignment.getShiftNameSnapshot()
                         + " cho " + assignment.getEmployeeNameSnapshot(),
-                Map.of("source", "ADMIN_SCHEDULE"));
+                Map.of("source", source));
         return toResponse(assignment);
     }
 
@@ -158,11 +190,12 @@ public class WorkScheduleService {
         ensureMutable(assignment);
         Map<String, Object> before = scheduleSnapshot(assignment);
         User employee = requireActiveStaff(request.employeeId());
-        WorkShiftTemplate template = templateService.requireActive(request.shiftTemplateId());
+        WorkShiftRequirement dailyShift = dailyShiftService.requireOpen(
+                request.shiftTemplateId(), request.workDate());
         assignment.setEmployee(employee);
         assignment.setUpdatedBy(actor);
         assignment.setNote(trimToNull(request.note()));
-        applyScheduleSnapshot(assignment, employee, template, request.workDate());
+        applyScheduleSnapshot(assignment, employee, dailyShift);
         assignment = saveSchedule(assignment);
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("before", before);
@@ -303,6 +336,9 @@ public class WorkScheduleService {
                 ReservationAuditAction.WORK_SHIFT_CHECKED_OUT,
                 "Check-out " + assignment.getShiftNameSnapshot(),
                 detail);
+        dailyShiftService.completeIfEligible(
+                assignment.getShiftTemplate().getId(),
+                assignment.getWorkDate());
         return toResponse(assignment);
     }
 
@@ -405,20 +441,26 @@ public class WorkScheduleService {
     private void applyScheduleSnapshot(
             WorkScheduleAssignment assignment,
             User employee,
-            WorkShiftTemplate template,
-            LocalDate workDate) {
-        LocalDateTime localStart = LocalDateTime.of(workDate, template.getStartTime());
-        LocalDate endDate = template.getEndTime().isAfter(template.getStartTime())
+            WorkShiftRequirement dailyShift) {
+        WorkShiftTemplate template = dailyShift.getShiftTemplate();
+        LocalDate workDate = dailyShift.getWorkDate();
+        LocalDateTime localStart = LocalDateTime.of(
+                workDate, dailyShift.getStartTimeSnapshot());
+        LocalDate endDate = dailyShift.getEndTimeSnapshot()
+                .isAfter(dailyShift.getStartTimeSnapshot())
                 ? workDate
                 : workDate.plusDays(1);
-        LocalDateTime localEnd = LocalDateTime.of(endDate, template.getEndTime());
+        LocalDateTime localEnd = LocalDateTime.of(
+                endDate, dailyShift.getEndTimeSnapshot());
         assignment.setEmployeeNameSnapshot(displayName(employee));
         assignment.setShiftTemplate(template);
-        assignment.setShiftCodeSnapshot(template.getCode());
-        assignment.setShiftNameSnapshot(template.getName());
-        assignment.setShiftColorSnapshot(template.getColor());
-        assignment.setCheckInEarlyMinutesSnapshot(template.getCheckInEarlyMinutes());
-        assignment.setLateToleranceMinutesSnapshot(template.getLateToleranceMinutes());
+        assignment.setShiftCodeSnapshot(dailyShift.getShiftCodeSnapshot());
+        assignment.setShiftNameSnapshot(dailyShift.getShiftNameSnapshot());
+        assignment.setShiftColorSnapshot(dailyShift.getShiftColorSnapshot());
+        assignment.setCheckInEarlyMinutesSnapshot(
+                dailyShift.getCheckInEarlyMinutesSnapshot());
+        assignment.setLateToleranceMinutesSnapshot(
+                dailyShift.getLateToleranceMinutesSnapshot());
         assignment.setWorkDate(workDate);
         assignment.setScheduledStartUtc(localStart.atZone(HOTEL_ZONE).toInstant());
         assignment.setScheduledEndUtc(localEnd.atZone(HOTEL_ZONE).toInstant());

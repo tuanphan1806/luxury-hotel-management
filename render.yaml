@@ -48,6 +48,8 @@ services:
         value: "false"
       - key: APP_ACCOUNTING_GO_LIVE_DATE
         sync: false
+      - key: WORK_SCHEDULE_AUTO_CHECKOUT_GRACE_MINUTES
+        value: "120"
       - key: SEPAY_RECONCILIATION_ENABLED
         value: "true"
       - key: PRICING_ENGINE_V2_ENABLED

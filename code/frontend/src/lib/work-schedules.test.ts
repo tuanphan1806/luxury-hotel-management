@@ -107,6 +107,9 @@ describe("work schedule helpers", () => {
 
   it("summarizes a staff slot without exposing other employee details", () => {
     const slot = {
+      dailyShiftId: 12,
+      dailyShiftStatus: "OPEN" as const,
+      assignmentPolicy: "MANUAL_APPROVAL" as const,
       shiftTemplateId: 2,
       shiftCode: "SANG",
       shiftName: "Ca sáng",
@@ -114,6 +117,9 @@ describe("work schedule helpers", () => {
       startTime: "06:00",
       endTime: "14:00",
       crossesMidnight: false,
+      checkInEarlyMinutes: 30,
+      lateToleranceMinutes: 10,
+      registrationOpen: true,
       requiredStaff: 2,
       assignedCount: 1,
       pendingRequestCount: 0,
@@ -146,6 +152,9 @@ describe("work schedule helpers", () => {
 
   it("keeps real attendance outcomes visible on past calendar slots", () => {
     const slot = {
+      dailyShiftId: 13,
+      dailyShiftStatus: "COMPLETED" as const,
+      assignmentPolicy: "MANUAL_APPROVAL" as const,
       shiftTemplateId: 2,
       shiftCode: "SANG",
       shiftName: "Ca sáng",
@@ -153,6 +162,9 @@ describe("work schedule helpers", () => {
       startTime: "06:00",
       endTime: "14:00",
       crossesMidnight: false,
+      checkInEarlyMinutes: 30,
+      lateToleranceMinutes: 10,
+      registrationOpen: true,
       requiredStaff: 3,
       assignedCount: 3,
       pendingRequestCount: 0,
@@ -181,6 +193,9 @@ describe("work schedule helpers", () => {
 
   it("shows a staff member's own attendance result instead of a generic past label", () => {
     const slot = {
+      dailyShiftId: 14,
+      dailyShiftStatus: "COMPLETED" as const,
+      assignmentPolicy: "MANUAL_APPROVAL" as const,
       shiftTemplateId: 2,
       shiftCode: "SANG",
       shiftName: "Ca sáng",
@@ -188,6 +203,9 @@ describe("work schedule helpers", () => {
       startTime: "06:00",
       endTime: "14:00",
       crossesMidnight: false,
+      checkInEarlyMinutes: 30,
+      lateToleranceMinutes: 10,
+      registrationOpen: false,
       requiredStaff: 1,
       assignedCount: 1,
       pendingRequestCount: 0,
@@ -209,6 +227,56 @@ describe("work schedule helpers", () => {
       label: "Muộn 18 phút",
       compactLabel: "Muộn",
       tone: "warning",
+    });
+
+    expect(workShiftCalendarStatus({
+      ...slot,
+      currentUserAssignment: {
+        ...slot.currentUserAssignment,
+        sessionStatus: "AUTO_CLOSED" as const,
+      },
+    }, false, true)).toMatchObject({
+      label: "Muộn 18 phút · hệ thống kết ca",
+      compactLabel: "Tự kết ca",
+      tone: "warning",
+    });
+  });
+
+  it("distinguishes a due shift waiting for operational closure from a completed shift", () => {
+    const slot = {
+      dailyShiftId: 15,
+      dailyShiftStatus: "OPEN" as const,
+      assignmentPolicy: "MANUAL_APPROVAL" as const,
+      shiftTemplateId: 2,
+      shiftCode: "SANG",
+      shiftName: "Ca sáng",
+      shiftColor: "#B8944F",
+      startTime: "06:00",
+      endTime: "14:00",
+      crossesMidnight: false,
+      started: true,
+      ended: true,
+      checkInEarlyMinutes: 30,
+      lateToleranceMinutes: 10,
+      registrationOpen: false,
+      requiredStaff: 1,
+      assignedCount: 0,
+      pendingRequestCount: 0,
+      availableSlots: 0,
+      assignments: [],
+      requests: [],
+    };
+
+    expect(workShiftCalendarStatus(slot, true)).toMatchObject({
+      label: "Đang chờ kết ca",
+      tone: "warning",
+    });
+    expect(workShiftCalendarStatus({
+      ...slot,
+      dailyShiftStatus: "COMPLETED" as const,
+    }, true)).toMatchObject({
+      label: "Ca đã hoàn tất",
+      tone: "success",
     });
   });
 

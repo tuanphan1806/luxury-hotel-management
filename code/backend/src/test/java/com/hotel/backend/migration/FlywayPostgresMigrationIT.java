@@ -22,6 +22,7 @@ import java.sql.SQLException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Properties;
 
@@ -35,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "33";
+    private static final String LATEST_VERSION = "34";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -228,7 +229,14 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "chk_work_shift_session_checkout");
             assertConstraint(connection, "fk_cashier_shift_work_session");
             assertConstraint(connection, "uk_work_shift_requirement");
-            assertConstraint(connection, "chk_work_shift_required_staff");
+            assertConstraint(connection, "chk_work_daily_shift_required_staff");
+            assertConstraint(connection, "chk_work_daily_shift_status");
+            assertConstraint(connection, "chk_work_daily_shift_assignment_policy");
+            assertConstraint(connection, "chk_work_daily_shift_time");
+            assertConstraint(connection, "chk_work_daily_shift_snapshot_minutes");
+            assertConstraint(connection, "chk_work_daily_shift_color");
+            assertConstraint(connection, "chk_work_daily_shift_cancelled_fields");
+            assertConstraint(connection, "chk_work_daily_shift_completed_fields");
             assertConstraint(connection, "chk_work_shift_registration_status");
             assertConstraint(connection, "chk_work_shift_registration_review");
             assertConstraintAbsent(connection, "uk_media_assets_owner");
@@ -1671,6 +1679,109 @@ class FlywayPostgresMigrationIT {
                 """))
                 .isInstanceOf(SQLException.class)
                 .hasMessageContaining("chk_users_username_not_blank_and_trimmed");
+    }
+
+    @Test
+    void dynamicDailyShiftMigrationBackfillsOnlyConfiguredOrReferencedSlots()
+            throws Exception {
+        Flyway v33 = flyway("33");
+        v33.clean();
+        v33.migrate();
+
+        LocalDate configuredDate = LocalDate.of(2026, 8, 11);
+        LocalDate referencedDate = LocalDate.of(2026, 8, 12);
+        LocalDate unopenedDate = LocalDate.of(2026, 8, 13);
+        long adminId;
+        long staffId;
+        long templateId;
+        try (Connection connection = POSTGRES.createConnection("")) {
+            adminId = insertMigrationUser(
+                    connection,
+                    "daily-shift-admin@example.com",
+                    "Daily shift admin",
+                    "ADMIN",
+                    "ACTIVE",
+                    "daily-shift-admin");
+            staffId = insertMigrationUser(
+                    connection,
+                    "daily-shift-staff@example.com",
+                    "Daily shift staff",
+                    "STAFF",
+                    "ACTIVE",
+                    "daily-shift-staff");
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT id FROM work_shift_templates WHERE code = 'SANG'")) {
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    assertThat(resultSet.next()).isTrue();
+                    templateId = resultSet.getLong(1);
+                }
+            }
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO work_shift_requirements(
+                        shift_template_id, work_date, required_staff, note, updated_by)
+                    VALUES (?, ?, 0, 'Legacy requirement', ?)
+                    """)) {
+                statement.setLong(1, templateId);
+                statement.setObject(2, configuredDate);
+                statement.setLong(3, adminId);
+                statement.executeUpdate();
+            }
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO work_schedule_assignments(
+                        employee_id, employee_name_snapshot, shift_template_id,
+                        shift_code_snapshot, shift_name_snapshot, shift_color_snapshot,
+                        check_in_early_minutes_snapshot, late_tolerance_minutes_snapshot,
+                        work_date, scheduled_start_utc, scheduled_end_utc,
+                        status, created_by)
+                    VALUES (?, 'Daily shift staff', ?, 'SANG', 'Ca sáng', '#B8944F',
+                            30, 15, ?, '2026-08-11 23:00:00+00',
+                            '2026-08-12 07:00:00+00', 'SCHEDULED', ?)
+                    """)) {
+                statement.setLong(1, staffId);
+                statement.setLong(2, templateId);
+                statement.setObject(3, referencedDate);
+                statement.setLong(4, adminId);
+                statement.executeUpdate();
+            }
+        }
+
+        Flyway latest = flyway();
+        latest.migrate();
+
+        try (Connection connection = POSTGRES.createConnection("");
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT work_date, required_staff, status,
+                            shift_code_snapshot, shift_name_snapshot,
+                            registration_open, assignment_policy_snapshot
+                     FROM work_shift_requirements
+                     WHERE shift_template_id = ?
+                       AND work_date BETWEEN ? AND ?
+                     ORDER BY work_date
+                     """)) {
+            statement.setLong(1, templateId);
+            statement.setObject(2, configuredDate);
+            statement.setObject(3, unopenedDate);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                assertThat(resultSet.next()).isTrue();
+                assertThat(resultSet.getObject("work_date", LocalDate.class))
+                        .isEqualTo(configuredDate);
+                assertThat(resultSet.getInt("required_staff")).isEqualTo(1);
+                assertThat(resultSet.getString("status")).isEqualTo("OPEN");
+                assertThat(resultSet.getString("shift_code_snapshot")).isEqualTo("SANG");
+                assertThat(resultSet.getString("shift_name_snapshot")).isEqualTo("Ca sáng");
+                assertThat(resultSet.getBoolean("registration_open")).isTrue();
+                assertThat(resultSet.getString("assignment_policy_snapshot"))
+                        .isEqualTo("MANUAL_APPROVAL");
+
+                assertThat(resultSet.next()).isTrue();
+                assertThat(resultSet.getObject("work_date", LocalDate.class))
+                        .isEqualTo(referencedDate);
+                assertThat(resultSet.getInt("required_staff")).isEqualTo(1);
+
+                // A template alone must not create three implicit shifts on every day.
+                assertThat(resultSet.next()).isFalse();
+            }
+        }
     }
 
     private long insertMigrationUser(

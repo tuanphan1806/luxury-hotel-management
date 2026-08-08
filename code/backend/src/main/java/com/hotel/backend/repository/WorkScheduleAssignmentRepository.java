@@ -92,4 +92,21 @@ public interface WorkScheduleAssignmentRepository
             Long shiftTemplateId,
             LocalDate workDate,
             WorkScheduleStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"employee", "workShiftSession", "workShiftSession.cashierShift"})
+    @Query("""
+            select assignment from WorkScheduleAssignment assignment
+            where assignment.shiftTemplate.id = :shiftTemplateId
+              and assignment.workDate = :workDate
+            order by assignment.id asc
+            """)
+    List<WorkScheduleAssignment> findSlotForUpdate(
+            @Param("shiftTemplateId") Long shiftTemplateId,
+            @Param("workDate") LocalDate workDate);
+
+    boolean existsByShiftTemplateIdAndWorkDateAndStatusIn(
+            Long shiftTemplateId,
+            LocalDate workDate,
+            Collection<WorkScheduleStatus> statuses);
 }
