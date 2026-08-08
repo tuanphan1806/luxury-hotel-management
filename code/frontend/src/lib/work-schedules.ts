@@ -393,6 +393,88 @@ export function staffCalendarSlotLabel(slot: WorkShiftCalendarSlot, past = false
   return "Đã đủ nhân sự";
 }
 
+/** Returns the ISO week control value (YYYY-Www) for a timezone-free work date. */
+export function isoWeekValueForWorkDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const thursday = new Date(Date.UTC(year, month - 1, day));
+  const mondayFirstDay = (thursday.getUTCDay() + 6) % 7;
+  thursday.setUTCDate(thursday.getUTCDate() - mondayFirstDay + 3);
+
+  const isoYear = thursday.getUTCFullYear();
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const firstMondayDay = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstMondayDay + 3);
+  const week = 1 + Math.round(
+    (thursday.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000),
+  );
+
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
+}
+
+/** Expands an ISO week value into the complete Monday-to-Sunday work-date range. */
+export function workDateRangeForIsoWeek(value: string) {
+  const match = /^(\d{4})-W(\d{2})$/.exec(value);
+  if (!match) return null;
+  const isoYear = Number(match[1]);
+  const week = Number(match[2]);
+  if (week < 1 || week > 53) return null;
+
+  const januaryFourth = new Date(Date.UTC(isoYear, 0, 4));
+  const mondayOffset = (januaryFourth.getUTCDay() + 6) % 7;
+  const weekOneMonday = new Date(Date.UTC(isoYear, 0, 4 - mondayOffset));
+  weekOneMonday.setUTCDate(weekOneMonday.getUTCDate() + (week - 1) * 7);
+  const from = weekOneMonday.toISOString().slice(0, 10);
+  return { from, to: shiftWorkDate(from, 6) };
+}
+
+/** Expands a month control value (YYYY-MM) into its complete calendar range. */
+export function workDateRangeForMonth(value: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return null;
+  return {
+    from: `${match[1]}-${match[2]}-01`,
+    to: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10),
+  };
+}
+
+/** Lists the visible week segments inside a month, clamped to that month. */
+export function workWeekRangesForMonth(value: string) {
+  const monthRange = workDateRangeForMonth(value);
+  if (!monthRange) return [];
+
+  const firstWeek = workDateRangeForIsoWeek(
+    isoWeekValueForWorkDate(monthRange.from),
+  );
+  if (!firstWeek) return [];
+
+  const ranges: Array<{
+    value: string;
+    position: number;
+    from: string;
+    to: string;
+  }> = [];
+  let cursor = firstWeek.from;
+  let position = 1;
+  while (cursor <= monthRange.to) {
+    const week = workDateRangeForIsoWeek(isoWeekValueForWorkDate(cursor));
+    if (!week) break;
+    const from = week.from < monthRange.from ? monthRange.from : week.from;
+    const to = week.to > monthRange.to ? monthRange.to : week.to;
+    ranges.push({
+      value: `${value}-${position}`,
+      position,
+      from,
+      to,
+    });
+    cursor = shiftWorkDate(week.from, 7);
+    position += 1;
+  }
+  return ranges;
+}
+
 /**
  * Produces an attendance-aware label for a compact calendar slot.
  * Past assignments must keep their operational meaning (late, absent,
