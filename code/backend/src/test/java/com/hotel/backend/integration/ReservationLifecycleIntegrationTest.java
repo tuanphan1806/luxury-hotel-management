@@ -42,7 +42,10 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "hotel.pricing.engine-v2-enabled=true",
+        "hotel.pricing.engine-v2-room-type-codes=*"
+})
 @ActiveProfiles("test")
 class ReservationLifecycleIntegrationTest {
 
@@ -50,6 +53,8 @@ class ReservationLifecycleIntegrationTest {
     @Autowired PaymentService paymentService;
     @Autowired PaymentRefundService paymentRefundService;
     @Autowired RoomTypeRepository roomTypeRepository;
+    @Autowired RoomRateProfileRepository roomRateProfileRepository;
+    @Autowired StayPolicyVersionRepository stayPolicyVersionRepository;
     @Autowired RoomRepository roomRepository;
     @Autowired ReservationRepository reservationRepository;
     @Autowired PaymentTransactionRepository paymentTransactionRepository;
@@ -68,10 +73,9 @@ class ReservationLifecycleIntegrationTest {
 
     @Test
     void depositConfirmMultiRoomCheckInFeeFinalPaymentCheckoutAndInvoice() {
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Integration Family")
                 .description("Integration test room")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
         Room room101 = roomRepository.save(readyRoom("IT-101", roomType));
@@ -174,16 +178,14 @@ class ReservationLifecycleIntegrationTest {
     @Test
     void oneReservationCanCheckInMultipleRoomTypesAndQuantities() {
         String suffix = shortSuffix();
-        RoomType standard = roomTypeRepository.save(RoomType.builder()
+        RoomType standard = pricedRoomType(RoomType.builder()
                 .typeName("Standard multi " + suffix)
                 .description("Multi type standard")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
-        RoomType suite = roomTypeRepository.save(RoomType.builder()
+        RoomType suite = pricedRoomType(RoomType.builder()
                 .typeName("Suite multi " + suffix)
                 .description("Multi type suite")
-                .price(BigDecimal.valueOf(180_000))
                 .maxGuests(3)
                 .build());
         Room standardOne = roomRepository.save(readyRoom("MULTI-S-1-" + suffix, standard));
@@ -244,10 +246,9 @@ class ReservationLifecycleIntegrationTest {
     @Test
     void concurrentCheckoutFeeUpdatesAreSerializedWithoutLostTotals() throws Exception {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Concurrent " + suffix)
                 .description("Concurrent checkout test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
         Room room = roomRepository.save(readyRoom("LOCK-" + suffix, roomType));
@@ -289,6 +290,8 @@ class ReservationLifecycleIntegrationTest {
         reservationService.convertHoldsAfterPayment(reservation.getId());
         reservationService.confirmReservation(reservation.getId());
         reservationService.checkIn(reservation.getId(), List.of(assignment(room.getId(), "Concurrent guest")));
+        long baseTotal = reservationRepository.findById(reservation.getId())
+                .orElseThrow().getTotalAmount().longValue();
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
@@ -307,17 +310,16 @@ class ReservationLifecycleIntegrationTest {
         var updated = reservationRepository.findById(reservation.getId()).orElseThrow();
         long finalFee = updated.getCheckoutAdditionalFee().longValue();
         assertTrue(finalFee == 1_000L || finalFee == 2_000L);
-        assertEquals(100_000L, updated.getTotalAmount().longValue() - finalFee,
+        assertEquals(baseTotal, updated.getTotalAmount().longValue() - finalFee,
                 "Concurrent replacement fees must not be added twice or lose the room total");
     }
 
     @Test
     void concurrentLastRoomDepositQrCreatesOnlyOneActiveHold() throws Exception {
         String suffix = shortSuffix();
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Last room " + suffix)
                 .description("Concurrent hold test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
         roomRepository.save(readyRoom("LAST-" + suffix, roomType));
@@ -345,10 +347,9 @@ class ReservationLifecycleIntegrationTest {
     @Test
     void concurrentCheckInCannotAssignSamePhysicalRoomToTwoReservations() throws Exception {
         String suffix = shortSuffix();
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Room assignment " + suffix)
                 .description("Concurrent room assignment test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
         Room contested = roomRepository.save(readyRoom("CONTESTED-" + suffix, roomType));
@@ -375,10 +376,9 @@ class ReservationLifecycleIntegrationTest {
     @Test
     void concurrentOverpaymentRefundCreatesOneLedgerObligation() throws Exception {
         String suffix = shortSuffix();
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Refund race " + suffix)
                 .description("Concurrent refund test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
         Room room = roomRepository.save(readyRoom("REFUND-" + suffix, roomType));
@@ -407,10 +407,9 @@ class ReservationLifecycleIntegrationTest {
     @Test
     void concurrentCashRefundCompletionHasOneLedgerEffect() throws Exception {
         String suffix = shortSuffix();
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Refund completion " + suffix)
                 .description("Concurrent refund completion test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
         Room room = roomRepository.save(readyRoom("REFUND-DONE-" + suffix, roomType));
@@ -452,10 +451,9 @@ class ReservationLifecycleIntegrationTest {
     @Test
     void concurrentCheckoutCreatesOneInvoiceAndOneTerminalTransition() throws Exception {
         String suffix = shortSuffix();
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Checkout race " + suffix)
                 .description("Concurrent checkout test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
                 .build());
         Room room = roomRepository.save(readyRoom("CHECKOUT-" + suffix, roomType));
@@ -645,6 +643,17 @@ class ReservationLifecycleIntegrationTest {
     }
 
     private record ConcurrentResult(int successes, List<Throwable> failures) {}
+
+    private RoomType pricedRoomType(RoomType draft) {
+        return IntegrationPricingFixture.persist(
+                roomTypeRepository,
+                roomRateProfileRepository,
+                stayPolicyVersionRepository,
+                draft,
+                120,
+                100_000,
+                10_000);
+    }
 
     private Room readyRoom(String name, RoomType roomType) {
         return Room.builder().roomName(name).roomType(roomType).floor(1)

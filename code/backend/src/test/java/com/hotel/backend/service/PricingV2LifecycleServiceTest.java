@@ -117,7 +117,7 @@ class PricingV2LifecycleServiceTest {
     }
 
     @Test
-    void earlyCheckoutNeverReducesCommittedOvernightPrice() {
+    void overnightCheckoutAfterRefundLockKeepsCommittedPackageFloor() {
         PricingV2LifecycleService.Projection projection =
                 service.project(
                         reservation,
@@ -131,6 +131,107 @@ class PricingV2LifecycleServiceTest {
                 reservation.getInventoryProtectedUntil(),
                 projection.inventoryProtectedUntil());
         verify(snapshotRepository, never()).save(any());
+    }
+
+    @Test
+    void overnightCheckoutBeforeRefundLockRepricesActualUsageAndPersistsAdjustment() {
+        LocalDateTime actualCheckout =
+                LocalDateTime.of(2026, 8, 1, 22, 30);
+
+        PricingV2LifecycleService.Projection projection = service.apply(
+                reservation,
+                actualCheckout,
+                RateSnapshotStage.CHECKOUT,
+                PricingTransitionReason.ACTUAL_CHECKOUT);
+
+        assertEquals(money("70000"), projection.projectedTotalAmount());
+        assertEquals(money("-100000"), projection.deltaAmount());
+        assertEquals(money("100000"),
+                projection.earlyCheckoutAdjustment());
+        assertEquals(money("100000"),
+                reservation.getEarlyCheckoutAdjustment());
+        assertEquals(money("70000"), reservationLine.getRoomPrice());
+
+        ArgumentCaptor<ReservationRateSnapshot> captor =
+                ArgumentCaptor.forClass(ReservationRateSnapshot.class);
+        verify(snapshotRepository).save(captor.capture());
+        assertEquals(StayPackage.HOURLY,
+                captor.getValue().getAppliedPackage());
+        assertEquals(money("-100000"),
+                captor.getValue().getAdjustmentAmount());
+    }
+
+    @Test
+    void overnightCheckoutAtRefundLockKeepsCommittedPackageFloor() {
+        PricingV2LifecycleService.Projection projection = service.project(
+                reservation,
+                LocalDateTime.of(2026, 8, 1, 23, 0));
+
+        assertEquals(money("170000"), projection.projectedTotalAmount());
+        assertEquals(money("0"), projection.deltaAmount());
+        assertEquals(money("0"), projection.earlyCheckoutAdjustment());
+    }
+
+    @Test
+    void hourlyEarlyCheckoutRepricesByActualDuration() {
+        configureCommitment(
+                LocalDateTime.of(2026, 8, 1, 10, 0),
+                LocalDateTime.of(2026, 8, 1, 14, 0),
+                StayPackage.HOURLY,
+                "110000");
+
+        PricingV2LifecycleService.Projection projection = service.project(
+                reservation,
+                LocalDateTime.of(2026, 8, 1, 11, 0));
+
+        assertEquals(money("70000"), projection.projectedTotalAmount());
+        assertEquals(money("-40000"), projection.deltaAmount());
+        assertEquals(money("40000"),
+                projection.earlyCheckoutAdjustment());
+        assertEquals(StayPackage.HOURLY, projection.displayPackage());
+    }
+
+    @Test
+    void dailyEarlyCheckoutRepricesFullUsageInsteadOfKeepingDailyFloor() {
+        configureCommitment(
+                LocalDateTime.of(2026, 8, 1, 12, 0),
+                LocalDateTime.of(2026, 8, 2, 12, 0),
+                StayPackage.DAILY,
+                "300000");
+
+        PricingV2LifecycleService.Projection projection = service.project(
+                reservation,
+                LocalDateTime.of(2026, 8, 1, 18, 0));
+
+        assertEquals(money("150000"), projection.projectedTotalAmount());
+        assertEquals(money("-150000"), projection.deltaAmount());
+        assertEquals(money("150000"),
+                projection.earlyCheckoutAdjustment());
+        assertEquals(StayPackage.HOURLY, projection.displayPackage());
+    }
+
+    @Test
+    void multiDayEarlyCheckoutKeepsUsedFullDaysAndRepricesOnlyTheRemainder() {
+        configureCommitment(
+                LocalDateTime.of(2026, 8, 1, 12, 0),
+                LocalDateTime.of(2026, 8, 3, 20, 0),
+                StayPackage.DAILY,
+                "790000");
+
+        PricingV2LifecycleService.Projection projection = service.project(
+                reservation,
+                LocalDateTime.of(2026, 8, 2, 18, 0));
+
+        // 24 giờ đã dùng = 300k; 6 giờ dư = 70k + 4 x 20k.
+        assertEquals(money("450000"), projection.projectedTotalAmount());
+        assertEquals(money("-340000"), projection.deltaAmount());
+        assertEquals(money("340000"),
+                projection.earlyCheckoutAdjustment());
+        assertEquals(StayPackage.DAILY, projection.displayPackage());
+        assertEquals(1,
+                projection.lines().get(0).breakdown().fullDays());
+        assertEquals(360,
+                projection.lines().get(0).breakdown().remainderMinutes());
     }
 
     @Test
@@ -309,7 +410,7 @@ class PricingV2LifecycleServiceTest {
     }
 
     @Test
-    void aLaterProjectionCannotFallBelowTheLatestSnapshot() {
+    void overnightFloorDoesNotRetainAnUnusedFutureExtension() {
         ReservationRateSnapshot latest = snapshot(
                 2,
                 RateSnapshotStage.EXTENSION,
@@ -334,9 +435,11 @@ class PricingV2LifecycleServiceTest {
                         reservation,
                         LocalDateTime.of(2026, 8, 2, 10, 0));
 
-        assertEquals(money("190000"), projection.projectedTotalAmount());
-        assertEquals(money("0"), projection.deltaAmount());
-        assertEquals(money("20000"), projection.cumulativePricingIncrease());
+        assertEquals(money("170000"), projection.projectedTotalAmount());
+        assertEquals(money("-20000"), projection.deltaAmount());
+        assertEquals(money("20000"),
+                projection.earlyCheckoutAdjustment());
+        assertEquals(money("0"), projection.cumulativePricingIncrease());
     }
 
     private ReservationRateSnapshot snapshot(
@@ -375,6 +478,36 @@ class PricingV2LifecycleServiceTest {
             BigDecimal adjustment,
             int roomQuantity,
             int lineGuestCount) {
+        return snapshot(
+                sequence,
+                stage,
+                reason,
+                rate,
+                policy,
+                committedCheckOut,
+                finalRoomCharge,
+                extraGuestCharge,
+                adjustment,
+                roomQuantity,
+                lineGuestCount,
+                StayPackage.OVERNIGHT,
+                money("170000"));
+    }
+
+    private ReservationRateSnapshot snapshot(
+            int sequence,
+            RateSnapshotStage stage,
+            PricingTransitionReason reason,
+            RoomRateProfile rate,
+            StayPolicyVersion policy,
+            LocalDateTime committedCheckOut,
+            BigDecimal finalRoomCharge,
+            BigDecimal extraGuestCharge,
+            BigDecimal adjustment,
+            int roomQuantity,
+            int lineGuestCount,
+            StayPackage stayPackage,
+            BigDecimal minimumCommittedRoomCharge) {
         return ReservationRateSnapshot.builder()
                 .id((long) sequence)
                 .reservationRoomType(reservationLine)
@@ -387,10 +520,12 @@ class PricingV2LifecycleServiceTest {
                 .committedCheckIn(reservation.getCheckIn())
                 .committedCheckOut(committedCheckOut)
                 .actualCheckIn(reservation.getActualCheckIn())
-                .stayClassification(StayClassification.NIGHT_STAY)
-                .initialPackage(StayPackage.OVERNIGHT)
-                .appliedPackage(StayPackage.OVERNIGHT)
-                .maxPackageReached(StayPackage.OVERNIGHT)
+                .stayClassification(stayPackage == StayPackage.OVERNIGHT
+                        ? StayClassification.NIGHT_STAY
+                        : StayClassification.DAY_STAY)
+                .initialPackage(stayPackage)
+                .appliedPackage(stayPackage)
+                .maxPackageReached(stayPackage)
                 .transitionReason(reason)
                 .includedGuests(1)
                 .maxGuestsSnapshot(2)
@@ -403,14 +538,15 @@ class PricingV2LifecycleServiceTest {
                 .extraUnitPrice(money("20000"))
                 .graceMinutes(15)
                 .overnightPrice(money("170000"))
-                .overnightIncludedCheckout(
-                        LocalDateTime.of(2026, 8, 2, 10, 0))
+                .overnightIncludedCheckout(stayPackage == StayPackage.OVERNIGHT
+                        ? LocalDateTime.of(2026, 8, 2, 10, 0)
+                        : null)
                 .dailyPrice(money("300000"))
                 .dailyDurationMinutes(1440)
                 .fullDays(0)
                 .remainderMinutes(720)
                 .chargedExtraUnits(0)
-                .minimumCommittedRoomCharge(money("170000"))
+                .minimumCommittedRoomCharge(minimumCommittedRoomCharge)
                 .finalRoomCharge(finalRoomCharge)
                 .extraGuestCharge(extraGuestCharge)
                 .allocatedServiceCharge(money("0"))
@@ -427,6 +563,7 @@ class PricingV2LifecycleServiceTest {
                 .graceMinutes(15)
                 .overnightStartTime(LocalTime.of(20, 0))
                 .overnightEarlyMorningEnd(LocalTime.of(8, 0))
+                .overnightRefundLockTime(LocalTime.of(23, 0))
                 .overnightHardCheckoutTime(LocalTime.NOON)
                 .overnightMaximumMinutes(720)
                 .dailyThresholdMinutes(1200)
@@ -440,6 +577,45 @@ class PricingV2LifecycleServiceTest {
                 .createdAtUtc(
                         Instant.parse("2026-01-01T00:00:00Z"))
                 .build();
+    }
+
+    private void configureCommitment(
+            LocalDateTime checkIn,
+            LocalDateTime checkOut,
+            StayPackage stayPackage,
+            String committedCharge) {
+        BigDecimal charge = money(committedCharge);
+        reservation.setCheckIn(checkIn);
+        reservation.setCheckOut(checkOut);
+        reservation.setActualCheckIn(checkIn);
+        reservation.setTotalAmount(charge);
+        reservation.setEarlyCheckoutAdjustment(money("0"));
+        reservation.setLateCheckoutFee(money("0"));
+        reservation.setDisplayPackageSummary(stayPackage);
+
+        reservationLine.setRoomPrice(charge);
+        reservationLine.setSubtotal(charge);
+        reservationLine.setMinimumCommittedRoomCharge(charge);
+        reservationLine.setMaxPackageReached(stayPackage);
+
+        commitment = snapshot(
+                1,
+                RateSnapshotStage.COMMITMENT,
+                PricingTransitionReason.INITIAL_QUOTE,
+                commitment.getRateProfile(),
+                commitment.getStayPolicyVersion(),
+                checkOut,
+                charge,
+                money("0"),
+                money("0"),
+                1,
+                1,
+                stayPackage,
+                charge);
+        when(snapshotRepository
+                .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
+                        reservationLine.getId()))
+                .thenReturn(List.of(commitment));
     }
 
     private RoomRateProfile rate(

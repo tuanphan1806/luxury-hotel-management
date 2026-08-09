@@ -15,8 +15,6 @@ export interface ReservationRoomQuickViewItem {
   descriptionEn?: string;
   imageUrl?: string;
   gallery?: string[];
-  price?: number;
-  pricePerHour?: number;
   firstBlockMinutes?: number;
   firstBlockPrice?: number;
   overnightPrice?: number;

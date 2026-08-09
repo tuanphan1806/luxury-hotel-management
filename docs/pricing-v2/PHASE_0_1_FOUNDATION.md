@@ -29,8 +29,11 @@ Với `OVERNIGHT`, `packageEntitlementEnd` là giờ checkout cứng của đêm
 hành (12:00 theo policy V1), không chỉ là checkout đã nhập. Quy tắc này bảo
 vệ lời hứa “đến muộn vẫn có thể dùng tối đa 12 giờ nhưng không quá 12:00”.
 
-Khi staff xác nhận checkout sớm, phòng có thể được giải phóng sớm theo workflow
-dọn phòng hiện hữu; việc checkout sớm không tự làm giảm mức tiền đã cam kết.
+Khi staff xác nhận checkout sớm, phòng được giải phóng theo workflow dọn phòng
+hiện hữu và tiền được replay từ `actualCheckIn` đến `actualCheckout`. HOURLY và
+DAILY có thể giảm theo thời gian thực tế. Với OVERNIGHT, checkout trước mốc
+`overnightRefundLockTime` (mặc định 23:00 của đêm vận hành) vẫn được tính lại;
+từ mốc đó trở đi giá qua đêm đã cam kết là sàn không hoàn.
 
 ### Độ chính xác thời gian
 
@@ -59,7 +62,10 @@ không bị nuốt vào trần này.
 
 - Khung vận hành mặc định: `20:00 → 08:00`.
 - Khách đến muộn được dùng tối đa 12 giờ nhưng không quá 12:00 hôm sau.
-- Khách trả sớm không tự giảm gói.
+- Trả trước 23:00 của đêm vận hành: tính lại theo thời gian thực tế và có thể
+  chuyển về HOURLY.
+- Từ 23:00 trở đi: giữ giá OVERNIGHT làm sàn; phần gia hạn tương lai chưa dùng
+  vẫn được loại khỏi nghĩa vụ.
 - Khách nhận trước 08:00 trong cùng ngày chỉ vào gói qua đêm khi kỳ lưu trú
   đạt tối thiểu 120 phút. Kỳ ngắn hơn đi HOURLY.
 - Phút đến trước 20:00 và phút trả sau entitlement được trừ grace riêng, làm
@@ -152,9 +158,12 @@ Trước check-in, guest assignment của từng phòng vật lý vẫn phải k
 - Không dùng package tổng hợp để tính cọc, payment, checkout hoặc invoice.
 - Tất cả phép tính tiền phải cộng breakdown của từng
   `ReservationRoomType`.
-- Mỗi dòng giữ `minimumCommittedRoomCharge` và `maxPackageReached`.
-- Checkout không tự hạ giá dưới mức cam kết; ngoại lệ phải là một adjustment
-  được duyệt và đi qua refund/ledger, không sửa snapshot cũ.
+- Mỗi dòng giữ `minimumCommittedRoomCharge` và `maxPackageReached` làm bằng
+  chứng cam kết; `minimumCommittedRoomCharge` chỉ là sàn khi policy thực sự yêu
+  cầu, hiện tại là OVERNIGHT từ 23:00.
+- Checkout sớm tự động tính lại bằng engine từ thời gian thực tế. Chênh lệch âm
+  được ghi snapshot `ADJUSTMENT/CHECKOUT`, cập nhật nghĩa vụ và phải đi qua
+  refund/ledger trước khi checkout; không sửa snapshot cũ.
 - `ReservationRateSnapshot` là append-only theo từng dòng.
 - Invoice lấy snapshot cuối cùng phù hợp qua
   `ReservationInvoiceSnapshotService`; không tính ngược bằng bảng giá hiện tại.

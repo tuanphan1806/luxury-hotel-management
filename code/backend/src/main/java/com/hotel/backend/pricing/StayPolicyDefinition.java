@@ -16,6 +16,7 @@ public record StayPolicyDefinition(
         LocalTime overnightStartTime,
         LocalTime overnightEarlyMorningEnd,
         int earlyMorningOvernightMinimumMinutes,
+        LocalTime overnightRefundLockTime,
         LocalTime overnightHardCheckoutTime,
         int overnightMaximumMinutes,
         int dailyThresholdMinutes,
@@ -38,6 +39,9 @@ public record StayPolicyDefinition(
             throw new IllegalArgumentException(
                     "earlyMorningOvernightMinimumMinutes must be between 0 and dailyDurationMinutes");
         }
+        overnightRefundLockTime =
+                Objects.requireNonNull(
+                        overnightRefundLockTime, "overnightRefundLockTime");
         overnightHardCheckoutTime =
                 Objects.requireNonNull(
                         overnightHardCheckoutTime, "overnightHardCheckoutTime");

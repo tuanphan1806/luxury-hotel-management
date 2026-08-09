@@ -15,6 +15,8 @@ public interface PricingQuoteLineRepository
 
     List<PricingQuoteLine> findByPricingQuoteIdOrderByIdAsc(UUID pricingQuoteId);
 
+    long countByRoomTypeId(Long roomTypeId);
+
     @Modifying
     @Query("""
             delete from PricingQuoteLine line

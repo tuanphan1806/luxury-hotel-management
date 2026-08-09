@@ -30,7 +30,6 @@ interface RoomDetails extends PublicRoomRate {
   id?: number;
   typeName: string;
   description: string;
-  price: number | string;
   maxGuests: number;
   imageUrl: string;
   specs: {
@@ -76,7 +75,6 @@ interface RoomTypePayload extends PublicRoomRate {
   typeNameEn?: string;
   description?: string;
   descriptionEn?: string;
-  price?: number;
   maxGuests?: number;
   imageUrl?: string;
   imageUrls?: string[];
@@ -288,7 +286,6 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
             id: Number(dbData.id),
             typeName: localize(dbData.typeName, dbData.typeNameEn) || localize("Phòng nghỉ cao cấp", "Luxury room"),
             description: localize(dbData.description, dbData.descriptionEn) || localize("Không gian lưu trú chỉn chu, tiện nghi và sẵn sàng trước khi bạn đến.", "A calm stay with polished service, comfortable details, and everything ready before arrival."),
-            price: dbData.price ?? 0,
             packagePricingEnabled: dbData.packagePricingEnabled,
             pricingAvailable: dbData.pricingAvailable,
             includedGuests: dbData.includedGuests,

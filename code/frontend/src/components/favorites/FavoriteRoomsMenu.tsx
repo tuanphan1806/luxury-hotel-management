@@ -12,7 +12,7 @@ interface FavoriteRoomSummary {
   typeName: string;
   typeNameEn?: string;
   imageUrl?: string;
-  price?: number;
+  overnightPrice?: number;
   maxGuests?: number;
 }
 
@@ -133,7 +133,11 @@ export default function FavoriteRoomsMenu({ open, onClose }: FavoriteRoomsMenuPr
                     </button>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3">
-                    <p className="text-xs font-bold tabular-nums text-[#80632F]">{Number(room.price || 0).toLocaleString(locale === "vi" ? "vi-VN" : "en-US")} đ</p>
+                    <p className="text-xs font-bold tabular-nums text-[#80632F]">
+                      {room.overnightPrice != null
+                        ? `${Number(room.overnightPrice).toLocaleString(locale === "vi" ? "vi-VN" : "en-US")} đ/${localize("đêm", "night")}`
+                        : localize("Kiểm tra giá", "Check rate")}
+                    </p>
                     <Link href={`/rooms/${room.id}`} onClick={onClose} className="inline-flex min-h-9 items-center rounded-lg bg-[#0F2A43] px-3 text-[10px] font-bold text-white transition hover:bg-[#091E30]">{localize("Xem chi tiết", "View details")}</Link>
                   </div>
                 </div>

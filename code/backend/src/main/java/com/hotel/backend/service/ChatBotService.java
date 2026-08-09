@@ -552,7 +552,7 @@ public class ChatBotService {
     private BigDecimal getComparableRoomRate(RoomTypeResponse roomType) {
         if (roomType.getOvernightPrice() != null) return roomType.getOvernightPrice();
         if (roomType.getDailyPrice() != null) return roomType.getDailyPrice();
-        if (roomType.getPrice() != null) return roomType.getPrice();
+        if (roomType.getFirstBlockPrice() != null) return roomType.getFirstBlockPrice();
         return new BigDecimal("999999999999");
     }
 
@@ -564,8 +564,8 @@ public class ChatBotService {
         if (roomType.getDailyPrice() != null) {
             rates.add("ngày đêm " + formatVnd(roomType.getDailyPrice()));
         }
-        if (rates.isEmpty() && roomType.getPrice() != null) {
-            rates.add("giá tham khảo " + formatVnd(roomType.getPrice()));
+        if (rates.isEmpty() && roomType.getFirstBlockPrice() != null) {
+            rates.add("gói giờ đầu " + formatVnd(roomType.getFirstBlockPrice()));
         }
         return rates.isEmpty() ? "vui lòng chọn thời gian để kiểm tra giá" : String.join("; ", rates);
     }
@@ -960,11 +960,8 @@ public class ChatBotService {
                         .append("/phòng (")
                         .append(formatStayPackage(item.getEstimatedPackage().name()))
                         .append(", chưa gồm khách thêm/dịch vụ)");
-            } else if (item.getAvailableRooms() > 0
-                    && item.getPricePerHour() != null) {
-                answer.append(", giá tham khảo ")
-                        .append(formatVnd(item.getPricePerHour()))
-                        .append("/giờ");
+            } else if (item.getAvailableRooms() > 0) {
+                answer.append(", cần chọn đúng thời gian lưu trú để tính giá");
             }
 
             answer.append(".\n");
@@ -1198,12 +1195,21 @@ public class ChatBotService {
 
     private String formatRoomTypeComparison(RoomTypeResponse first, RoomTypeResponse second) {
         return "So sánh nhanh:\n"
-                + "- " + first.getTypeName() + ": giá " + first.getPrice() + "/giờ, "
+                + "- " + first.getTypeName() + ": " + formatPublishedRates(first) + ", "
                 + Optional.ofNullable(first.getDescription()).orElse("chưa có mô tả") + " Tiện nghi: "
                 + formatFacilities(first.getFacilities()) + ".\n"
-                + "- " + second.getTypeName() + ": giá " + second.getPrice() + "/giờ, "
+                + "- " + second.getTypeName() + ": " + formatPublishedRates(second) + ", "
                 + Optional.ofNullable(second.getDescription()).orElse("chưa có mô tả") + " Tiện nghi: "
                 + formatFacilities(second.getFacilities()) + ".";
+    }
+
+    private String formatPublishedRates(RoomTypeResponse roomType) {
+        if (roomType.getOvernightPrice() == null
+                || roomType.getDailyPrice() == null) {
+            return "chưa có bảng giá đang hiệu lực";
+        }
+        return "qua đêm " + formatVnd(roomType.getOvernightPrice())
+                + ", ngày đêm " + formatVnd(roomType.getDailyPrice());
     }
 
     private boolean hasRoomDescriptionContaining(List<RoomTypeResponse> roomTypes, String keyword) {

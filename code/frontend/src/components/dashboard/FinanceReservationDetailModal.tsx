@@ -18,6 +18,7 @@ export type FinanceReservationDetail = {
   actualTotalAmount?: number;
   plannedRoomCharge?: number;
   actualRoomCharge?: number;
+  earlyCheckoutAdjustment?: number;
   extraGuestCharge?: number;
   addOnServiceAmount?: number;
   checkoutAdditionalFee?: number;
@@ -295,6 +296,9 @@ export default function FinanceReservationDetailModal({
                 <dl className="mt-3 space-y-2 text-sm">
                   {[
                     ["Tiền phòng dự kiến", detail.plannedRoomCharge],
+                    ...(Number(detail.earlyCheckoutAdjustment || 0) > 0
+                      ? [["Giảm do trả sớm", -Number(detail.earlyCheckoutAdjustment)]]
+                      : []),
                     ["Tiền phòng thực tế", detail.actualRoomCharge],
                     ["Phụ thu khách thêm", detail.extraGuestCharge],
                     ["Dịch vụ thêm", detail.addOnServiceAmount],

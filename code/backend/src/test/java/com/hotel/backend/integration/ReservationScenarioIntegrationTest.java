@@ -34,7 +34,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * only the HTTP happy path. Each test rolls back its own data so scenarios can
  * be run independently and in any order.
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "hotel.pricing.engine-v2-enabled=true",
+        "hotel.pricing.engine-v2-room-type-codes=*"
+})
 @ActiveProfiles("test")
 @Transactional
 class ReservationScenarioIntegrationTest {
@@ -44,6 +47,8 @@ class ReservationScenarioIntegrationTest {
     @Autowired ReservationRoomTypeRepository reservationRoomTypeRepository;
     @Autowired ReservationRoomRepository reservationRoomRepository;
     @Autowired RoomTypeRepository roomTypeRepository;
+    @Autowired RoomRateProfileRepository roomRateProfileRepository;
+    @Autowired StayPolicyVersionRepository stayPolicyVersionRepository;
     @Autowired RoomRepository roomRepository;
     @Autowired RoomHoldRepository roomHoldRepository;
     @Autowired PaymentTransactionRepository paymentTransactionRepository;
@@ -733,7 +738,7 @@ class ReservationScenarioIntegrationTest {
     }
 
     @Test
-    void overpaymentIsRefundedBeforeCheckoutAndRoomBecomesDirty() {
+    void explicitOverpaymentIsRefundedBeforeCheckoutAndRoomBecomesDirty() {
         RoomType roomType = roomType(2);
         Room room = room(roomType);
         User customer = customer();
@@ -759,12 +764,14 @@ class ReservationScenarioIntegrationTest {
         if (scheduledTotal > alreadyPaid) {
             successfulPayment(reservation, scheduledTotal - alreadyPaid, PaymentPurpose.FINAL_PAYMENT);
         }
+        successfulPayment(reservation, 30_000L, PaymentPurpose.FINAL_PAYMENT);
+        reloadPersistenceContext();
 
         User staff = userRepository.save(staff());
         openCashierShift(staff);
         FinalPaymentResponse settlement = reservationService.calculateFinalPayment(reservation.getId(), staff);
-        assertTrue(settlement.getRefundableAmount() > 0,
-                () -> "Early checkout should produce an overpayment: " + settlement);
+        assertEquals(30_000L, settlement.getRefundableAmount(),
+                () -> "The explicit extra payment must become refundable: " + settlement);
 
         Long reservationId = reservation.getId();
         reservationService.requestCheckoutRefund(reservationId, refundRequest(RefundChannel.CASH_AT_COUNTER));
@@ -798,6 +805,118 @@ class ReservationScenarioIntegrationTest {
                 "Checkout phải giải phóng phần tồn phòng còn được bảo vệ trong tương lai");
         assertNotNull(guestRepository.findAllByReservationId(reservation.getId()).get(0).getCheckedOutAt());
         assertTrue(reservationInvoiceRepository.findByReservationId(reservation.getId()).isPresent());
+    }
+
+    /**
+     * Early-checkout repricing and the refund ledger must compose into one
+     * checkout-safe workflow. The projected reduction is not a shortcut:
+     * money is refunded first, then checkout persists the actual-use price.
+     */
+    @Test
+    void earlyCheckoutReductionIsRefundedBeforeCheckoutPersistsActualUsagePrice() {
+        RoomType roomType = IntegrationPricingFixture.persist(
+                roomTypeRepository,
+                roomRateProfileRepository,
+                stayPolicyVersionRepository,
+                RoomType.builder()
+                        .typeName("Early checkout " + suffix())
+                        .description("Deterministic early-checkout refund scenario")
+                        .maxGuests(2)
+                        .build(),
+                120,
+                100_000,
+                10_000,
+                170_000,
+                300_000);
+        Room room = room(roomType);
+        User customer = customer();
+        LocalDateTime quoteCheckIn = LocalDateTime.now()
+                .plusDays(1)
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0);
+        ReservationResponse created = reservationService.createReservation(
+                customer,
+                onlineRequest(
+                        roomType,
+                        1,
+                        1,
+                        quoteCheckIn,
+                        quoteCheckIn.plusHours(3)));
+        Reservation reservation = reservationRepository.findById(created.getId())
+                .orElseThrow();
+        successfulPayment(
+                reservation,
+                depositAmount(reservation),
+                PaymentPurpose.DEPOSIT);
+        reloadPersistenceContext();
+        reservationService.convertHoldsAfterPayment(reservation.getId());
+        reloadPersistenceContext();
+        reservationService.confirmReservation(reservation.getId());
+        reloadPersistenceContext();
+        reservation = reservationRepository.findById(created.getId()).orElseThrow();
+        LocalDateTime operationalCheckIn = LocalDateTime.now().plusSeconds(5);
+        reservation.setCheckIn(operationalCheckIn);
+        reservation.setCheckOut(operationalCheckIn.plusHours(3));
+        reservationRepository.save(reservation);
+        reloadPersistenceContext();
+        reservationService.checkIn(
+                reservation.getId(),
+                List.of(assignment(room.getId(), "Khách trả sớm")));
+
+        Long reservationId = reservation.getId();
+        reservation = reservationRepository.findById(reservationId).orElseThrow();
+        long alreadyPaid = paymentTransactionRepository.findByReservationId(reservationId)
+                .stream()
+                .filter(transaction -> transaction.getStatus() == PaymentStatus.SUCCESS)
+                .mapToLong(PaymentTransaction::getAmount)
+                .sum();
+        long committedTotal = reservation.getTotalAmount().longValue();
+        if (committedTotal > alreadyPaid) {
+            successfulPayment(
+                    reservation,
+                    committedTotal - alreadyPaid,
+                    PaymentPurpose.FINAL_PAYMENT);
+        }
+        reloadPersistenceContext();
+
+        User staff = userRepository.save(staff());
+        openCashierShift(staff);
+        FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
+                reservationId, staff);
+        assertTrue(settlement.getRefundableAmount() > 0L,
+                "Trả sớm phải tạo đúng khoản thu thừa cần hoàn");
+        long actualUsageTotal = settlement.getTotalAmount();
+        long refundAmount = settlement.getRefundableAmount();
+
+        reservationService.requestCheckoutRefund(
+                reservationId,
+                refundRequest(RefundChannel.CASH_AT_COUNTER));
+        reloadPersistenceContext();
+        PaymentRefund pending = paymentRefundRepository.findByReservationId(reservationId)
+                .stream()
+                .filter(refund -> refund.getStatus() == RefundStatus.REQUESTED)
+                .findFirst()
+                .orElseThrow();
+        assertEquals(refundAmount, pending.getAmount());
+        assertThrows(RuntimeException.class,
+                () -> reservationService.checkOut(reservationId),
+                "Không được checkout khi khoản hoàn trả sớm chưa giao cho khách");
+
+        CashRefundCompleteRequest complete = new CashRefundCompleteRequest();
+        complete.setConfirmed(true);
+        paymentRefundService.completeCashAtCounter(pending.getId(), complete, staff);
+        ReservationResponse checkedOut = reservationService.checkOut(reservationId);
+
+        assertEquals(ReservationStatus.CHECKED_OUT, checkedOut.getStatus());
+        Reservation persisted = reservationRepository.findById(reservationId).orElseThrow();
+        assertEquals(BigDecimal.valueOf(actualUsageTotal).setScale(2),
+                persisted.getTotalAmount());
+        assertEquals(BigDecimal.valueOf(refundAmount).setScale(2),
+                persisted.getEarlyCheckoutAdjustment());
+        assertEquals(RoomStatus.AVAILABLE,
+                roomRepository.findById(room.getId()).orElseThrow().getStatus());
     }
 
     /**
@@ -1055,18 +1174,18 @@ class ReservationScenarioIntegrationTest {
     }
 
     @Test
-    void legacyAvailabilityStillEndsAtDisplayedCheckout() {
+    void newReservationsAlwaysPersistPricingV2InventoryProtection() {
         RoomType roomType = roomType(2);
         room(roomType);
         Reservation reservation =
                 confirmedReservation(customer(), roomType, 1, 1);
         LocalDateTime displayedCheckout = reservation.getCheckOut();
 
-        assertNull(reservation.getInventoryProtectedUntil());
-        assertEquals(0, reservationRoomTypeRepository.countBookedQuantity(
-                roomType.getId(),
-                displayedCheckout.plusMinutes(1),
-                displayedCheckout.plusHours(1)));
+        assertEquals(PricingAlgorithmVersion.MOTEL_PACKAGE_V2,
+                reservation.getPricingVersion());
+        assertNotNull(reservation.getInventoryProtectedUntil());
+        assertFalse(reservation.getInventoryProtectedUntil()
+                .isBefore(displayedCheckout));
     }
 
     @Test
@@ -1187,12 +1306,18 @@ class ReservationScenarioIntegrationTest {
     }
 
     private RoomType roomType(int maxGuests) {
-        return roomTypeRepository.save(RoomType.builder()
+        return IntegrationPricingFixture.persist(
+                roomTypeRepository,
+                roomRateProfileRepository,
+                stayPolicyVersionRepository,
+                RoomType.builder()
                 .typeName("Scenario " + suffix())
                 .description("Reservation scenario test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(maxGuests)
-                .build());
+                .build(),
+                120,
+                100_000,
+                10_000);
     }
 
     private Room room(RoomType roomType) {

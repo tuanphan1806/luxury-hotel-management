@@ -19,7 +19,6 @@ interface RoomType extends PublicRoomRate {
   id: number;
   typeName: string;
   typeNameEn?: string;
-  price: number;
   maxGuests: number;
   description: string;
   descriptionEn?: string;

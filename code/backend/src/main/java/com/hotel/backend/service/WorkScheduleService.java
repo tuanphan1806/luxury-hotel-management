@@ -130,7 +130,7 @@ public class WorkScheduleService {
             User currentUser) {
         User actor = requireAdmin(currentUser);
         User employee = requireActiveStaff(request.employeeId());
-        WorkShiftRequirement dailyShift = dailyShiftService.requireOpen(
+        WorkShiftRequirement dailyShift = dailyShiftService.requireAvailableForNewAssignment(
                 request.shiftTemplateId(), request.workDate());
         return createAssignment(employee, dailyShift, actor, request.note(), "ADMIN_SCHEDULE");
     }
@@ -182,16 +182,24 @@ public class WorkScheduleService {
 
     @Transactional
     public WorkScheduleResponse update(
-            Long assignmentId,
-            WorkScheduleAssignmentRequest request,
-            User currentUser) {
+        Long assignmentId,
+        WorkScheduleAssignmentRequest request,
+        User currentUser) {
         User actor = requireAdmin(currentUser);
+        User employee = requireActiveStaff(request.employeeId());
+        // All mutations that may conflict with cancelling/editing a daily shift
+        // use the same lock order: daily shift first, assignment second.
+        WorkShiftRequirement dailyShift = dailyShiftService.requireOpen(
+                request.shiftTemplateId(), request.workDate());
         WorkScheduleAssignment assignment = requireForUpdate(assignmentId);
         ensureMutable(assignment);
         Map<String, Object> before = scheduleSnapshot(assignment);
-        User employee = requireActiveStaff(request.employeeId());
-        WorkShiftRequirement dailyShift = dailyShiftService.requireOpen(
-                request.shiftTemplateId(), request.workDate());
+        boolean movingToAnotherShift = !assignment.getShiftTemplate().getId()
+                .equals(dailyShift.getShiftTemplate().getId())
+                || !assignment.getWorkDate().equals(dailyShift.getWorkDate());
+        if (movingToAnotherShift) {
+            dailyShiftService.ensureAssignmentCapacity(dailyShift);
+        }
         assignment.setEmployee(employee);
         assignment.setUpdatedBy(actor);
         assignment.setNote(trimToNull(request.note()));
@@ -297,7 +305,23 @@ public class WorkScheduleService {
             WorkAttendanceRequest request,
             User currentUser) {
         User actor = requireStaff(currentUser);
+        // Resolve the owning slot without a write lock, then acquire locks in
+        // the canonical order used by daily-shift mutations: daily shift ->
+        // assignment -> attendance session -> cashier shift. The assignment is
+        // revalidated after its lock in case an ADMIN moved it concurrently.
+        WorkScheduleAssignment route = repository.findById(assignmentId)
+                .orElseThrow(() -> new AppException(ErrorCode.WORK_SCHEDULE_NOT_FOUND));
+        WorkShiftRequirement lockedDailyShift = dailyShiftService
+                .lockForAttendanceClosure(
+                        route.getShiftTemplate().getId(), route.getWorkDate());
         WorkScheduleAssignment assignment = requireForUpdate(assignmentId);
+        if (!assignment.getShiftTemplate().getId()
+                .equals(lockedDailyShift.getShiftTemplate().getId())
+                || !assignment.getWorkDate().equals(lockedDailyShift.getWorkDate())) {
+            throw new AppException(
+                    ErrorCode.WORK_SCHEDULE_CANNOT_MODIFY,
+                    "Lịch làm việc vừa được điều chỉnh; vui lòng tải lại trước khi checkout");
+        }
         ensureOwner(actor, assignment);
         WorkShiftSession session = sessionRepository
                 .findByAssignmentIdForUpdate(assignmentId)

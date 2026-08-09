@@ -219,8 +219,8 @@ export default function DashboardFacilitiesPage() {
       if (editingId === deleteTarget.id) resetForm();
       setDeleteTarget(null);
       await fetchFacilities();
-    } catch {
-      showToast("Không thể xóa tiện nghi này", "error");
+    } catch (error) {
+      showToast(getApiErrorMessage(error, "Không thể xóa tiện nghi này"), "error");
     } finally {
       setDeletingId(null);
     }
@@ -520,7 +520,7 @@ export default function DashboardFacilitiesPage() {
           <div className="p-6">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-rose-700">{localize("Thao tác không thể hoàn tác", "Irreversible action")}</p>
             <h2 id="delete-facility-title" className="mt-2 font-serif text-2xl font-bold text-[#0F2A43]">{localize("Xóa tiện nghi?", "Delete facility?")}</h2>
-            <p id="delete-facility-description" className="mt-3 text-sm leading-6 text-[#66727C]">{localize(`Bạn sắp xóa “${deleteTarget.facilityName}”. Hãy kiểm tra các hạng phòng đang sử dụng tiện nghi này trước khi tiếp tục.`, `You are about to delete “${deleteTarget.facilityNameEn || deleteTarget.facilityName}”. Check room types using this facility before continuing.`)}</p>
+            <p id="delete-facility-description" className="mt-3 text-sm leading-6 text-[#66727C]">{localize(`Bạn sắp xóa vĩnh viễn “${deleteTarget.facilityName}”. Chỉ tiện nghi đã được gỡ khỏi tất cả hạng phòng mới có thể xóa; hệ thống không tự gỡ liên kết để tránh thay đổi phòng ngoài ý muốn.`, `You are about to permanently delete “${deleteTarget.facilityNameEn || deleteTarget.facilityName}”. It must first be removed from every room type; the system never detaches it silently.`)}</p>
           </div>
           <footer className="flex flex-col-reverse gap-3 border-t border-[#0F2A43]/10 px-6 py-4 sm:flex-row sm:justify-end">
             <button type="button" disabled={deletingId === deleteTarget.id} onClick={() => setDeleteTarget(null)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43] transition hover:bg-[#F1F0EA] disabled:opacity-50">{localize("Giữ lại", "Keep facility")}</button>

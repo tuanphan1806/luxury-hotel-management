@@ -1,12 +1,18 @@
 package com.hotel.backend.service;
 
 import com.hotel.backend.config.PricingV2Properties;
+import com.hotel.backend.dto.request.RoomTypeRequest;
+import com.hotel.backend.dto.request.RoomTypeStatusRequest;
 import com.hotel.backend.dto.response.RoomTypeResponse;
 import com.hotel.backend.entity.RoomRateProfile;
 import com.hotel.backend.entity.RoomType;
+import com.hotel.backend.exception.AppException;
 import com.hotel.backend.repository.FacilityRepository;
 import com.hotel.backend.repository.ReviewRepository;
 import com.hotel.backend.repository.RoomRateProfileRepository;
+import com.hotel.backend.repository.PricingQuoteLineRepository;
+import com.hotel.backend.repository.ReservationRoomTypeRepository;
+import com.hotel.backend.repository.RoomRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
 import com.hotel.backend.service.Impl.RoomTypeServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,10 +26,13 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +46,10 @@ class RoomTypeServiceImplTest {
     @Mock ReservationAuditService reservationAuditService;
     @Mock RoomRateProfileRepository roomRateProfileRepository;
     @Mock PricingV2Properties pricingV2Properties;
+    @Mock RoomRateProfileManagementService roomRateProfileManagementService;
+    @Mock RoomRepository roomRepository;
+    @Mock ReservationRoomTypeRepository reservationRoomTypeRepository;
+    @Mock PricingQuoteLineRepository pricingQuoteLineRepository;
 
     private RoomTypeServiceImpl service;
 
@@ -49,7 +62,11 @@ class RoomTypeServiceImplTest {
                 mediaAssetService,
                 reservationAuditService,
                 roomRateProfileRepository,
-                pricingV2Properties);
+                pricingV2Properties,
+                roomRateProfileManagementService,
+                roomRepository,
+                reservationRoomTypeRepository,
+                pricingQuoteLineRepository);
     }
 
     /**
@@ -60,7 +77,12 @@ class RoomTypeServiceImplTest {
     void getAllLoadsReviewStatisticsInOneAggregateQuery() {
         RoomType standard = roomType(11L, "Standard");
         RoomType deluxe = roomType(12L, "Deluxe");
-        when(roomTypeRepository.findAllWithFacilities()).thenReturn(List.of(standard, deluxe));
+        when(roomTypeRepository.findAllActiveWithFacilities()).thenReturn(List.of(standard, deluxe));
+        when(roomRateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(11L, 12L)), any(Instant.class)))
+                .thenReturn(List.of(
+                        rate(standard, "70000", "20000", "170000", "300000"),
+                        rate(deluxe, "100000", "25000", "220000", "400000")));
         when(reviewRepository.summarizeByRoomTypeIds(List.of(11L, 12L)))
                 .thenReturn(List.of(summary(11L, 4.26, 7L)));
 
@@ -78,7 +100,7 @@ class RoomTypeServiceImplTest {
     void getAllPublishesTheEffectivePackageRateInOneBatchQuery() {
         RoomType standard = roomType(11L, "STANDARD");
         RoomType deluxe = roomType(12L, "DELUXE");
-        when(roomTypeRepository.findAllWithFacilities())
+        when(roomTypeRepository.findAllActiveWithFacilities())
                 .thenReturn(List.of(standard, deluxe));
         when(reviewRepository.summarizeByRoomTypeIds(List.of(11L, 12L)))
                 .thenReturn(List.of());
@@ -86,6 +108,7 @@ class RoomTypeServiceImplTest {
                 .thenReturn(true);
         when(pricingV2Properties.supportsRoomType("DELUXE"))
                 .thenReturn(true);
+        when(pricingV2Properties.isEngineV2Enabled()).thenReturn(true);
         when(roomRateProfileRepository.findEffectiveByRoomTypeIds(
                 eq(List.of(11L, 12L)), any(Instant.class)))
                 .thenReturn(List.of(
@@ -104,11 +127,124 @@ class RoomTypeServiceImplTest {
                         eq(List.of(11L, 12L)), any(Instant.class));
     }
 
+    @Test
+    void createPersistsTheCompleteVersionedRatePlan() {
+        RoomTypeRequest request = rateRequest();
+        when(roomTypeRepository.saveAndFlush(any(RoomType.class)))
+                .thenAnswer(invocation -> {
+                    RoomType saved = invocation.getArgument(0);
+                    saved.setId(21L);
+                    saved.setCode("CUSTOM_NEW");
+                    return saved;
+                });
+        when(mediaAssetService.replaceReferences(
+                any(), any(), any(), any(), eq(21L), eq(3)))
+                .thenReturn(List.of());
+        when(roomRateProfileManagementService.applyImmediate(
+                any(RoomType.class), eq(request)))
+                .thenAnswer(invocation -> rate(
+                        invocation.getArgument(0),
+                        "70000", "20000", "170000", "300000"));
+
+        RoomTypeResponse response = service.create(request);
+
+        assertEquals(new BigDecimal("70000"), response.getFirstBlockPrice());
+        assertEquals(new BigDecimal("170000"), response.getOvernightPrice());
+        verify(roomRateProfileManagementService).validate(request);
+        verify(roomRateProfileManagementService).applyImmediate(
+                any(RoomType.class), eq(request));
+    }
+
+    @Test
+    void priceRangeUsesThePublishedOvernightRateWhenPricingV2IsEnabled() {
+        RoomType standard = roomType(11L, "STANDARD");
+        RoomType deluxe = roomType(12L, "DELUXE");
+        when(pricingV2Properties.isEngineV2Enabled()).thenReturn(true);
+        when(pricingV2Properties.supportsRoomType("DELUXE")).thenReturn(true);
+        when(roomTypeRepository.findAllActiveWithFacilities())
+                .thenReturn(List.of(standard, deluxe));
+        when(roomRateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(11L, 12L)), any(Instant.class)))
+                .thenReturn(List.of(
+                        rate(standard, "70000", "20000", "170000", "300000"),
+                        rate(deluxe, "100000", "25000", "220000", "400000")));
+        when(reviewRepository.summarizeByRoomTypeIds(List.of(12L)))
+                .thenReturn(List.of());
+
+        List<RoomTypeResponse> result = service.getByPriceRange(
+                new BigDecimal("180000"), new BigDecimal("250000"));
+
+        assertEquals(1, result.size());
+        assertEquals(12L, result.get(0).getId());
+        assertEquals(new BigDecimal("220000"), result.get(0).getOvernightPrice());
+    }
+
+    @Test
+    void deactivatePreservesRoomTypeAndRequiresAReason() {
+        RoomType roomType = roomType(11L, "STANDARD");
+        RoomTypeStatusRequest request = new RoomTypeStatusRequest();
+        request.setActive(false);
+        request.setReason("Ngừng kinh doanh hạng phòng");
+        when(roomTypeRepository.findByIdForUpdate(11L)).thenReturn(java.util.Optional.of(roomType));
+        when(roomTypeRepository.saveAndFlush(roomType)).thenReturn(roomType);
+        when(reviewRepository.summarizeByRoomTypeIds(List.of(11L))).thenReturn(List.of());
+
+        RoomTypeResponse response = service.setActive(11L, request);
+
+        assertFalse(response.getActive());
+        verify(roomTypeRepository).saveAndFlush(roomType);
+        verify(roomTypeRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteRejectsActiveOrHistoricallyUsedRoomType() {
+        RoomType active = roomType(11L, "STANDARD");
+        when(roomTypeRepository.findByIdForUpdate(11L)).thenReturn(java.util.Optional.of(active));
+        assertThrows(AppException.class, () -> service.delete(11L));
+
+        RoomType inactive = roomType(12L, "DELUXE");
+        inactive.setActive(false);
+        when(roomTypeRepository.findByIdForUpdate(12L)).thenReturn(java.util.Optional.of(inactive));
+        when(reservationRoomTypeRepository.countByRoomTypeId(12L)).thenReturn(1L);
+        assertThrows(AppException.class, () -> service.delete(12L));
+
+        verify(roomTypeRepository, never()).delete(any());
+    }
+
+    @Test
+    void deletePermanentlyRemovesOnlyUnusedInactiveRoomType() {
+        RoomType inactive = roomType(12L, "DELUXE");
+        inactive.setActive(false);
+        when(roomTypeRepository.findByIdForUpdate(12L)).thenReturn(java.util.Optional.of(inactive));
+        when(roomRateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(12L)), any(Instant.class))).thenReturn(List.of());
+
+        service.delete(12L);
+
+        verify(roomTypeRepository).delete(inactive);
+        verify(roomTypeRepository).flush();
+        verify(mediaAssetService).releaseReferences(
+                eq(List.of()), any(), eq(12L));
+    }
+
+    private RoomTypeRequest rateRequest() {
+        return RoomTypeRequest.builder()
+                .typeName("Phòng mới")
+                .maxGuests(2)
+                .includedGuests(1)
+                .firstBlockPrice(new BigDecimal("70000"))
+                .extraUnitPrice(new BigDecimal("20000"))
+                .overnightPrice(new BigDecimal("170000"))
+                .dailyPrice(new BigDecimal("300000"))
+                .extraGuestPrice(new BigDecimal("50000"))
+                .build();
+    }
+
     private RoomType roomType(Long id, String name) {
         RoomType roomType = RoomType.builder()
                 .code(name.toUpperCase())
                 .typeName(name)
-                .price(BigDecimal.valueOf(100_000L))
+                .active(true)
                 .maxGuests(2)
                 .build();
         roomType.setId(id);

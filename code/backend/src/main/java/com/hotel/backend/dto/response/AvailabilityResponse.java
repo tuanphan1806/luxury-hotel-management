@@ -18,11 +18,6 @@ public class AvailabilityResponse {
     private String roomTypeNameEn;
     private String description;
     private String descriptionEn;
-    /**
-     * Legacy compatibility field. New clients should use firstBlockPrice and
-     * firstBlockMinutes because Pricing V2 starts with a two-hour block.
-     */
-    private BigDecimal pricePerHour;
     private Integer firstBlockMinutes;
     private BigDecimal firstBlockPrice;
     private BigDecimal estimatedPricePerRoom;

@@ -17,6 +17,7 @@ import {
 } from "@/components/dashboard/DashboardFilterPanel";
 
 type CapacityFilter = "ALL" | "ONE_TWO" | "THREE_FOUR" | "FIVE_PLUS";
+type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
 type RoomTypeSort = "DEFAULT" | "PRICE_ASC" | "PRICE_DESC" | "CAPACITY_DESC";
 
 interface Facility {
@@ -30,16 +31,96 @@ interface Facility {
 
 interface RoomType {
   id: number;
+  code?: string;
   typeName: string;
   typeNameEn?: string;
   description: string;
   descriptionEn?: string;
-  price: number;
+  active: boolean;
+  packagePricingEnabled?: boolean;
+  pricingAvailable?: boolean;
+  includedGuests?: number | null;
+  firstBlockMinutes?: number | null;
+  firstBlockPrice?: number | null;
+  extraUnitMinutes?: number | null;
+  extraUnitPrice?: number | null;
+  overnightPrice?: number | null;
+  dailyPrice?: number | null;
+  extraGuestPrice?: number | null;
   maxGuests: number;
   imageUrl: string;
   imageUrls?: string[];
   facilities: Facility[];
 }
+
+interface RoomTypeFormData {
+  id: number;
+  typeName: string;
+  typeNameEn: string;
+  maxGuests: string;
+  includedGuests: string;
+  firstBlockPrice: string;
+  extraUnitPrice: string;
+  overnightPrice: string;
+  dailyPrice: string;
+  extraGuestPrice: string;
+  imageUrl: string;
+  imageUrls: string[];
+  description: string;
+  descriptionEn: string;
+  facilityIds: number[];
+}
+
+type RateAmountField = "firstBlockPrice" | "extraUnitPrice" | "overnightPrice" | "dailyPrice" | "extraGuestPrice";
+
+const emptyRoomTypeForm = (): RoomTypeFormData => ({
+  id: 0,
+  typeName: "",
+  typeNameEn: "",
+  maxGuests: "2",
+  includedGuests: "1",
+  firstBlockPrice: "",
+  extraUnitPrice: "",
+  overnightPrice: "",
+  dailyPrice: "",
+  extraGuestPrice: "50000",
+  imageUrl: "",
+  imageUrls: ["", "", ""],
+  description: "",
+  descriptionEn: "",
+  facilityIds: [],
+});
+
+const validateRatePlan = (form: RoomTypeFormData) => {
+  const positiveAmounts = [
+    ["Giá 2 giờ đầu", form.firstBlockPrice],
+    ["Giá mỗi giờ thêm", form.extraUnitPrice],
+    ["Giá qua đêm", form.overnightPrice],
+    ["Giá ngày đêm", form.dailyPrice],
+  ] as const;
+  for (const [label, raw] of positiveAmounts) {
+    const amount = Number(raw);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      return `${label} phải là số VND nguyên lớn hơn 0`;
+    }
+  }
+  const extraGuestPrice = Number(form.extraGuestPrice);
+  if (!Number.isSafeInteger(extraGuestPrice) || extraGuestPrice < 0) {
+    return "Phụ thu khách thêm phải là số VND nguyên không âm";
+  }
+  const includedGuests = Number(form.includedGuests);
+  const maxGuests = Number(form.maxGuests);
+  if (!Number.isInteger(includedGuests) || includedGuests < 1 || includedGuests > maxGuests) {
+    return "Số khách đã bao gồm phải từ 1 đến sức chứa tối đa";
+  }
+  if (Number(form.firstBlockPrice) > Number(form.overnightPrice)) {
+    return "Giá 2 giờ đầu không được lớn hơn giá qua đêm";
+  }
+  if (Number(form.overnightPrice) > Number(form.dailyPrice)) {
+    return "Giá qua đêm không được lớn hơn giá ngày đêm";
+  }
+  return null;
+};
 
 const normalizeImageSlots = (imageUrls: string[] | undefined, fallbackImage?: string, maxImages = 3) => {
   const normalized = Array.from(
@@ -62,6 +143,7 @@ export default function RoomTypesManagement() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [capacityFilter, setCapacityFilter] = useState<CapacityFilter>("ALL");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [sortOrder, setSortOrder] = useState<RoomTypeSort>("DEFAULT");
   const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(() => new Set());
   const [isSaving, setIsSaving] = useState(false);
@@ -79,19 +161,10 @@ export default function RoomTypesManagement() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isStatusOpen, setIsStatusOpen] = useState(false);
+  const [statusReason, setStatusReason] = useState("");
 
-  const [formData, setFormData] = useState({
-    id: 0,
-    typeName: "",
-    typeNameEn: "",
-    price: "",
-    maxGuests: "2",
-    imageUrl: "",
-    imageUrls: ["", "", ""] as string[],
-    description: "",
-    descriptionEn: "",
-    facilityIds: [] as number[],
-  });
+  const [formData, setFormData] = useState<RoomTypeFormData>(emptyRoomTypeForm);
 
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -104,7 +177,7 @@ export default function RoomTypesManagement() {
     setIsLoading(true);
     try {
       const [typesRes, facRes] = await Promise.all([
-        cachedGet<{ data?: RoomType[] }>("/api/room-types"),
+        apiClient.get<{ data?: RoomType[] }>(isAdmin ? "/api/room-types/admin" : "/api/room-types"),
         cachedGet("/api/facilities"),
       ]);
 
@@ -117,7 +190,7 @@ export default function RoomTypesManagement() {
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [isAdmin, showToast]);
 
   useEffect(() => {
     fetchData();
@@ -141,31 +214,23 @@ export default function RoomTypesManagement() {
         || (capacityFilter === "ONE_TWO" && capacity >= 1 && capacity <= 2)
         || (capacityFilter === "THREE_FOUR" && capacity >= 3 && capacity <= 4)
         || (capacityFilter === "FIVE_PLUS" && capacity >= 5);
-      return matchesSearch && matchesCapacity;
+      const matchesStatus = statusFilter === "ALL"
+        || (statusFilter === "ACTIVE" && type.active)
+        || (statusFilter === "INACTIVE" && !type.active);
+      return matchesSearch && matchesCapacity && matchesStatus;
     });
 
     if (sortOrder === "DEFAULT") return matched;
     return [...matched].sort((left, right) => {
-      if (sortOrder === "PRICE_ASC") return Number(left.price || 0) - Number(right.price || 0);
-      if (sortOrder === "PRICE_DESC") return Number(right.price || 0) - Number(left.price || 0);
+      if (sortOrder === "PRICE_ASC") return Number(left.overnightPrice || 0) - Number(right.overnightPrice || 0);
+      if (sortOrder === "PRICE_DESC") return Number(right.overnightPrice || 0) - Number(left.overnightPrice || 0);
       return Number(right.maxGuests || 0) - Number(left.maxGuests || 0);
     });
-  }, [capacityFilter, roomTypes, searchQuery, sortOrder]);
+  }, [capacityFilter, roomTypes, searchQuery, sortOrder, statusFilter]);
 
   const openCreateModal = () => {
     setUploadingSlots(new Set());
-    setFormData({
-      id: 0,
-      typeName: "",
-      typeNameEn: "",
-      price: "",
-      maxGuests: "2",
-      imageUrl: "",
-      imageUrls: ["", "", ""],
-      description: "",
-      descriptionEn: "",
-      facilityIds: [],
-    });
+    setFormData(emptyRoomTypeForm());
     setIsCreateOpen(true);
   };
 
@@ -175,8 +240,13 @@ export default function RoomTypesManagement() {
       showToast(localize("Vui lòng đợi ảnh tải xong.", "Please wait for the image upload to finish."), "info");
       return;
     }
-    if (!formData.typeName.trim() || !formData.price || Number(formData.maxGuests) < 1) {
-      showToast("Vui lòng nhập tên room type và base price", "error");
+    if (!formData.typeName.trim() || Number(formData.maxGuests) < 1) {
+      showToast("Vui lòng nhập tên và sức chứa loại phòng", "error");
+      return;
+    }
+    const pricingError = validateRatePlan(formData);
+    if (pricingError) {
+      showToast(pricingError, "error");
       return;
     }
 
@@ -186,8 +256,13 @@ export default function RoomTypesManagement() {
       await apiClient.post("/api/room-types", {
         typeName: formData.typeName,
         typeNameEn: formData.typeNameEn,
-        price: Number(formData.price),
         maxGuests: Number(formData.maxGuests),
+        includedGuests: Number(formData.includedGuests),
+        firstBlockPrice: Number(formData.firstBlockPrice),
+        extraUnitPrice: Number(formData.extraUnitPrice),
+        overnightPrice: Number(formData.overnightPrice),
+        dailyPrice: Number(formData.dailyPrice),
+        extraGuestPrice: Number(formData.extraGuestPrice),
         imageUrl: imageUrls[0] || "",
         imageUrls,
         description: formData.description,
@@ -213,8 +288,13 @@ export default function RoomTypesManagement() {
       id: type.id,
       typeName: type.typeName,
       typeNameEn: type.typeNameEn || "",
-      price: String(type.price),
       maxGuests: String(type.maxGuests || 2),
+      includedGuests: String(type.includedGuests ?? 1),
+      firstBlockPrice: type.firstBlockPrice != null ? String(type.firstBlockPrice) : "",
+      extraUnitPrice: type.extraUnitPrice != null ? String(type.extraUnitPrice) : "",
+      overnightPrice: type.overnightPrice != null ? String(type.overnightPrice) : "",
+      dailyPrice: type.dailyPrice != null ? String(type.dailyPrice) : "",
+      extraGuestPrice: type.extraGuestPrice != null ? String(type.extraGuestPrice) : "50000",
       imageUrl: type.imageUrl || "",
       imageUrls: normalizeImageSlots(type.imageUrls, type.imageUrl),
       description: type.description || "",
@@ -230,8 +310,13 @@ export default function RoomTypesManagement() {
       showToast(localize("Vui lòng đợi ảnh tải xong.", "Please wait for the image upload to finish."), "info");
       return;
     }
-    if (!formData.typeName.trim() || !formData.price || Number(formData.maxGuests) < 1) {
-      showToast("Vui lòng điền đầy đủ thông tin loại phòng và giá", "error");
+    if (!formData.typeName.trim() || Number(formData.maxGuests) < 1) {
+      showToast("Vui lòng điền đầy đủ tên và sức chứa loại phòng", "error");
+      return;
+    }
+    const pricingError = validateRatePlan(formData);
+    if (pricingError) {
+      showToast(pricingError, "error");
       return;
     }
 
@@ -241,8 +326,13 @@ export default function RoomTypesManagement() {
       await apiClient.put(`/api/room-types/${formData.id}`, {
         typeName: formData.typeName,
         typeNameEn: formData.typeNameEn,
-        price: Number(formData.price),
         maxGuests: Number(formData.maxGuests),
+        includedGuests: Number(formData.includedGuests),
+        firstBlockPrice: Number(formData.firstBlockPrice),
+        extraUnitPrice: Number(formData.extraUnitPrice),
+        overnightPrice: Number(formData.overnightPrice),
+        dailyPrice: Number(formData.dailyPrice),
+        extraGuestPrice: Number(formData.extraGuestPrice),
         imageUrl: imageUrls[0] || "",
         imageUrls,
         description: formData.description,
@@ -287,12 +377,118 @@ export default function RoomTypesManagement() {
     setFormData({ ...formData, facilityIds: current });
   };
 
+  const openStatusModal = (type: RoomType) => {
+    setSelectedRoomType(type);
+    setStatusReason("");
+    setIsStatusOpen(true);
+  };
+
+  const handleStatusConfirm = async () => {
+    if (!selectedRoomType || isSaving) return;
+    const nextActive = !selectedRoomType.active;
+    if (!nextActive && !statusReason.trim()) {
+      showToast(localize("Vui lòng nhập lý do ngừng hoạt động.", "Please enter a deactivation reason."), "error");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await apiClient.patch(`/api/room-types/${selectedRoomType.id}/active`, {
+        active: nextActive,
+        reason: statusReason.trim() || undefined,
+      });
+      showToast(nextActive
+        ? localize("Đã kích hoạt lại loại phòng.", "Room type reactivated.")
+        : localize("Đã ngừng cung cấp loại phòng.", "Room type deactivated."), "success");
+      setIsStatusOpen(false);
+      await fetchData();
+    } catch (error: unknown) {
+      showToast(getApiErrorMessage(error, localize("Không thể đổi trạng thái loại phòng.", "Could not change room type status.")), "error");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const renderRatePlanFields = () => {
+    const fields: Array<{
+      key: RateAmountField;
+      labelVi: string;
+      labelEn: string;
+      hintVi: string;
+      hintEn: string;
+      allowZero?: boolean;
+    }> = [
+      { key: "firstBlockPrice", labelVi: "Giá 2 giờ đầu *", labelEn: "First 2 hours *", hintVi: "Mức khởi điểm của gói nghỉ giờ", hintEn: "Hourly package starting rate" },
+      { key: "extraUnitPrice", labelVi: "Mỗi giờ thêm *", labelEn: "Each extra hour *", hintVi: "Tính sau 2 giờ đầu", hintEn: "Applied after the first 2 hours" },
+      { key: "overnightPrice", labelVi: "Giá qua đêm *", labelEn: "Overnight rate *", hintVi: "Mức giá công bố trên thẻ phòng", hintEn: "Published on room cards" },
+      { key: "dailyPrice", labelVi: "Giá ngày đêm *", labelEn: "24-hour rate *", hintVi: "Một chu kỳ lưu trú 24 giờ", hintEn: "One 24-hour stay cycle" },
+      { key: "extraGuestPrice", labelVi: "Phụ thu khách thêm *", labelEn: "Extra guest surcharge *", hintVi: "Theo khách và chu kỳ gói", hintEn: "Per guest and package cycle", allowZero: true },
+    ];
+
+    return (
+      <section className="space-y-4 rounded-2xl border border-[#B8944F]/30 bg-[#F8F6F0] p-4 sm:p-5">
+        <div className="flex flex-col gap-2 border-b border-[#0F2A43]/10 pb-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#947333]">{localize("Cấu hình tài chính", "Financial configuration")}</p>
+            <h4 className="mt-1 font-serif text-xl font-bold text-[#0F2A43]">{localize("Bảng giá giờ · đêm · ngày", "Hourly · overnight · daily rates")}</h4>
+          </div>
+          <p className="max-w-sm text-xs leading-5 text-[#66727C]">
+            {localize(
+              "Thay đổi giá sẽ tạo phiên bản mới. Đơn đã đặt vẫn giữ nguyên bảng giá và số tiền đã chốt.",
+              "A price change creates a new version. Existing bookings keep their committed rates and totals.",
+            )}
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label htmlFor="room-type-included-guests" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#66727C]">
+              {localize("Số khách đã gồm trong giá *", "Guests included in rate *")}
+            </label>
+            <input
+              id="room-type-included-guests"
+              type="number"
+              min="1"
+              max={Math.max(1, Number(formData.maxGuests) || 1)}
+              required
+              value={formData.includedGuests}
+              onChange={(event) => setFormData((current) => ({ ...current, includedGuests: event.target.value }))}
+              className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3.5 text-sm font-semibold outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
+            />
+            <p className="mt-1 text-[11px] text-[#66727C]">{localize("Không vượt sức chứa loại phòng", "Cannot exceed room capacity")}</p>
+          </div>
+
+          {fields.map((field) => (
+            <div key={field.key}>
+              <label htmlFor={`room-type-${field.key}`} className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#66727C]">
+                {localize(field.labelVi, field.labelEn)}
+              </label>
+              <div className="relative">
+                <input
+                  id={`room-type-${field.key}`}
+                  type="number"
+                  min={field.allowZero ? "0" : "1"}
+                  step="1000"
+                  required
+                  value={formData[field.key]}
+                  onChange={(event) => setFormData((current) => ({ ...current, [field.key]: event.target.value }))}
+                  className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3.5 pr-10 text-sm font-semibold tabular-nums outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
+                />
+                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-bold text-[#80632F]">₫</span>
+              </div>
+              <p className="mt-1 text-[11px] text-[#66727C]">{localize(field.hintVi, field.hintEn)}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  };
+
   return (
     <div className="ops-page mx-auto w-full max-w-[1600px] space-y-8 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-[#0F2A43]/5">
         <div>
           <h1 className="font-serif text-3xl md:text-4xl font-bold tracking-tight text-[#0F2A43] leading-tight">{localize("Quản lý loại phòng", "Room type management")}</h1>
-          <p className="text-xs text-[#66727C] mt-1.5 font-bold uppercase tracking-wider">{localize(`${roomTypes.length} loại phòng đã cấu hình tiện nghi và giá cơ bản`, `${roomTypes.length} room types configured with facilities and base prices`)}</p>
+          <p className="text-xs text-[#66727C] mt-1.5 font-bold uppercase tracking-wider">{localize(`${roomTypes.length} loại phòng đã cấu hình tiện nghi và bảng giá`, `${roomTypes.length} room types configured with facilities and rate plans`)}</p>
         </div>
         {isAdmin ? <button
           onClick={openCreateModal}
@@ -305,18 +501,19 @@ export default function RoomTypesManagement() {
       <div className="space-y-6">
         <DashboardFilterPanel
           title={localize("Bộ lọc loại phòng", "Room type filters")}
-          description={localize("Tìm theo tên, mô tả, tiện nghi; lọc sức chứa và sắp xếp mức giá", "Search names, descriptions and facilities; filter capacity and sort pricing")}
+          description={localize("Tìm theo tên, mô tả, tiện nghi; lọc sức chứa và sắp xếp theo giá qua đêm", "Search names, descriptions and facilities; filter capacity and sort by overnight rate")}
           resultCount={filteredRoomTypes.length}
           resultLabel={localize("loại phòng phù hợp", "matching room types")}
           resultNote={sortOrder === "DEFAULT"
             ? localize("theo thứ tự cấu hình", "in configured order")
             : localize("đã áp dụng sắp xếp", "custom sorting applied")}
-          hasActiveFilters={Boolean(searchQuery || capacityFilter !== "ALL" || sortOrder !== "DEFAULT")}
-          activeFilterCount={Number(Boolean(searchQuery)) + Number(capacityFilter !== "ALL") + Number(sortOrder !== "DEFAULT")}
+          hasActiveFilters={Boolean(searchQuery || capacityFilter !== "ALL" || statusFilter !== "ALL" || sortOrder !== "DEFAULT")}
+          activeFilterCount={Number(Boolean(searchQuery)) + Number(capacityFilter !== "ALL") + Number(statusFilter !== "ALL") + Number(sortOrder !== "DEFAULT")}
           activeFilterLabel={localize("điều kiện đang dùng", "active conditions")}
           onReset={() => {
             setSearchQuery("");
             setCapacityFilter("ALL");
+            setStatusFilter("ALL");
             setSortOrder("DEFAULT");
           }}
           resetLabel={localize("Đặt lại tìm kiếm", "Reset search")}
@@ -331,7 +528,7 @@ export default function RoomTypesManagement() {
             </>
           )}
         >
-          <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)]">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_repeat(3,minmax(11rem,1fr))]">
             <DashboardSearchField
               id="room-type-search"
               label={localize("Tìm kiếm", "Search")}
@@ -345,6 +542,11 @@ export default function RoomTypesManagement() {
               <option value="ONE_TWO">{localize("1–2 khách", "1–2 guests")}</option>
               <option value="THREE_FOUR">{localize("3–4 khách", "3–4 guests")}</option>
               <option value="FIVE_PLUS">{localize("Từ 5 khách", "5+ guests")}</option>
+            </DashboardSelectField>
+            <DashboardSelectField id="room-type-status" label={localize("Trạng thái", "Status")} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+              <option value="ALL">{localize("Tất cả trạng thái", "All statuses")}</option>
+              <option value="ACTIVE">{localize("Đang hoạt động", "Active")}</option>
+              <option value="INACTIVE">{localize("Ngừng hoạt động", "Inactive")}</option>
             </DashboardSelectField>
             <DashboardSelectField id="room-type-sort" label={localize("Sắp xếp", "Sort by")} value={sortOrder} onChange={(event) => setSortOrder(event.target.value as RoomTypeSort)}>
               <option value="DEFAULT">{localize("Thứ tự mặc định", "Default order")}</option>
@@ -366,7 +568,7 @@ export default function RoomTypesManagement() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {filteredRoomTypes.map((type) => (
-              <div key={type.id} className="bg-white border border-[#0F2A43]/10 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between hover:border-[#B8944F]/40 transition-all duration-300 group">
+              <div key={type.id} className={`bg-white border rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all duration-300 group ${type.active ? "border-[#0F2A43]/10 hover:border-[#B8944F]/40" : "border-slate-300 opacity-80"}`}>
                 <div className="relative h-48 bg-gray-100 overflow-hidden">
                   {(type.imageUrls?.[0] || type.imageUrl) ? (
                     <Image
@@ -380,7 +582,9 @@ export default function RoomTypesManagement() {
                     <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[#66727C]">{localize("Chưa có ảnh", "No image")}</div>
                   )}
                   <div className="absolute top-4 right-4 bg-[#0F2A43] text-[#B8944F] font-serif font-bold text-lg px-3 py-1.5 rounded-lg shadow-md">
-                    {Number(type.price || 0).toLocaleString(localeTag)} đ <span className="text-[10px] uppercase font-sans font-semibold tracking-wider text-white/70">{localize("cơ bản", "base")}</span>
+                    {type.overnightPrice != null
+                      ? Number(type.overnightPrice).toLocaleString(localeTag)
+                      : "—"} đ <span className="text-[10px] uppercase font-sans font-semibold tracking-wider text-white/70">{localize("qua đêm", "overnight")}</span>
                   </div>
                 </div>
 
@@ -391,6 +595,30 @@ export default function RoomTypesManagement() {
                       {localize(type.description, type.descriptionEn) || localize("Chưa có mô tả.", "No description provided.")}
                     </p>
                   </div>
+                  <span className={`absolute left-4 top-4 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${type.active ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-slate-100 text-slate-600"}`}>
+                    {type.active ? localize("Đang hoạt động", "Active") : localize("Ngừng hoạt động", "Inactive")}
+                  </span>
+
+                  {type.pricingAvailable ? (
+                    <dl className="grid grid-cols-3 gap-2 rounded-xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-3 text-center">
+                      <div>
+                        <dt className="text-[9px] font-bold uppercase tracking-wider text-[#66727C]">{localize("2 giờ đầu", "First 2h")}</dt>
+                        <dd className="mt-1 text-xs font-extrabold tabular-nums text-[#0F2A43]">{Number(type.firstBlockPrice || 0).toLocaleString(localeTag)} đ</dd>
+                      </div>
+                      <div className="border-x border-[#0F2A43]/10 px-1">
+                        <dt className="text-[9px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Qua đêm", "Overnight")}</dt>
+                        <dd className="mt-1 text-xs font-extrabold tabular-nums text-[#80632F]">{Number(type.overnightPrice || 0).toLocaleString(localeTag)} đ</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[9px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Ngày đêm", "24 hours")}</dt>
+                        <dd className="mt-1 text-xs font-extrabold tabular-nums text-[#0F2A43]">{Number(type.dailyPrice || 0).toLocaleString(localeTag)} đ</dd>
+                      </div>
+                    </dl>
+                  ) : (
+                    <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                      {localize("Chưa có bảng giá đang hiệu lực", "No effective rate plan")}
+                    </p>
+                  )}
 
                   {type.facilities && type.facilities.length > 0 && (
                     <div className="space-y-1.5">
@@ -406,7 +634,7 @@ export default function RoomTypesManagement() {
                   )}
                 </div>
 
-                {isAdmin && <div className="px-6 py-4 bg-[#F1F0EA] border-t border-[#0F2A43]/5 flex justify-end gap-3">
+                {isAdmin && <div className="px-6 py-4 bg-[#F1F0EA] border-t border-[#0F2A43]/5 flex flex-wrap justify-end gap-2">
                   <button
                     onClick={() => openEditModal(type)}
                     className="px-4 py-2 border border-gray-200 hover:border-[#B8944F] text-gray-500 hover:text-[#B8944F] text-xs font-bold rounded-lg transition-colors"
@@ -414,11 +642,17 @@ export default function RoomTypesManagement() {
                     {localize("Sửa loại phòng", "Edit type")}
                   </button>
                   <button
+                    onClick={() => openStatusModal(type)}
+                    className={`px-4 py-2 border text-xs font-bold rounded-lg transition-colors ${type.active ? "border-amber-300 text-amber-800 hover:bg-amber-50" : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"}`}
+                  >
+                    {type.active ? localize("Ngừng hoạt động", "Deactivate") : localize("Kích hoạt", "Reactivate")}
+                  </button>
+                  {!type.active && <button
                     onClick={() => openDeleteModal(type)}
                     className="px-4 py-2 border border-red-200 hover:bg-red-50 text-red-600 text-xs font-bold rounded-lg transition-colors"
                   >
-                    {localize("Xóa", "Delete")}
-                  </button>
+                    {localize("Xóa vĩnh viễn", "Delete permanently")}
+                  </button>}
                 </div>}
               </div>
             ))}
@@ -454,20 +688,7 @@ export default function RoomTypesManagement() {
                 <input type="text" value={formData.typeNameEn} onChange={(e) => setFormData({ ...formData, typeNameEn: e.target.value })} className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm" placeholder="e.g. Presidential Suite" />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Giá cơ bản *", "Base price *")}</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
-                    placeholder="e.g. 350"
-                  />
-                </div>
-
+              <div className="max-w-sm">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Sức chứa *", "Capacity *")}</label>
                   <input
@@ -481,8 +702,9 @@ export default function RoomTypesManagement() {
                     aria-label="Sức chứa tối đa mỗi phòng"
                   />
                 </div>
-
               </div>
+
+              {renderRatePlanFields()}
 
               <div className="grid gap-3 rounded-xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-3 lg:grid-cols-3">
                 {formData.imageUrls.map((value, index) => (
@@ -597,19 +819,7 @@ export default function RoomTypesManagement() {
                 <input type="text" value={formData.typeNameEn} onChange={(e) => setFormData({ ...formData, typeNameEn: e.target.value })} className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm" />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Giá cơ bản *", "Base price *")}</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
-                  />
-                </div>
-
+              <div className="max-w-sm">
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Sức chứa *", "Capacity *")}</label>
                   <input
@@ -623,8 +833,9 @@ export default function RoomTypesManagement() {
                     aria-label="Sức chứa tối đa mỗi phòng"
                   />
                 </div>
-
               </div>
+
+              {renderRatePlanFields()}
 
               <div className="grid gap-3 rounded-xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-3 lg:grid-cols-3">
                 {formData.imageUrls.map((value, index) => (
@@ -713,6 +924,58 @@ export default function RoomTypesManagement() {
 
       {isAdmin && selectedRoomType && (
         <ViewportModal
+          open={isStatusOpen}
+          onClose={() => setIsStatusOpen(false)}
+          labelledBy="room-type-status-title"
+          busy={isSaving}
+          panelClassName="max-w-md"
+        >
+          <div className="min-h-0 w-full space-y-5 overflow-y-auto p-6 sm:p-7">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#947333]">{localize("Trạng thái kinh doanh", "Sales status")}</p>
+              <h3 id="room-type-status-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">
+                {selectedRoomType.active
+                  ? localize("Ngừng cung cấp loại phòng", "Deactivate room type")
+                  : localize("Kích hoạt lại loại phòng", "Reactivate room type")}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-[#66727C]">
+                {selectedRoomType.active
+                  ? localize("Loại phòng sẽ ẩn khỏi trang khách và không thể dùng cho báo giá hay đơn mới. Dữ liệu đơn cũ vẫn được giữ nguyên.", "The room type will be hidden from guests and blocked from new quotes or bookings. Historical reservations stay intact.")
+                  : localize("Hệ thống chỉ kích hoạt khi loại phòng có đúng một bảng giá giờ, đêm và ngày đang hiệu lực.", "Reactivation is allowed only when exactly one hourly, overnight and daily rate plan is effective.")}
+              </p>
+            </div>
+            {selectedRoomType.active && (
+              <label className="grid gap-1.5 text-xs font-bold uppercase tracking-wider text-[#66727C]">
+                {localize("Lý do ngừng hoạt động", "Deactivation reason")} *
+                <textarea
+                  data-modal-autofocus
+                  rows={3}
+                  maxLength={500}
+                  value={statusReason}
+                  onChange={(event) => setStatusReason(event.target.value)}
+                  placeholder={localize("Ví dụ: tạm dừng để bảo trì toàn bộ hạng phòng", "For example: temporarily unavailable for maintenance")}
+                  className="resize-none rounded-xl border border-[#0F2A43]/15 px-3.5 py-3 text-sm font-medium normal-case outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/20"
+                />
+              </label>
+            )}
+            <div className="flex justify-end gap-3 border-t border-[#0F2A43]/10 pt-4">
+              <button type="button" disabled={isSaving} onClick={() => setIsStatusOpen(false)} className="min-h-11 rounded-lg border border-[#0F2A43]/15 px-5 text-sm font-semibold text-[#66727C] hover:bg-[#F1F0EA] disabled:opacity-50">
+                {localize("Hủy", "Cancel")}
+              </button>
+              <button type="button" disabled={isSaving} onClick={handleStatusConfirm} className={`min-h-11 rounded-lg px-5 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-55 ${selectedRoomType.active ? "bg-amber-700 hover:bg-amber-800" : "bg-emerald-700 hover:bg-emerald-800"}`}>
+                {isSaving
+                  ? localize("Đang lưu...", "Saving...")
+                  : selectedRoomType.active
+                    ? localize("Xác nhận ngừng", "Confirm deactivation")
+                    : localize("Kích hoạt", "Reactivate")}
+              </button>
+            </div>
+          </div>
+        </ViewportModal>
+      )}
+
+      {isAdmin && selectedRoomType && (
+        <ViewportModal
           open={isDeleteOpen}
           onClose={() => setIsDeleteOpen(false)}
           labelledBy="delete-room-type-title"
@@ -726,7 +989,7 @@ export default function RoomTypesManagement() {
             <div className="space-y-2">
               <h3 id="delete-room-type-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa loại phòng", "Delete room type")}</h3>
               <p className="text-sm text-[#66727C]">
-                {localize("Bạn có chắc muốn xóa", "Are you sure you want to delete")} <strong>{localize(selectedRoomType.typeName, selectedRoomType.typeNameEn)}</strong>? {localize("Thao tác này sẽ xóa vĩnh viễn cấu hình loại phòng.", "This permanently deletes the room type mapping.")}
+                {localize("Bạn có chắc muốn xóa", "Are you sure you want to delete")} <strong>{localize(selectedRoomType.typeName, selectedRoomType.typeNameEn)}</strong>? {localize("Chỉ loại phòng chưa từng có phòng vật lý, đơn đặt, đánh giá hoặc báo giá mới được xóa. Nếu đã phát sinh lịch sử, hệ thống sẽ giữ ở trạng thái ngừng hoạt động.", "Only a room type never used by a physical room, reservation, review or quote can be deleted. Otherwise it remains inactive to preserve history.")}
               </p>
             </div>
             <div className="flex gap-3 pt-2">

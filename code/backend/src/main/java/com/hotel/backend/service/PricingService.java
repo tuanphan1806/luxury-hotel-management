@@ -1,6 +1,5 @@
 package com.hotel.backend.service;
 
-import com.hotel.backend.entity.RoomType;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,10 +30,11 @@ public class PricingService {
         return Math.max(1L, (minutes + 59L) / 60L);
     }
 
-    public BigDecimal calculateStayPricePerRoom(RoomType roomType, LocalDateTime checkIn, LocalDateTime checkOut) {
-        return calculatePricePerRoom(roomType.getPrice(), billableHours(checkIn, checkOut));
-    }
-
+    /**
+     * Compatibility calculator for immutable prices already snapshotted on a
+     * historical reservation. New sales must obtain rates from
+     * room_rate_profiles through PricingEngine.
+     */
     public BigDecimal calculatePricePerRoom(BigDecimal firstHourPrice, long hours) {
         return firstHourPrice.add(extraHourFee.multiply(BigDecimal.valueOf(Math.max(0L, hours - 1L))));
     }

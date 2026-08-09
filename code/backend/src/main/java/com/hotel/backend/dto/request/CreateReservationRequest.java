@@ -46,8 +46,10 @@ public class CreateReservationRequest {
     private List<ServiceOrderRequest> services = List.of();
 
     /**
-     * Optional for compatibility. New Pricing V2 clients send both fields;
-     * legacy clients omit both and keep the existing LEGACY_V1 calculation.
+     * Required by production clients. A compatibility environment may omit
+     * both quote fields only when PRICING_ENGINE_V2_REQUIRE_QUOTE=false; in
+     * that case the server still prices from the effective versioned rate
+     * profile and never from a catalogue fallback.
      */
     private UUID quoteId;
 

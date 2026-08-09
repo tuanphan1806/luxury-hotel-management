@@ -16,14 +16,10 @@ public class RoomTypeResponse {
     private String typeNameEn;
     private String description;
     private String descriptionEn;
-    private BigDecimal price;
-    /**
-     * Read-only public tariff summary. The legacy price field remains for
-     * compatibility; package-aware clients should use these fields whenever
-     * packagePricingEnabled and pricingAvailable are both true.
-     */
+    /** Read-only summary of the currently effective versioned rate profile. */
     private Boolean packagePricingEnabled;
     private Boolean pricingAvailable;
+    private Boolean active;
     private Integer includedGuests;
     private Integer firstBlockMinutes;
     private BigDecimal firstBlockPrice;

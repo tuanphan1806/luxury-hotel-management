@@ -66,6 +66,12 @@ public class PricingQuoteService {
             if (roomType == null) {
                 throw new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND);
             }
+            if (!Boolean.TRUE.equals(roomType.getActive())) {
+                throw new AppException(
+                        ErrorCode.ROOM_TYPE_INACTIVE,
+                        "Hạng phòng " + roomType.getTypeName()
+                                + " đang ngừng hoạt động");
+            }
             if (!properties.supportsRoomType(roomType.getCode())) {
                 throw new AppException(
                         ErrorCode.PRICING_ENGINE_DISABLED,

@@ -192,6 +192,7 @@ export interface WorkDailyShiftBulkPreviewItem {
   startTime: string;
   endTime: string;
   action: "CREATE" | "SKIP_EXISTING";
+  existingStatus?: WorkDailyShiftStatus | null;
   reason?: string | null;
 }
 

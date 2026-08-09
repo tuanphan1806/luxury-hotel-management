@@ -38,7 +38,7 @@ export default function DeleteGuestModal({ isOpen, onClose, user, onConfirm }: D
       await onConfirm();
       onClose();
     } catch (err: unknown) {
-      setErrorMsg(getApiErrorMessage(err, "Không thể xóa người dùng."));
+      setErrorMsg(getApiErrorMessage(err, localize("Không thể vô hiệu hóa tài khoản.", "Could not deactivate the account.")));
     } finally {
       setIsSubmitting(false);
     }
@@ -73,9 +73,9 @@ export default function DeleteGuestModal({ isOpen, onClose, user, onConfirm }: D
         </div>
 
         <div className="space-y-2">
-          <h3 id="delete-user-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa người dùng", "Delete user")}</h3>
+          <h3 id="delete-user-title" className="text-xl font-bold text-[#0F2A43]">{localize("Vô hiệu hóa tài khoản", "Deactivate account")}</h3>
           <p id="delete-user-description" className="text-sm text-[#66727C] leading-relaxed">
-            {localize("Bạn có chắc chắn muốn xóa người dùng", "Are you sure you want to delete user")} <strong>{user.fullName}</strong>? {localize("Hành động này không thể hoàn tác.", "This action cannot be undone.")}
+            {localize("Tài khoản", "Account")} <strong>{user.fullName}</strong> {localize("sẽ bị khóa đăng nhập và mọi phiên hiện tại sẽ bị thu hồi. Dữ liệu vận hành vẫn được giữ để đối chiếu và có thể kích hoạt lại sau.", "will be blocked from signing in and all current sessions will be revoked. Operational history is retained and the account can be reactivated later.")}
           </p>
         </div>
 
@@ -92,11 +92,11 @@ export default function DeleteGuestModal({ isOpen, onClose, user, onConfirm }: D
           <Button
             variant="danger"
             loading={isSubmitting}
-            loadingLabel={localize("Đang xóa...", "Deleting...")}
+            loadingLabel={localize("Đang vô hiệu hóa...", "Deactivating...")}
             onClick={() => void handleConfirm()}
             className="flex-1 uppercase"
           >
-            {localize("Xóa", "Delete")}
+            {localize("Vô hiệu hóa", "Deactivate")}
           </Button>
         </div>
       </div>

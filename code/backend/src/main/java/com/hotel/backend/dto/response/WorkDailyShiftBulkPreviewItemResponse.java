@@ -1,5 +1,6 @@
 package com.hotel.backend.dto.response;
 
+import com.hotel.backend.constant.WorkDailyShiftStatus;
 import java.time.LocalDate;
 
 public record WorkDailyShiftBulkPreviewItemResponse(
@@ -9,5 +10,6 @@ public record WorkDailyShiftBulkPreviewItemResponse(
         String startTime,
         String endTime,
         String action,
+        WorkDailyShiftStatus existingStatus,
 String reason) {
 }
