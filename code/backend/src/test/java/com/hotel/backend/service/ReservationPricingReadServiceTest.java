@@ -211,6 +211,7 @@ class ReservationPricingReadServiceTest {
                         money("70000"),
                         money("90000"),
                         money("50000"),
+                        money("0"),
                         money("20000"),
                         money("70000"),
                         StayPackage.OVERNIGHT,

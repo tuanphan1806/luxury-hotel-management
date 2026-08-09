@@ -90,7 +90,9 @@ public class RoomCatalogController {
         return ResponseEntity.ok(roomCatalog.search(keyword, status, cleaningStatus));
     }
 
-    @Operation(summary = "Delete Room", description = "API delete room by id")
+    @Operation(
+            summary = "Delete an unused room",
+            description = "Permanently deletes only a room with no reservation or maintenance history")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {

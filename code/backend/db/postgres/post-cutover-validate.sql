@@ -142,8 +142,6 @@ ALTER TABLE room_rate_profiles
     VALIDATE CONSTRAINT chk_room_rate_profile_whole_vnd;
 ALTER TABLE service_catalog
     VALIDATE CONSTRAINT chk_service_catalog_whole_vnd;
-ALTER TABLE room_types
-    VALIDATE CONSTRAINT chk_room_types_price_whole_vnd;
 ALTER TABLE reservation_room_types
     VALIDATE CONSTRAINT chk_rrt_minimum_one_guest_per_room;
 ALTER TABLE pricing_quote_lines

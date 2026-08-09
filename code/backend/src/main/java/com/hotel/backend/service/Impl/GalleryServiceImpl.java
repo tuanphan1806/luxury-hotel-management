@@ -161,12 +161,16 @@ public class GalleryServiceImpl implements GalleryService {
         Gallery gallery = findOrThrow(id);
         Map<String, Object> oldValue = gallerySnapshot(gallery);
 
+        String imageUrl = gallery.getImageUrl();
+        galleryRepository.delete(gallery);
+        galleryRepository.flush();
+
+        // Chỉ giải phóng media sau khi database xác nhận xóa thành công. Nếu
+        // constraint hoặc transaction thất bại, ảnh vẫn còn để bản ghi cũ sử dụng.
         mediaAssetService.releaseReference(
-                gallery.getImageUrl(),
+                imageUrl,
                 MediaAssetOwnerType.GALLERY,
                 gallery.getId());
-
-        galleryRepository.delete(gallery);
         auditGallery(gallery, ReservationAuditAction.GALLERY_DELETED,
                 "Xóa ảnh thư viện", oldValue, null);
 

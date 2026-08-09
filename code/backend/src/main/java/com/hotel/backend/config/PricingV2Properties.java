@@ -16,7 +16,12 @@ import java.util.stream.Collectors;
 @ConfigurationProperties(prefix = "hotel.pricing")
 public class PricingV2Properties {
 
-    private boolean engineV2Enabled = false;
+    /**
+     * V36 removed the legacy room_types.price source. A fresh/local runtime
+     * therefore has to use versioned rate profiles unless an operator
+     * deliberately activates the emergency sales stop.
+     */
+    private boolean engineV2Enabled = true;
     private String engineV2RoomTypeCodes = "";
     private boolean engineV2RequireQuote = false;
     private int quoteTtlMinutes = 15;
@@ -28,6 +33,7 @@ public class PricingV2Properties {
         }
         Set<String> canaryCodes = canaryRoomTypeCodes();
         return canaryCodes.isEmpty()
+                || canaryCodes.contains("*")
                 || canaryCodes.contains(roomTypeCode.trim().toUpperCase(Locale.ROOT));
     }
 

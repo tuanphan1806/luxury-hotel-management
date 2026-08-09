@@ -71,7 +71,7 @@ class ChatBotServiceTest {
     }
 
     @Test
-    void availabilityAnswerPrefersServerPricingEstimateOverLegacyHourlyRate() throws Exception {
+    void availabilityAnswerUsesTheServerPricingEstimate() throws Exception {
         Method formatAvailabilityAnswer = ChatBotService.class.getDeclaredMethod(
                 "formatAvailabilityAnswer",
                 String.class,
@@ -86,7 +86,6 @@ class ChatBotServiceTest {
                 .roomTypeName("Phòng Deluxe")
                 .availableRooms(2)
                 .totalRooms(3)
-                .pricePerHour(new BigDecimal("100000"))
                 .estimatedPricePerRoom(new BigDecimal("220000"))
                 .estimatedPackage(StayPackage.OVERNIGHT)
                 .build();
@@ -118,7 +117,7 @@ class ChatBotServiceTest {
                 .id(1L)
                 .typeName("Phòng tiêu chuẩn")
                 .description("Phù hợp cho kỳ nghỉ gọn nhẹ")
-                .price(new BigDecimal("70000"))
+                .firstBlockPrice(new BigDecimal("70000"))
                 .overnightPrice(new BigDecimal("170000"))
                 .dailyPrice(new BigDecimal("300000"))
                 .build();

@@ -7,6 +7,8 @@ import com.hotel.backend.constant.ReservationAuditAction;
 import com.hotel.backend.constant.UploadFolder;
 import com.hotel.backend.entity.Facility;
 import com.hotel.backend.exception.DuplicateResourceException;
+import com.hotel.backend.exception.AppException;
+import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.exception.ResourceNotFoundException;
 import com.hotel.backend.repository.FacilityRepository;
 import com.hotel.backend.service.FacilityService;
@@ -150,18 +152,25 @@ public class FacilityServiceImpl implements FacilityService {
     @Transactional
     public void delete(Long id) {
         log.info("Xóa facility id={}", id);
-        Facility facility = findOrThrow(id);
+        Facility facility = facilityRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Facility", id));
         Map<String, Object> oldValue = facilitySnapshot(facility);
+        int roomTypeCount = facility.getRoomTypes().size();
+        if (roomTypeCount > 0) {
+            throw new AppException(
+                    ErrorCode.FACILITY_CANNOT_DELETE,
+                    "Tiện nghi đang được " + roomTypeCount
+                            + " hạng phòng sử dụng; hãy gỡ khỏi các hạng phòng trước khi xóa");
+        }
+
+        List<String> images = currentImages(facility);
+        facilityRepository.delete(facility);
+        facilityRepository.flush();
 
         mediaAssetService.releaseReferences(
-                currentImages(facility),
+                images,
                 MediaAssetOwnerType.FACILITY,
                 facility.getId());
-
-        // Detach khỏi tất cả room types để tránh lỗi FK khi xóa
-        facility.getRoomTypes().forEach(rt -> rt.getFacilities().remove(facility));
-
-        facilityRepository.delete(facility);
         auditFacility(facility, ReservationAuditAction.FACILITY_DELETED,
                 "Xóa tiện nghi", oldValue, null);
         log.info("Đã xóa facility id={}", id);

@@ -30,7 +30,6 @@ interface BookingData {
   roomName: string;
   size: string;
   image: string;
-  pricePerHour: number;
   totalHours: number;
   checkInDate: string;
   checkOutDate: string;
@@ -40,7 +39,6 @@ interface BookingData {
     roomTypeId: number;
     roomName: string;
     quantity: number;
-    pricePerHour: number;
     maxGuestsPerRoom: number;
   }>;
 }
@@ -113,13 +111,12 @@ interface PricingQuoteRequestPayload {
   }>;
 }
 
-type PricingQuoteMode = "checking" | "v2" | "legacy" | "error";
+type PricingQuoteMode = "checking" | "v2" | "error";
 
 interface BookingRoomType {
   id: number;
   typeName?: string;
   typeNameEn?: string;
-  price?: number;
   maxGuests?: number;
   imageUrl?: string;
   size?: string;
@@ -229,8 +226,8 @@ function BookingFormContent() {
   const [timeLeft, setTimeLeft] = useState(300); // QR giữ phòng tối đa 5 phút
 
   useEffect(() => {
-    // Load the legacy first-hour price. Pricing V2 replaces this display with
-    // the authoritative quote as soon as the selected room codes are enabled.
+    // Catalog data supplies presentation and capacity only. The authoritative
+    // monetary amount always comes from the versioned pricing quote endpoint.
     const requestedRooms = roomTypesParam
       ? roomTypesParam.split(",").map((item) => {
           const [id, quantity] = item.split(":").map(Number);
@@ -286,7 +283,6 @@ function BookingFormContent() {
           roomTypeId: requested.id,
           roomName: localize(roomType?.typeName, roomType?.typeNameEn),
           quantity: requested.quantity,
-          pricePerHour: Number(roomType?.price || 0),
           maxGuestsPerRoom: normalizeGuestCapacity(roomType?.maxGuests),
         }));
         if (selectedRooms.length > 0) {
@@ -297,7 +293,6 @@ function BookingFormContent() {
             roomName: selectedRooms.map((room) => `${room.quantity} × ${room.roomName}`).join(", "),
             size: match.size || "",
             image: match.imageUrl || "",
-            pricePerHour: Number(match.price || 0),
             totalHours,
             checkInDate: checkIn,
             checkOutDate: checkOut,
@@ -396,12 +391,6 @@ function BookingFormContent() {
         })
         .catch((error: unknown) => {
           if (!active) return;
-          if (getApiErrorCode(error) === 5080) {
-            setPricingQuote(null);
-            setPricingQuoteMode("legacy");
-            setPricingQuoteError("");
-            return;
-          }
           setPricingQuote(null);
           setPricingQuoteMode("error");
           setPricingQuoteError(getApiErrorMessage(
@@ -435,10 +424,6 @@ function BookingFormContent() {
   if (!bookingData) return null;
 
   // Math calculations
-  const legacyRoomTotal = bookingData.selectedRooms.reduce(
-    (sum, room) => sum + (room.pricePerHour + Math.max(0, bookingData.totalHours - 1) * 10_000) * room.quantity,
-    0
-  );
   const stayNights = chargeableNights(bookingData.checkInDate, bookingData.checkOutDate);
   const declaredGuestCount = Number(bookingData.adultsCount || 0) + Number(bookingData.childrenCount || 0);
   const hasAuthoritativeQuote = pricingQuoteMode === "v2" && pricingQuote != null;
@@ -461,19 +446,16 @@ function BookingFormContent() {
         ),
       };
     });
-  const addOnTotal = selectedAddOns.reduce((sum, item) => sum + item.total, 0);
   const authoritativeServiceTotals = Object.fromEntries(
     [...quotedServicesById.values()].map((line) => [
       line.serviceId,
       line.totalPrice,
     ]),
   );
-  const roomTotal = hasAuthoritativeQuote ? pricingQuote.roomCharge : legacyRoomTotal;
+  const roomTotal = hasAuthoritativeQuote ? pricingQuote.roomCharge : 0;
   const extraGuestTotal = hasAuthoritativeQuote ? pricingQuote.extraGuestCharge : 0;
-  const displayedAddOnTotal = hasAuthoritativeQuote ? pricingQuote.serviceCharge : addOnTotal;
-  const total = hasAuthoritativeQuote
-    ? pricingQuote.totalAmount
-    : legacyRoomTotal + addOnTotal;
+  const displayedAddOnTotal = hasAuthoritativeQuote ? pricingQuote.serviceCharge : 0;
+  const total = hasAuthoritativeQuote ? pricingQuote.totalAmount : 0;
   const deposit50 = Math.ceil(total * 0.5);
   const amountDueNow = paymentPlan === "PREPAY_100" ? total : deposit50;
   const selectedRoomCount = bookingData.selectedRooms.reduce((sum, room) => sum + room.quantity, 0);
@@ -549,6 +531,12 @@ function BookingFormContent() {
         "The authoritative price could not be checked. Please try again.",
       );
     }
+    if (!pendingReservation && (!pricingQuote || pricingQuoteMode !== "v2")) {
+      return localize(
+        "Chưa có báo giá hợp lệ cho kỳ lưu trú này. Vui lòng thử kiểm tra lại.",
+        "There is no valid quote for this stay. Please retry the price check.",
+      );
+    }
     if (name.trim().length < 2 || name.trim().length > 100) {
       return localize("Họ và tên phải từ 2–100 ký tự.", "Full name must contain 2–100 characters.");
     }
@@ -617,24 +605,14 @@ function BookingFormContent() {
             "The quote was refreshed. Review the amount and confirm again.",
           ));
         } catch (error: unknown) {
-          if (getApiErrorCode(error) === 5080) {
-            setPricingQuote(null);
-            setPricingQuoteMode("legacy");
-            setPricingQuoteError("");
-            setPaymentError(localize(
-              "Hạng phòng này đang dùng bảng giá tương thích. Vui lòng kiểm tra số tiền và xác nhận lại.",
-              "This room uses compatibility pricing. Review the amount and confirm again.",
-            ));
-          } else {
-            setPricingQuote(null);
-            setPricingQuoteMode("error");
-            const message = getApiErrorMessage(
-              error,
-              localize("Không thể làm mới báo giá.", "The quote could not be refreshed."),
-            );
-            setPricingQuoteError(message);
-            setPaymentError(message);
-          }
+          setPricingQuote(null);
+          setPricingQuoteMode("error");
+          const message = getApiErrorMessage(
+            error,
+            localize("Không thể làm mới báo giá.", "The quote could not be refreshed."),
+          );
+          setPricingQuoteError(message);
+          setPaymentError(message);
         } finally {
           setIsSubmitting(false);
         }
@@ -653,21 +631,14 @@ function BookingFormContent() {
       let reservation = pendingReservation;
       if (!reservation) {
         const reservationClient = isGuestBooking ? publicApiClient : apiClient;
-        const activeQuote = pricingQuoteMode === "v2" ? pricingQuote : null;
-        const legacyScope = [
-          checkInDateTime,
-          checkOutDateTime,
-          paymentPlan,
-          bookingData.selectedRooms
-            .map((room) => `${room.roomTypeId}:${room.quantity}`)
-            .join(","),
-          selectedAddOns
-            .map(({ service, selection }) => `${service.id}:${selection.quantity}`)
-            .join(","),
-        ].join("|");
-        reservationCreateScope = activeQuote
-          ? `reservation:create:booking:${activeQuote.quoteId}`
-          : `reservation:create:booking:legacy:${legacyScope}`;
+        if (pricingQuoteMode !== "v2" || !pricingQuote) {
+          throw new Error(localize(
+            "Báo giá không còn hợp lệ. Vui lòng kiểm tra lại trước khi đặt phòng.",
+            "The quote is no longer valid. Refresh it before booking.",
+          ));
+        }
+        const activeQuote = pricingQuote;
+        reservationCreateScope = `reservation:create:booking:${activeQuote.quoteId}`;
         const createResResponse = await reservationClient.post("/api/reservations", {
           checkIn: checkInDateTime,
           checkOut: checkOutDateTime,
@@ -683,21 +654,15 @@ function BookingFormContent() {
           roomTypes: bookingData.selectedRooms.map((room) => ({
             roomTypeId: room.roomTypeId,
             quantity: room.quantity,
-            ...(activeQuote
-              ? { lineGuestCount: lineGuestCounts[room.roomTypeId] }
-              : {}),
+            lineGuestCount: lineGuestCounts[room.roomTypeId],
           })),
           services: selectedAddOns.map(({ service, selection }) => ({
             serviceId: service.id,
             quantity: selection.quantity,
             notes: selection.notes.trim() || undefined,
           })),
-          ...(activeQuote
-            ? {
-                quoteId: activeQuote.quoteId,
-                quoteHash: activeQuote.quoteHash,
-              }
-            : {}),
+          quoteId: activeQuote.quoteId,
+          quoteHash: activeQuote.quoteHash,
         }, {
           headers: {
             "Idempotency-Key": getOrCreateIdempotencyKey(reservationCreateScope),
@@ -784,24 +749,14 @@ function BookingFormContent() {
                 "The quote or policy version was refreshed; the total is unchanged. Confirm again.",
               ));
         } catch (refreshError: unknown) {
-          if (getApiErrorCode(refreshError) === 5080) {
-            setPricingQuote(null);
-            setPricingQuoteMode("legacy");
-            setPricingQuoteError("");
-            setPaymentError(localize(
-              "Bảng giá mới vừa được tắt. Giá tương thích đã được khôi phục; vui lòng xác nhận lại.",
-              "The new price table was disabled. Compatibility pricing is restored; confirm again.",
-            ));
-          } else {
-            const refreshMessage = getApiErrorMessage(
-              refreshError,
-              localize("Không thể cập nhật lại báo giá.", "The quote could not be refreshed."),
-            );
-            setPricingQuote(null);
-            setPricingQuoteMode("error");
-            setPricingQuoteError(refreshMessage);
-            setPaymentError(refreshMessage);
-          }
+          const refreshMessage = getApiErrorMessage(
+            refreshError,
+            localize("Không thể cập nhật lại báo giá.", "The quote could not be refreshed."),
+          );
+          setPricingQuote(null);
+          setPricingQuoteMode("error");
+          setPricingQuoteError(refreshMessage);
+          setPaymentError(refreshMessage);
         }
         return;
       }
@@ -1290,19 +1245,7 @@ function BookingFormContent() {
                       roomCharge: line.roomCharge,
                       extraGuestCharge: line.extraGuestCharge,
                     }))
-                  : bookingData.selectedRooms.map((room) => {
-                       const unitPrice = room.pricePerHour
-                         + Math.max(0, bookingData.totalHours - 1) * 10_000;
-                      return {
-                        roomTypeId: room.roomTypeId,
-                        roomTypeName: room.roomName,
-                        quantity: room.quantity,
-                        packageName: localize(`${bookingData.totalHours} giờ`, `${bookingData.totalHours} hours`),
-                        unitPrice,
-                        roomCharge: unitPrice * room.quantity,
-                        extraGuestCharge: 0,
-                      };
-                    })
+                  : []
                 ).map((line) => (
                   <div key={line.roomTypeId} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 text-xs">
                     <div className="min-w-0">
@@ -1430,11 +1373,6 @@ function BookingFormContent() {
                   )}
                 </div>
               )}
-              {pricingQuoteMode === "legacy" && (
-                <p className="rounded-lg border border-[#0F2A43]/10 bg-[#E5E9ED] px-3 py-2 text-xs font-semibold text-[#0F2A43]">
-                  {localize("Đang áp dụng bảng giá tương thích hiện hành.", "Current compatibility pricing is applied.")}
-                </p>
-              )}
               {pricingQuoteMode === "error" && !pendingReservation && (
                 <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">
                   <p>{pricingQuoteError}</p>
@@ -1457,7 +1395,7 @@ function BookingFormContent() {
                 <span>
                   {hasAuthoritativeQuote
                     ? localize(`Giá phòng · ${displayedPackageLabel}`, `Room charge · ${displayedPackageLabel}`)
-                    : localize(`Giá phòng (${bookingData.totalHours} giờ)`, `Room charge (${bookingData.totalHours} hours)`)}
+                    : localize("Giá phòng", "Room charge")}
                 </span>
                 <span>{formatVND(roomTotal)}</span>
               </div>

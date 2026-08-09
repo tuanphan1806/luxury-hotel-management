@@ -31,9 +31,6 @@ interface AvailabilityRoomOption {
   descriptionEn?: string;
   imageUrl?: string;
   imageUrls?: string[];
-  price?: number;
-  pricePerNight?: number;
-  pricePerHour?: number;
   firstBlockMinutes?: number;
   firstBlockPrice?: number;
   overnightPrice?: number;
@@ -84,8 +81,6 @@ const mapAvailabilityOptions = (
         room.imageUrl || catalogRoom?.imageUrl,
         room.imageUrls?.length ? room.imageUrls : catalogRoom?.imageUrls,
       ),
-      price: room.estimatedPricePerRoom ?? room.price ?? room.pricePerNight ?? room.pricePerHour,
-      pricePerHour: room.pricePerHour,
       firstBlockMinutes: room.firstBlockMinutes,
       firstBlockPrice: room.firstBlockPrice,
       overnightPrice: room.overnightPrice ?? catalogRoom?.overnightPrice,
@@ -239,7 +234,7 @@ export default function ReservationPage() {
   );
   const selectedEstimatedRoomTotal = useMemo(
     () => selectedRoomBreakdown.reduce(
-      (sum, { room, quantity }) => sum + Number(room.estimatedPricePerRoom ?? room.price ?? 0) * quantity,
+      (sum, { room, quantity }) => sum + Number(room.estimatedPricePerRoom ?? 0) * quantity,
       0,
     ),
     [selectedRoomBreakdown],

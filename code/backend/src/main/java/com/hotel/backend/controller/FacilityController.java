@@ -84,7 +84,9 @@ public class FacilityController {
         return ResponseEntity.ok(ApiResponse.success("Cập nhật tiện nghi thành công", updated));
     }
 
-    @Operation(summary = "Delete Facility", description = "API delete facility by id")
+    @Operation(
+            summary = "Delete an unused facility",
+            description = "Permanently deletes only a facility that is no longer assigned to any room type")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {

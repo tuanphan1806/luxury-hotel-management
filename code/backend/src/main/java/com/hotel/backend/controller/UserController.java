@@ -127,7 +127,7 @@ public class UserController {
         return ResponseEntity.ok(result);
     }
 
-    @Operation(summary = "Delete User", description = "API delete user to database")
+    @Operation(summary = "Deactivate user", description = "Invalidate sessions and mark the user INACTIVE without deleting history")
     @DeleteMapping("/{userId}")
     @PreAuthorize("hasRole('ADMIN')")
     public Map<String,Object> deleteUser(@PathVariable @Min(value = 1 , message = "user id must be equal or greater than 1") Long userId){
@@ -135,7 +135,7 @@ public class UserController {
         userService.delete(userId);
         Map<String,Object>result=new LinkedHashMap<>();
         result.put("status", HttpStatus.RESET_CONTENT.value());
-        result.put("message","User deleted successfully");
+        result.put("message","User deactivated successfully");
         result.put("data","");
         return result;
     }

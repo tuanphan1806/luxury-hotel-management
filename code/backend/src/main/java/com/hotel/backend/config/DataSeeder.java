@@ -300,7 +300,6 @@ public class DataSeeder implements CommandLineRunner {
                 "Phòng tiêu chuẩn", "Standard",
                 "Phòng Standard tiện nghi đầy đủ, phù hợp cho cặp đôi hoặc du khách đơn lẻ.",
                 "A well-equipped standard room, ideal for couples or solo travellers.",
-                new BigDecimal("50000"),
                 List.of(
                         staticUrl("/room_types/room-standard-main.webp"),
                         staticUrl("/room_types/7.jpg"),
@@ -319,7 +318,6 @@ public class DataSeeder implements CommandLineRunner {
                 "Phòng Deluxe", "Deluxe",
                 "Phòng Deluxe rộng rãi với ban công view thành phố, nội thất sang trọng.",
                 "A spacious deluxe room with a city-view balcony and refined interiors.",
-                new BigDecimal("60000"),
                 List.of(
                         staticUrl("/room_types/room-deluxe-detail.webp"),
                         staticUrl("/room_types/9.jpg"),
@@ -339,7 +337,6 @@ public class DataSeeder implements CommandLineRunner {
                 "Phòng Executive", "Executive Room",
                 "Phòng Executive dành cho khách công tác, có khu vực làm việc riêng, cửa sổ lớn và không gian thư giãn chỉn chu.",
                 "An executive room for business travellers with a dedicated workspace, large windows and a refined relaxation area.",
-                new BigDecimal("65000"),
                 List.of(
                         staticUrl("/room_types/room-executive-main.webp"),
                         staticUrl("/room_types/room-executive-work.webp"),
@@ -359,7 +356,6 @@ public class DataSeeder implements CommandLineRunner {
                 "Phòng Suite", "Suite",
                 "Phòng Suite cao cấp với phòng khách riêng, bồn tắm jacuzzi và dịch vụ butler.",
                 "A premium suite with a separate living room, jacuzzi and butler service.",
-                new BigDecimal("70000"),
                 List.of(
                         staticUrl("/room_types/room-suite-detail.webp"),
                         staticUrl("/room_types/12.jpg"),
@@ -381,7 +377,6 @@ public class DataSeeder implements CommandLineRunner {
                 "Phòng gia đình", "Family Room",
                 "Phòng Family rộng lớn thiết kế cho gia đình, có 2 phòng ngủ và bếp nhỏ.",
                 "A spacious family room with two bedrooms and a kitchenette.",
-                new BigDecimal("80000"),
                 List.of(
                         staticUrl("/room_types/room-family-detail.webp"),
                         staticUrl("/room_types/11.jpg"),
@@ -402,7 +397,6 @@ public class DataSeeder implements CommandLineRunner {
                 "Phòng Tổng thống", "Presidential Suite",
                 "Presidential Suite sang trọng bậc nhất với tầm nhìn panoramic 360 độ.",
                 "Our most luxurious presidential suite with panoramic 360-degree views.",
-                new BigDecimal("90000"),
                 List.of(
                         staticUrl("/room_types/room-presidential-detail.webp"),
                         staticUrl("/room_types/13.jpg"),
@@ -425,7 +419,7 @@ public class DataSeeder implements CommandLineRunner {
 
     private RoomType seedRoomType(String code, int maxGuests,
                                   String name, String nameEn, String desc, String descEn,
-                                  BigDecimal price, List<String> imageUrls, Set<Facility> facilities) {
+                                  List<String> imageUrls, Set<Facility> facilities) {
         RoomType rt = roomTypeRepository.findByCode(code)
                 .or(() -> roomTypeRepository.findByTypeName(name))
                 .or(() -> roomTypeRepository.findByTypeName(nameEn))
@@ -441,7 +435,6 @@ public class DataSeeder implements CommandLineRunner {
         rt.setTypeNameEn(nameEn);
         rt.setDescription(desc);
         rt.setDescriptionEn(descEn);
-        rt.setPrice(price);
         rt.setMaxGuests(maxGuests);
         rt.setImageUrls(new ArrayList<>(imageUrls));
         rt.setImageUrl(imageUrls.isEmpty() ? null : imageUrls.get(0));
@@ -471,6 +464,7 @@ public class DataSeeder implements CommandLineRunner {
                                     .overnightEarlyMorningEnd(
                                             LocalTime.of(8, 0))
                                     .earlyMorningOvernightMinimumMinutes(120)
+                                    .overnightRefundLockTime(LocalTime.of(23, 0))
                                     .overnightHardCheckoutTime(LocalTime.NOON)
                                     .overnightMaximumMinutes(720)
                                     .dailyThresholdMinutes(1200)

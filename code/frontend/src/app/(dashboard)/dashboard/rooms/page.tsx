@@ -26,7 +26,9 @@ interface RoomType {
   id: number;
   typeName: string;
   typeNameEn?: string;
-  price: number;
+  pricingAvailable?: boolean;
+  overnightPrice?: number | null;
+  dailyPrice?: number | null;
   description: string;
 }
 
@@ -40,7 +42,6 @@ interface RoomItem {
   roomTypeId: number;
   roomTypeName: string;
   roomTypeNameEn?: string;
-  price: number;
   maintenanceReason?: string;
   maintenanceExpectedCompletedDate?: string;
   maintenanceHistory?: { date: string; action: string; note: string }[];
@@ -258,6 +259,11 @@ export default function RoomsManagement() {
       return matchesSearch && matchesStatus && matchesType && matchesCleaning;
     });
   }, [rooms, searchQuery, selectedStatus, selectedType, cleaningFilter]);
+
+  const roomTypeById = useMemo(
+    () => new Map(roomTypes.map((roomType) => [roomType.id, roomType])),
+    [roomTypes],
+  );
 
   // Group rooms by floor (US4.4 Floor Matrix)
   const roomsByFloor = useMemo(() => {
@@ -484,7 +490,6 @@ export default function RoomsManagement() {
                 ...updatedRoom,
                 roomTypeId: updatedRoom.roomTypeId ?? r.roomTypeId,
                 roomTypeName: updatedRoom.roomTypeName ?? r.roomTypeName,
-                price: updatedRoom.price ?? r.price,
               }
             : r
         )
@@ -1020,8 +1025,12 @@ export default function RoomsManagement() {
                       <span className="text-[#0F2A43] font-bold">{localize(room.roomTypeName, room.roomTypeNameEn)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>{localize("Giá cơ bản", "Base price")}</span>
-                      <span className="font-bold text-[#80632F]">{Number(room.price || 0).toLocaleString(localeTag)} đ</span>
+                      <span>{localize("Giá qua đêm", "Overnight rate")}</span>
+                      <span className="font-bold text-[#80632F]">
+                        {roomTypeById.get(room.roomTypeId)?.overnightPrice != null
+                          ? `${Number(roomTypeById.get(room.roomTypeId)?.overnightPrice).toLocaleString(localeTag)} đ`
+                          : "—"}
+                      </span>
                     </div>
                     <div className="flex justify-between pt-1 border-t border-gray-100">
                       <span>{localize("Tình trạng vệ sinh", "Housekeeping status")}</span>
@@ -1140,7 +1149,9 @@ export default function RoomsManagement() {
                   >
                     {roomTypes.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {localize(t.typeName, t.typeNameEn)} ({Number(t.price || 0).toLocaleString(localeTag)} đ/{localize("giờ", "hour")})
+                        {localize(t.typeName, t.typeNameEn)} ({t.overnightPrice != null
+                          ? `${Number(t.overnightPrice).toLocaleString(localeTag)} đ/${localize("đêm", "night")}`
+                          : localize("chưa có bảng giá", "rate unavailable")})
                       </option>
                     ))}
                   </select>
@@ -1225,7 +1236,9 @@ export default function RoomsManagement() {
                   >
                     {roomTypes.map((t) => (
                       <option key={t.id} value={t.id}>
-                        {localize(t.typeName, t.typeNameEn)} ({Number(t.price || 0).toLocaleString(localeTag)} đ/{localize("giờ", "hour")})
+                        {localize(t.typeName, t.typeNameEn)} ({t.overnightPrice != null
+                          ? `${Number(t.overnightPrice).toLocaleString(localeTag)} đ/${localize("đêm", "night")}`
+                          : localize("chưa có bảng giá", "rate unavailable")})
                       </option>
                     ))}
                   </select>
@@ -1285,7 +1298,7 @@ export default function RoomsManagement() {
             <div className="space-y-2">
               <h3 id="delete-room-title" className="text-xl font-bold text-[#0F2A43]">{localize("Xóa phòng", "Delete room")}</h3>
               <p id="delete-room-description" className="text-sm leading-6 text-[#66727C]">
-                {localize("Bạn có chắc muốn xóa phòng", "Are you sure you want to delete room")} <strong>{selectedRoom.roomName}</strong>? {localize("Thao tác này không thể hoàn tác.", "This action cannot be undone.")}
+                {localize("Bạn có chắc muốn xóa phòng", "Are you sure you want to delete room")} <strong>{selectedRoom.roomName}</strong>? {localize("Chỉ phòng chưa từng có đơn đặt hoặc lịch sử bảo trì mới được xóa vĩnh viễn. Phòng đã sử dụng phải được ngừng bán hoặc đưa vào bảo trì để giữ lịch sử vận hành.", "Only a room with no reservation or maintenance history can be permanently deleted. Used rooms must be taken out of sale or placed in maintenance so operational history is preserved.")}
               </p>
             </div>
             {roomFormError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-sm font-semibold text-rose-700">{roomFormError}</p>}

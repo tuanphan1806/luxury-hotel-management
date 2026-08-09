@@ -18,6 +18,7 @@ import {
   type WorkDailyShiftBulkPreview,
   type WorkDailyShiftBulkRequest,
   type WorkDailyShiftForm,
+  type WorkShiftMonthCalendar,
   type WorkShiftCalendarSlot,
   type WorkShiftTemplate,
 } from "@/lib/work-schedules";
@@ -66,6 +67,9 @@ const dateKey = () =>
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+
+const futureRangeStart = (value: string) =>
+  value < dateKey() ? dateKey() : value;
 
 const formatWorkDate = (value: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "Chưa chọn";
@@ -200,11 +204,13 @@ export default function WorkDailyShiftModals({
     () => templates.filter((item) => item.active),
     [templates],
   );
+  const [createUsedTemplateIds, setCreateUsedTemplateIds] = useState<number[]>([]);
+  const [checkingCreateDate, setCheckingCreateDate] = useState(false);
   const availableCreateTemplates = useMemo(() => {
     if (action?.kind !== "create") return activeTemplates;
-    const used = new Set(action.usedTemplateIds || []);
+    const used = new Set(createUsedTemplateIds);
     return activeTemplates.filter((template) => !used.has(template.id));
-  }, [action, activeTemplates]);
+  }, [action, activeTemplates, createUsedTemplateIds]);
   const [form, setForm] = useState<WorkDailyShiftForm | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [error, setError] = useState("");
@@ -228,6 +234,9 @@ export default function WorkDailyShiftModals({
     dateKey().slice(0, 7),
   );
   const [bulkTemplateIds, setBulkTemplateIds] = useState<number[]>([]);
+  const [bulkWeekdays, setBulkWeekdays] = useState<Weekday[]>(() =>
+    weekdays.map((item) => item.value),
+  );
   const [bulkStaffCounts, setBulkStaffCounts] = useState<
     Record<number, number>
   >({});
@@ -246,10 +255,20 @@ export default function WorkDailyShiftModals({
     setError("");
     setCancelReason("");
     setPreview(null);
+    setCheckingCreateDate(false);
     if (!action) return;
     if (action.kind === "create") {
-      const template = availableCreateTemplates[0];
-      setForm(template ? formFromTemplate(template, action.date) : null);
+      const used = action.usedTemplateIds || [];
+      setCreateUsedTemplateIds(used);
+      const template = activeTemplates.find((item) => !used.includes(item.id));
+      const fallback = activeTemplates[0];
+      setForm(
+        template
+          ? formFromTemplate(template, action.date)
+          : fallback
+            ? { ...formFromTemplate(fallback, action.date), shiftTemplateId: 0 }
+            : null,
+      );
       return;
     }
     if (action.kind === "edit") {
@@ -276,7 +295,8 @@ export default function WorkDailyShiftModals({
       setBulkWeekMonthValue(today.slice(0, 7));
       setBulkWeekValue(weekRange?.value || "");
       setBulkMonthValue(today.slice(0, 7));
-      setBulkFrom(weekRange?.from || today);
+      setBulkWeekdays(weekdays.map((item) => item.value));
+      setBulkFrom(futureRangeStart(weekRange?.from || today));
       setBulkTo(weekRange?.to || today);
       const commonTemplateIds = activeTemplates
         .filter((template) => ["SANG", "CHIEU"].includes(template.code))
@@ -292,7 +312,57 @@ export default function WorkDailyShiftModals({
       setBulkRegistrationOpen(true);
       setBulkAssignmentPolicy("MANUAL_APPROVAL");
     }
-  }, [action, activeTemplates, availableCreateTemplates, templates]);
+  }, [action, activeTemplates, templates]);
+
+  useEffect(() => {
+    if (action?.kind !== "create" || !form?.workDate) return;
+    const selectedDate = form.workDate;
+    let cancelled = false;
+    setCheckingCreateDate(true);
+    void apiClient
+      .get(`/api/work-schedules/calendar?month=${selectedDate.slice(0, 7)}`)
+      .then((response) => {
+        if (cancelled) return;
+        const calendar = unwrapWorkScheduleApiData<WorkShiftMonthCalendar>(response);
+        const used = calendar.days
+          .find((day) => day.date === selectedDate)
+          ?.slots.map((slot) => slot.shiftTemplateId) || [];
+        setCreateUsedTemplateIds(used);
+        setForm((current) => {
+          if (!current || current.workDate !== selectedDate) return current;
+          if (current.shiftTemplateId && !used.includes(current.shiftTemplateId)) {
+            return current;
+          }
+          const nextTemplate = activeTemplates.find(
+            (template) => !used.includes(template.id),
+          );
+          if (!nextTemplate) return { ...current, shiftTemplateId: 0 };
+          return {
+            ...formFromTemplate(nextTemplate, selectedDate),
+            requiredStaff: current.requiredStaff,
+            registrationOpen: current.registrationOpen,
+            assignmentPolicy: current.assignmentPolicy,
+            note: current.note,
+          };
+        });
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setError(
+            getApiErrorMessage(
+              cause,
+              "Không thể kiểm tra các mẫu ca đã dùng trong ngày",
+            ),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingCreateDate(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [action?.kind, activeTemplates, form?.workDate]);
 
   const selectTemplate = (templateId: number) => {
     const template = availableCreateTemplates.find((item) => item.id === templateId);
@@ -433,13 +503,13 @@ export default function WorkDailyShiftModals({
       const range = weekRangeForDate(today);
       setBulkWeekMonthValue(today.slice(0, 7));
       setBulkWeekValue(range?.value || "");
-      setBulkFrom(range?.from || today);
+      setBulkFrom(futureRangeStart(range?.from || today));
       setBulkTo(range?.to || today);
     } else {
       const monthValue = today.slice(0, 7);
       const range = workDateRangeForMonth(monthValue);
       setBulkMonthValue(monthValue);
-      setBulkFrom(range?.from || today);
+      setBulkFrom(futureRangeStart(range?.from || today));
       setBulkTo(range?.to || today);
     }
     setPreview(null);
@@ -448,7 +518,10 @@ export default function WorkDailyShiftModals({
   const bulkRequest = (): WorkDailyShiftBulkRequest => ({
     from: bulkFrom,
     to: bulkTo,
-    weekdays: weekdays.map((item) => item.value),
+    weekdays:
+      bulkPreset === "DAY"
+        ? weekdays.map((item) => item.value)
+        : bulkWeekdays,
     shifts: bulkTemplateIds.map((id) => {
       const template = activeTemplates.find((item) => item.id === id)!;
       return {
@@ -477,9 +550,10 @@ export default function WorkDailyShiftModals({
         !bulkWeekOptions.some((option) => option.value === bulkWeekValue)) ||
       (bulkPreset === "MONTH" &&
         !workDateRangeForMonth(bulkMonthValue)) ||
+      (bulkPreset !== "DAY" && bulkWeekdays.length === 0) ||
       bulkTemplateIds.length === 0
     ) {
-      setError("Chọn khoảng ngày hợp lệ và ít nhất một mẫu ca.");
+      setError("Chọn khoảng ngày, ngày áp dụng và ít nhất một mẫu ca hợp lệ.");
       return;
     }
     setSubmitting(true);
@@ -569,12 +643,15 @@ export default function WorkDailyShiftModals({
                 <select
                   data-modal-autofocus
                   value={form.shiftTemplateId}
-                  disabled={action.kind === "edit"}
+                  disabled={action.kind === "edit" || checkingCreateDate}
                   onChange={(event) =>
                     selectTemplate(Number(event.target.value))
                   }
                   className={inputClass}
                 >
+                  {action.kind === "create" && availableCreateTemplates.length === 0 ? (
+                    <option value={0}>Ngày này đã dùng tất cả mẫu ca</option>
+                  ) : null}
                   {availableCreateTemplates.map((template) => (
                     <option key={template.id} value={template.id}>
                       {template.name} · {formatShiftTime(template.startTime)}–
@@ -582,6 +659,15 @@ export default function WorkDailyShiftModals({
                     </option>
                   ))}
                 </select>
+                {action.kind === "create" ? (
+                  <span className="mt-1.5 block text-[11px] leading-4 text-[#66727C]">
+                    {checkingCreateDate
+                      ? "Đang kiểm tra các ca đã có trong ngày..."
+                      : availableCreateTemplates.length === 0
+                        ? "Chọn ngày khác, chỉnh ca đã có hoặc tạo thêm mẫu ca mới."
+                        : `${availableCreateTemplates.length} mẫu ca còn có thể dùng trong ngày này.`}
+                  </span>
+                ) : null}
               </label>
               <label>
                 <span className={labelClass}>Ngày làm việc *</span>
@@ -736,7 +822,12 @@ export default function WorkDailyShiftModals({
               </button>
               <button
                 type="submit"
-                disabled={submitting || !form.shiftName.trim()}
+                disabled={
+                  submitting ||
+                  checkingCreateDate ||
+                  !form.shiftTemplateId ||
+                  !form.shiftName.trim()
+                }
                 className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white disabled:opacity-50"
               >
                 {submitting
@@ -972,7 +1063,7 @@ export default function WorkDailyShiftModals({
                         setBulkWeekMonthValue(monthValue);
                         setBulkWeekValue(range?.value || "");
                         if (range) {
-                          setBulkFrom(range.from);
+                          setBulkFrom(futureRangeStart(range.from));
                           setBulkTo(range.to);
                         }
                         setPreview(null);
@@ -991,7 +1082,7 @@ export default function WorkDailyShiftModals({
                         );
                         setBulkWeekValue(value);
                         if (range) {
-                          setBulkFrom(range.from);
+                          setBulkFrom(futureRangeStart(range.from));
                           setBulkTo(range.to);
                         }
                         setPreview(null);
@@ -1028,7 +1119,7 @@ export default function WorkDailyShiftModals({
                       const range = workDateRangeForMonth(value);
                       setBulkMonthValue(value);
                       if (range) {
-                        setBulkFrom(range.from);
+                        setBulkFrom(futureRangeStart(range.from));
                         setBulkTo(range.to);
                       }
                       setPreview(null);
@@ -1050,9 +1141,56 @@ export default function WorkDailyShiftModals({
                   </span>
                 </span>
                 <span className="rounded-full bg-white px-3 py-1.5 text-[10px] font-bold text-[#66727C] shadow-sm">
-                  Áp dụng tất cả các ngày
+                  {bulkPreset === "DAY"
+                    ? "Áp dụng mọi ngày trong khoảng"
+                    : `${bulkWeekdays.length}/7 ngày trong tuần`}
                 </span>
               </div>
+              {bulkPreset !== "DAY" ? (
+                <section className="mt-4 rounded-xl border border-[#D8E0E8] bg-white p-4">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <span>
+                      <span className={labelClass}>Ngày áp dụng trong tuần *</span>
+                      <span className="block text-xs text-[#66727C]">
+                        Bỏ chọn ngày nghỉ hoặc ngày không muốn mở ca.
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBulkWeekdays(weekdays.map((item) => item.value));
+                        setPreview(null);
+                      }}
+                      className="min-h-9 rounded-lg border px-3 text-[11px] font-bold text-[#0F2A43] transition hover:bg-[#F8F5EE]"
+                    >
+                      Chọn cả tuần
+                    </button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
+                    {weekdays.map((item) => {
+                      const checked = bulkWeekdays.includes(item.value);
+                      return (
+                        <button
+                          key={item.value}
+                          type="button"
+                          aria-pressed={checked}
+                          onClick={() => {
+                            setBulkWeekdays((current) =>
+                              checked
+                                ? current.filter((value) => value !== item.value)
+                                : [...current, item.value],
+                            );
+                            setPreview(null);
+                          }}
+                          className={`min-h-10 rounded-lg border text-xs font-black transition ${checked ? "border-[#0F2A43] bg-[#0F2A43] text-white" : "border-[#D8E0E8] bg-[#F7F9FC] text-[#66727C] hover:border-[#B8944F]"}`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
               <section className="mt-5 rounded-2xl border">
                 <header className="border-b bg-[#F8F5EE] px-4 py-3">
                   <h3 className="font-bold text-[#0F2A43]">Mẫu ca cần tạo</h3>
@@ -1158,10 +1296,29 @@ export default function WorkDailyShiftModals({
                     </div>
                   </div>
                   {preview.skippedExistingCount > 0 ? (
-                    <p className="mt-3 text-center text-xs font-semibold text-amber-800">
-                      Ca trùng không bị ghi đè; lịch và phân công hiện tại được
-                      bảo toàn.
-                    </p>
+                    <details className="mt-3 rounded-xl border border-amber-200 bg-white/70 px-3 py-2 text-xs text-amber-900">
+                      <summary className="cursor-pointer font-bold">
+                        Xem {preview.skippedExistingCount} ca được giữ nguyên
+                      </summary>
+                      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                        {preview.items
+                          .filter((item) => item.action === "SKIP_EXISTING")
+                          .slice(0, 12)
+                          .map((item) => (
+                            <p key={`${item.workDate}-${item.shiftTemplateId}`} className="rounded-lg bg-amber-50 px-2.5 py-2">
+                              <strong>{formatWorkDate(item.workDate)}</strong> · {item.shiftName}
+                              <span className="block text-[11px] font-medium text-amber-800/80">
+                                {item.reason || "Ca đã tồn tại và không bị ghi đè"}
+                              </span>
+                            </p>
+                          ))}
+                      </div>
+                      {preview.skippedExistingCount > 12 ? (
+                        <p className="mt-2 text-[11px] font-semibold">
+                          Và {preview.skippedExistingCount - 12} ca khác.
+                        </p>
+                      ) : null}
+                    </details>
                   ) : null}
                 </section>
               ) : null}

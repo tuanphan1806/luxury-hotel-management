@@ -181,14 +181,19 @@ public class RoomServiceImpl implements RoomService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         log.info("Deleting roomId={}", id);
-        Room room = getRoomById(id);
+        Room room = getRoomByIdForUpdate(id);
         Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
         ensureRoomHasNoActiveStay(room, "Không thể xóa phòng đang có khách lưu trú");
         if (reservationRoomRepository.existsByRoomId(room.getId())) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    "Không thể xóa phòng đã có lịch sử reservation; hãy chuyển sang bảo trì nếu ngừng sử dụng");
+            throw new AppException(ErrorCode.ROOM_CANNOT_DELETE,
+                    "Không thể xóa phòng đã có lịch sử đặt phòng; hãy giữ phòng để đối chiếu vận hành");
+        }
+        if (!room.getMaintenanceHistory().isEmpty()) {
+            throw new AppException(ErrorCode.ROOM_CANNOT_DELETE,
+                    "Không thể xóa phòng đã có lịch sử bảo trì; hãy ngừng bán phòng thay vì xóa dữ liệu");
         }
         roomRepository.delete(room);
+        roomRepository.flush();
         auditRoom(room, ReservationAuditAction.ROOM_DELETED,
                 "Xóa phòng", oldValue, null, null);
         log.info("Delete room successfully roomId={}", id);

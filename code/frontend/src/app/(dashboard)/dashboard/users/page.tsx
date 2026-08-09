@@ -135,7 +135,7 @@ export default function UsersManagement() {
   const handleDeleteConfirm = async () => {
     if (!selectedUser) return;
     await apiClient.delete(`/api/user/${selectedUser.id}`);
-    showToast("Xóa người dùng thành công", "success");
+    showToast(localize("Đã vô hiệu hóa tài khoản", "Account deactivated"), "success");
     setIsDeleteOpen(false);
     setSelectedUser(null);
     await fetchUsers();

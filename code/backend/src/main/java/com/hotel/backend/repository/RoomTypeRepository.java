@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -23,28 +22,30 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, Long> {
     @Query("SELECT DISTINCT rt FROM RoomType rt LEFT JOIN FETCH rt.facilities ORDER BY rt.id ASC")
     List<RoomType> findAllWithFacilities();
 
+    @Query("""
+        SELECT DISTINCT rt FROM RoomType rt
+        LEFT JOIN FETCH rt.facilities
+        WHERE rt.active = true
+        ORDER BY rt.id ASC
+    """)
+    List<RoomType> findAllActiveWithFacilities();
+
     /**
      * Lấy một room type kèm facilities theo ID.
      */
     @Query("SELECT rt FROM RoomType rt LEFT JOIN FETCH rt.facilities WHERE rt.id = :id")
     Optional<RoomType> findByIdWithFacilities(@Param("id") Long id);
 
+    @Query("""
+        SELECT rt FROM RoomType rt
+        LEFT JOIN FETCH rt.facilities
+        WHERE rt.id = :id AND rt.active = true
+    """)
+    Optional<RoomType> findActiveByIdWithFacilities(@Param("id") Long id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT rt FROM RoomType rt WHERE rt.id = :id")
     Optional<RoomType> findByIdForUpdate(@Param("id") Long id);
-
-    /**
-     * Lọc theo khoảng giá — dùng cho API filter.
-     */
-    @Query("""
-        SELECT DISTINCT rt FROM RoomType rt
-        LEFT JOIN FETCH rt.facilities
-        WHERE rt.price BETWEEN :minPrice AND :maxPrice
-        ORDER BY rt.price ASC
-    """)
-    List<RoomType> findByPriceBetweenOrderByPriceAsc(
-            @Param("minPrice") BigDecimal minPrice,
-            @Param("maxPrice") BigDecimal maxPrice);
 
     /**
      * Kiểm tra trùng tên khi tạo mới.
@@ -89,7 +90,8 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, Long> {
     // Lấy tất cả room type còn phòng trống trong khoảng ngày
     @Query("""
         SELECT rt FROM RoomType rt
-        WHERE (
+        WHERE rt.active = true
+        AND (
             SELECT COUNT(r) FROM Room r
             WHERE r.roomType = rt
             AND r.status != 'MAINTENANCE'

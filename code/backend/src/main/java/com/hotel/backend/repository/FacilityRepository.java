@@ -1,7 +1,9 @@
 package com.hotel.backend.repository;
 
 import com.hotel.backend.entity.Facility;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -26,8 +28,13 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     /**
      * Lấy nhiều Facility theo tập ID — dùng khi gán facilities vào RoomType.
      */
+    @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("SELECT f FROM Facility f WHERE f.id IN :ids")
     Set<Facility> findAllByIdIn(@Param("ids") Set<Long> ids);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT f FROM Facility f WHERE f.id = :id")
+    Optional<Facility> findByIdForUpdate(@Param("id") Long id);
 
     boolean existsByFacilityNameIgnoreCase(String facilityName);
 

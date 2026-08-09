@@ -5,7 +5,6 @@ import com.hotel.backend.constant.RoomStatus;
 import com.hotel.backend.entity.Room;
 import lombok.*;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.util.List;
@@ -29,7 +28,6 @@ public class RoomResponse {
     private String roomTypeName;
     private String roomTypeNameEn;
     private Integer maxGuestsPerRoom;
-    private BigDecimal price;
     private String maintenanceReason;
     private LocalDate maintenanceExpectedCompletedDate;
     @Builder.Default
@@ -77,8 +75,7 @@ public class RoomResponse {
                    .roomTypeNameEn(room.getRoomType().getTypeNameEn())
                    .maxGuestsPerRoom(room.getRoomType().getMaxGuests() != null
                            ? Math.max(1, room.getRoomType().getMaxGuests())
-                           : 2)
-                   .price(room.getRoomType().getPrice());
+                           : 2);
         }
 
         return builder.build();

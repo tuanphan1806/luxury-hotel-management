@@ -58,6 +58,16 @@ public class StayPolicyVersion {
     @Column(name = "early_morning_overnight_minimum_minutes", nullable = false)
     private Integer earlyMorningOvernightMinimumMinutes = 120;
 
+    /**
+     * The overnight package becomes the non-refundable room-charge floor once
+     * the guest reaches this time in the operational night. Before this
+     * boundary an actual early checkout may be repriced by elapsed usage.
+     */
+    @Builder.Default
+    @Column(name = "overnight_refund_lock_time", nullable = false, columnDefinition = "time")
+    @Type(LocalTimeWithoutTimezoneType.class)
+    private LocalTime overnightRefundLockTime = LocalTime.of(23, 0);
+
     @Column(name = "overnight_hard_checkout_time", nullable = false, columnDefinition = "time")
     @Type(LocalTimeWithoutTimezoneType.class)
     private LocalTime overnightHardCheckoutTime;
