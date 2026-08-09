@@ -114,4 +114,27 @@ public interface RoomRateProfileRepository
             where profile.id = :id
             """)
     Optional<RoomRateProfile> findByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * Locks every still-active version for one room type before an immediate
+     * rate cutover. The RoomType row is locked first by the caller, keeping a
+     * stable lock order for concurrent admin updates.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select profile from RoomRateProfile profile
+            join fetch profile.stayPolicyVersion
+            where profile.roomType.id = :roomTypeId
+              and profile.active = true
+            order by profile.effectiveFromUtc asc, profile.profileVersion asc
+            """)
+    List<RoomRateProfile> findActiveByRoomTypeIdForUpdate(
+            @Param("roomTypeId") Long roomTypeId);
+
+    @Query("""
+            select coalesce(max(profile.profileVersion), 0)
+            from RoomRateProfile profile
+            where profile.roomType.id = :roomTypeId
+            """)
+    Integer findMaxProfileVersion(@Param("roomTypeId") Long roomTypeId);
 }

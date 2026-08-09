@@ -55,7 +55,8 @@ services:
       - key: PRICING_ENGINE_V2_ENABLED
         value: "true"
       - key: PRICING_ENGINE_V2_ROOM_TYPE_CODES
-        value: STANDARD,DELUXE,EXECUTIVE,SUITE,FAMILY,PRESIDENTIAL
+        # Full rollout: wildcard also covers room types created later by ADMIN.
+        value: "*"
       - key: PRICING_ENGINE_V2_REQUIRE_QUOTE
         value: "true"
       - key: PRICING_QUOTE_TTL_MINUTES

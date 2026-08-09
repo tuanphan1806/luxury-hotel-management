@@ -36,6 +36,7 @@ public interface RoomRepository extends JpaRepository<Room, Long> {
        long countByStatus(RoomStatus status);
        long countByCleaningStatus(CleaningStatus cleaningStatus);
        List<Room> findByRoomTypeId(Long roomTypeId);    
+       long countByRoomTypeId(Long roomTypeId);
 
        @Lock(LockModeType.PESSIMISTIC_WRITE)
        @Query("SELECT r FROM Room r WHERE r.id = :id")

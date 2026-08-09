@@ -21,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 
@@ -39,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -88,7 +90,8 @@ class WorkScheduleServiceTest {
     @Test
     void createSnapshotsOvernightWindowInHotelTimezone() {
         when(userRepository.findById(7L)).thenReturn(Optional.of(staff));
-        when(dailyShiftService.requireOpen(3L, LocalDate.of(2026, 8, 1)))
+        when(dailyShiftService.requireAvailableForNewAssignment(
+                3L, LocalDate.of(2026, 8, 1)))
                 .thenReturn(dailyShift(LocalDate.of(2026, 8, 1)));
         when(repository.saveAndFlush(any(WorkScheduleAssignment.class)))
                 .thenAnswer(invocation -> {
@@ -190,6 +193,10 @@ class WorkScheduleServiceTest {
                 NOW.minusSeconds(60 * 60L),
                 NOW.plusSeconds(7 * 60 * 60L));
         WorkShiftSession session = activeSession(901L, assignment);
+        when(repository.findById(81L)).thenReturn(Optional.of(assignment));
+        when(dailyShiftService.lockForAttendanceClosure(
+                3L, LocalDate.of(2026, 8, 1)))
+                .thenReturn(dailyShift(LocalDate.of(2026, 8, 1)));
         when(repository.findByIdForUpdate(81L)).thenReturn(Optional.of(assignment));
         when(sessionRepository.findByAssignmentIdForUpdate(81L)).thenReturn(Optional.of(session));
 
@@ -211,6 +218,10 @@ class WorkScheduleServiceTest {
                 NOW.minusSeconds(9 * 60 * 60L),
                 NOW.minusSeconds(60));
         WorkShiftSession session = activeSession(901L, assignment);
+        when(repository.findById(81L)).thenReturn(Optional.of(assignment));
+        when(dailyShiftService.lockForAttendanceClosure(
+                3L, LocalDate.of(2026, 8, 1)))
+                .thenReturn(dailyShift(LocalDate.of(2026, 8, 1)));
         when(repository.findByIdForUpdate(81L)).thenReturn(Optional.of(assignment));
         when(sessionRepository.findByAssignmentIdForUpdate(81L)).thenReturn(Optional.of(session));
         when(sessionRepository.saveAndFlush(session)).thenReturn(session);
@@ -227,6 +238,74 @@ class WorkScheduleServiceTest {
         assertFalse(response.autoCheckOut());
         verify(cashierShiftService).closeForWorkSession(session, staff, "Bàn giao đủ");
         verify(dailyShiftService).completeIfEligible(3L, LocalDate.of(2026, 8, 1));
+        InOrder lockOrder = inOrder(repository, dailyShiftService);
+        lockOrder.verify(repository).findById(81L);
+        lockOrder.verify(dailyShiftService).lockForAttendanceClosure(
+                3L, LocalDate.of(2026, 8, 1));
+        lockOrder.verify(repository).findByIdForUpdate(81L);
+    }
+
+    @Test
+    void repeatedCheckoutReturnsPersistedResultAfterDailyShiftCompleted() {
+        WorkScheduleAssignment assignment = assignment(
+                81L,
+                WorkScheduleStatus.FULFILLED,
+                NOW.minusSeconds(9 * 60 * 60L),
+                NOW.minusSeconds(60));
+        WorkShiftSession session = activeSession(901L, assignment);
+        session.setStatus(WorkShiftSessionStatus.CLOSED);
+        session.setActualCheckOutUtc(NOW.minusSeconds(30));
+        WorkShiftRequirement completed = dailyShift(LocalDate.of(2026, 8, 1));
+        completed.setStatus(com.hotel.backend.constant.WorkDailyShiftStatus.COMPLETED);
+        completed.setCompletedAtUtc(NOW.minusSeconds(20));
+        when(repository.findById(81L)).thenReturn(Optional.of(assignment));
+        when(dailyShiftService.lockForAttendanceClosure(
+                3L, LocalDate.of(2026, 8, 1)))
+                .thenReturn(completed);
+        when(repository.findByIdForUpdate(81L)).thenReturn(Optional.of(assignment));
+        when(sessionRepository.findByAssignmentIdForUpdate(81L)).thenReturn(Optional.of(session));
+
+        var response = service.checkOut(
+                81L,
+                new WorkAttendanceRequest(null),
+                staff);
+
+        assertEquals(WorkScheduleStatus.FULFILLED, response.status());
+        assertEquals(WorkShiftSessionStatus.CLOSED, response.sessionStatus());
+        assertEquals(NOW.minusSeconds(30), response.actualCheckOutUtc());
+        verify(cashierShiftService, never()).closeForWorkSession(any(), any(), any());
+        verify(dailyShiftService, never()).completeIfEligible(any(), any());
+    }
+
+    @Test
+    void checkoutRejectsStaleRouteWhenAssignmentMovedDuringLockAcquisition() {
+        WorkScheduleAssignment route = assignment(
+                81L,
+                WorkScheduleStatus.SCHEDULED,
+                NOW.minusSeconds(60 * 60L),
+                NOW.plusSeconds(7 * 60 * 60L));
+        WorkScheduleAssignment moved = assignment(
+                81L,
+                WorkScheduleStatus.SCHEDULED,
+                NOW.minusSeconds(60 * 60L),
+                NOW.plusSeconds(7 * 60 * 60L));
+        moved.setWorkDate(LocalDate.of(2026, 8, 2));
+        when(repository.findById(81L)).thenReturn(Optional.of(route));
+        when(dailyShiftService.lockForAttendanceClosure(
+                3L, LocalDate.of(2026, 8, 1)))
+                .thenReturn(dailyShift(LocalDate.of(2026, 8, 1)));
+        when(repository.findByIdForUpdate(81L)).thenReturn(Optional.of(moved));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> service.checkOut(
+                        81L,
+                        new WorkAttendanceRequest("Kết ca"),
+                        staff));
+
+        assertEquals(ErrorCode.WORK_SCHEDULE_CANNOT_MODIFY, exception.getErrorCode());
+        verify(sessionRepository, never()).findByAssignmentIdForUpdate(any());
+        verify(cashierShiftService, never()).closeForWorkSession(any(), any(), any());
     }
 
     @Test

@@ -1,6 +1,5 @@
 package com.hotel.backend.service;
 
-import com.hotel.backend.entity.RoomType;
 import com.hotel.backend.exception.AppException;
 import org.junit.jupiter.api.Test;
 
@@ -32,18 +31,17 @@ class PricingServiceLegacyCharacterizationTest {
     }
 
     @Test
-    void stayPriceUsesRoomTypePriceForFirstHourAndGlobalLegacyExtraHourFee() {
-        RoomType roomType = RoomType.builder()
-                .price(new BigDecimal("70000"))
-                .build();
+    void immutableSnapshotPriceKeepsTheHistoricalHourlyFormula() {
         LocalDateTime checkIn = LocalDateTime.of(2026, 8, 1, 10, 0);
 
         assertEquals(new BigDecimal("70000"),
-                pricingService.calculateStayPricePerRoom(
-                        roomType, checkIn, checkIn.plusMinutes(60)));
+                pricingService.calculatePricePerRoom(
+                        new BigDecimal("70000"),
+                        pricingService.billableHours(checkIn, checkIn.plusMinutes(60))));
         assertEquals(new BigDecimal("90000"),
-                pricingService.calculateStayPricePerRoom(
-                        roomType, checkIn, checkIn.plusMinutes(121)));
+                pricingService.calculatePricePerRoom(
+                        new BigDecimal("70000"),
+                        pricingService.billableHours(checkIn, checkIn.plusMinutes(121))));
     }
 
     @Test

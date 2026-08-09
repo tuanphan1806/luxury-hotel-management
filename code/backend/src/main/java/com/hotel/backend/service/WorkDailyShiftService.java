@@ -490,7 +490,7 @@ public class WorkDailyShiftService {
         BulkPlan plan = buildBulkPlan(request, true);
         List<WorkShiftRequirement> created = new ArrayList<>();
         for (BulkCandidate candidate : plan.candidates()) {
-            if (candidate.existing()) continue;
+            if (candidate.existingShift() != null) continue;
             WorkDailyShiftBulkItemRequest item = candidate.item();
             created.add(buildRequirement(
                     candidate.template(),
@@ -542,10 +542,10 @@ public class WorkDailyShiftService {
                 responses);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public WorkShiftRequirement requireOpen(Long templateId, LocalDate workDate) {
         WorkShiftRequirement requirement = requirementRepository
-                .findByShiftTemplateIdAndWorkDate(templateId, workDate)
+                .findForUpdate(templateId, workDate)
                 .orElseThrow(() -> new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_FOUND));
         ensureOpen(requirement);
         // OPEN after the scheduled boundary means the shift is waiting for
@@ -555,6 +555,50 @@ public class WorkDailyShiftService {
                     "Ca đã hết thời gian nhận phân công hoặc đăng ký mới");
         }
         return requirement;
+    }
+
+    /**
+     * Locks the daily shift that owns an already active attendance workflow.
+     * Unlike {@link #requireOpen(Long, LocalDate)}, this method intentionally
+     * allows the scheduled end boundary to have passed so a late checkout can
+     * still close its attendance and cashier session. Keeping this lock ahead
+     * of the assignment lock prevents a deadlock with daily-shift cancel/update
+     * operations, which use the same daily-shift -> assignment order.
+     */
+    @Transactional
+    public WorkShiftRequirement lockForAttendanceClosure(
+            Long templateId,
+            LocalDate workDate) {
+        WorkShiftRequirement requirement = requirementRepository
+                .findForUpdate(templateId, workDate)
+                .orElseThrow(() -> new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_FOUND));
+        // A repeated checkout may arrive after the first request already moved
+        // the daily shift to COMPLETED. Let the caller return the persisted
+        // closed session instead of breaking idempotent retry semantics.
+        if (requirement.getStatus() == WorkDailyShiftStatus.CANCELLED) {
+            throw new AppException(ErrorCode.WORK_DAILY_SHIFT_NOT_OPEN);
+        }
+        return requirement;
+    }
+
+    @Transactional
+    public WorkShiftRequirement requireAvailableForNewAssignment(
+            Long templateId,
+            LocalDate workDate) {
+        WorkShiftRequirement requirement = requireOpen(templateId, workDate);
+        ensureAssignmentCapacity(requirement);
+        return requirement;
+    }
+
+    public void ensureAssignmentCapacity(WorkShiftRequirement requirement) {
+        long assignedCount = assignmentRepository
+                .countByShiftTemplateIdAndWorkDateAndStatusNot(
+                        requirement.getShiftTemplate().getId(),
+                        requirement.getWorkDate(),
+                        WorkScheduleStatus.CANCELLED);
+        if (assignedCount >= requirement.getRequiredStaff()) {
+            throw new AppException(ErrorCode.WORK_SHIFT_REGISTRATION_FULL);
+        }
     }
 
     private BulkPlan buildBulkPlan(WorkDailyShiftBulkRequest request, boolean lockTemplates) {
@@ -591,22 +635,26 @@ public class WorkDailyShiftService {
         List<WorkShiftRequirement> existing = requirementRepository
                 .findAllByShiftTemplateIdInAndWorkDateBetween(
                         orderedIds, request.from(), request.to());
-        Set<SlotKey> existingKeys = new HashSet<>();
-        existing.forEach(item -> existingKeys.add(new SlotKey(
-                item.getShiftTemplate().getId(), item.getWorkDate())));
+        Map<SlotKey, WorkShiftRequirement> existingByKey = new HashMap<>();
+        existing.forEach(item -> existingByKey.put(new SlotKey(
+                item.getShiftTemplate().getId(), item.getWorkDate()), item));
         List<BulkCandidate> candidates = new ArrayList<>();
         for (LocalDate date : dates) {
             for (WorkDailyShiftBulkItemRequest item : request.shifts()) {
                 validateShiftEnd(date, item.startTime(), item.endTime());
                 WorkShiftTemplate template = templateById.get(item.shiftTemplateId());
+                WorkShiftRequirement existingShift = existingByKey.get(
+                        new SlotKey(template.getId(), date));
                 candidates.add(new BulkCandidate(
                         date,
                         template,
                         item,
-                        existingKeys.contains(new SlotKey(template.getId(), date))));
+                        existingShift));
             }
         }
-        int skipped = (int) candidates.stream().filter(BulkCandidate::existing).count();
+        int skipped = (int) candidates.stream()
+                .filter(candidate -> candidate.existingShift() != null)
+                .count();
         return new BulkPlan(candidates, skipped);
     }
 
@@ -618,14 +666,26 @@ public class WorkDailyShiftService {
                         candidate.item().shiftName().trim(),
                         candidate.item().startTime().toString(),
                         candidate.item().endTime().toString(),
-                        candidate.existing() ? "SKIP_EXISTING" : "CREATE",
-                        candidate.existing() ? "Ngày này đã có ca từ cùng mẫu" : null))
+                        candidate.existingShift() != null ? "SKIP_EXISTING" : "CREATE",
+                        candidate.existingShift() != null
+                                ? candidate.existingShift().getStatus()
+                                : null,
+                        existingReason(candidate.existingShift())))
                 .toList();
         return new WorkDailyShiftBulkPreviewResponse(
                 items.size(),
                 items.size() - plan.skippedExistingCount(),
                 plan.skippedExistingCount(),
                 items);
+    }
+
+    private String existingReason(WorkShiftRequirement existingShift) {
+        if (existingShift == null) return null;
+        return switch (existingShift.getStatus()) {
+            case OPEN -> "Ca cùng mẫu đang mở; giữ nguyên cấu hình và phân công hiện tại";
+            case CANCELLED -> "Ca cùng mẫu đã hủy; hãy khôi phục hoặc xóa ca trống trước khi tạo lại";
+            case COMPLETED -> "Ca cùng mẫu đã hoàn tất và chỉ được xem lịch sử";
+        };
     }
 
     private WorkShiftRequirement buildRequirement(
@@ -888,7 +948,7 @@ public class WorkDailyShiftService {
             LocalDate workDate,
             WorkShiftTemplate template,
             WorkDailyShiftBulkItemRequest item,
-            boolean existing) {
+            WorkShiftRequirement existingShift) {
     }
 
     private record BulkPlan(List<BulkCandidate> candidates, int skippedExistingCount) {

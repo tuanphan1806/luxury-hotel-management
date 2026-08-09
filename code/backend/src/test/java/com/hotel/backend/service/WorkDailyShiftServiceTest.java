@@ -8,6 +8,8 @@ import com.hotel.backend.constant.WorkShiftAssignmentPolicy;
 import com.hotel.backend.constant.WorkShiftRegistrationStatus;
 import com.hotel.backend.constant.WorkShiftSessionStatus;
 import com.hotel.backend.dto.request.CancelWorkDailyShiftRequest;
+import com.hotel.backend.dto.request.WorkDailyShiftBulkItemRequest;
+import com.hotel.backend.dto.request.WorkDailyShiftBulkRequest;
 import com.hotel.backend.dto.request.WorkDailyShiftRequest;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.entity.WorkScheduleAssignment;
@@ -30,12 +32,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -318,7 +322,7 @@ class WorkDailyShiftServiceTest {
     @Test
     void openShiftWaitingForClosureDoesNotAcceptNewAssignments() {
         WorkShiftRequirement requirement = dueRequirement();
-        when(requirementRepository.findByShiftTemplateIdAndWorkDate(
+        when(requirementRepository.findForUpdate(
                 2L, requirement.getWorkDate()))
                 .thenReturn(Optional.of(requirement));
 
@@ -326,6 +330,87 @@ class WorkDailyShiftServiceTest {
                 .isInstanceOfSatisfying(AppException.class,
                         error -> assertThat(error.getErrorCode())
                                 .isEqualTo(ErrorCode.WORK_DAILY_SHIFT_NOT_OPEN));
+    }
+
+    @Test
+    void openShiftWaitingForClosureStillAllowsExistingAttendanceToCheckout() {
+        WorkShiftRequirement requirement = dueRequirement();
+        when(requirementRepository.findForUpdate(
+                2L, requirement.getWorkDate()))
+                .thenReturn(Optional.of(requirement));
+
+        WorkShiftRequirement locked = service.lockForAttendanceClosure(
+                2L, requirement.getWorkDate());
+
+        assertThat(locked).isSameAs(requirement);
+        assertThat(locked.getStatus()).isEqualTo(WorkDailyShiftStatus.OPEN);
+    }
+
+    @Test
+    void completedShiftStillAllowsIdempotentAttendanceCheckoutRetry() {
+        WorkShiftRequirement requirement = dueRequirement();
+        requirement.setStatus(WorkDailyShiftStatus.COMPLETED);
+        requirement.setCompletedAtUtc(NOW.minusSeconds(1));
+        when(requirementRepository.findForUpdate(
+                2L, requirement.getWorkDate()))
+                .thenReturn(Optional.of(requirement));
+
+        WorkShiftRequirement locked = service.lockForAttendanceClosure(
+                2L, requirement.getWorkDate());
+
+        assertThat(locked).isSameAs(requirement);
+        assertThat(locked.getStatus()).isEqualTo(WorkDailyShiftStatus.COMPLETED);
+    }
+
+    @Test
+    void newAssignmentIsRejectedWhileHoldingDailyShiftLockWhenCapacityIsFull() {
+        WorkShiftRequirement requirement = futureRequirement();
+        when(requirementRepository.findForUpdate(2L, requirement.getWorkDate()))
+                .thenReturn(Optional.of(requirement));
+        when(assignmentRepository.countByShiftTemplateIdAndWorkDateAndStatusNot(
+                2L, requirement.getWorkDate(), WorkScheduleStatus.CANCELLED))
+                .thenReturn(1L);
+
+        assertThatThrownBy(() -> service.requireAvailableForNewAssignment(
+                2L, requirement.getWorkDate()))
+                .isInstanceOfSatisfying(AppException.class,
+                        error -> assertThat(error.getErrorCode())
+                                .isEqualTo(ErrorCode.WORK_SHIFT_REGISTRATION_FULL));
+    }
+
+    @Test
+    void bulkPreviewKeepsExistingCancelledShiftAndExplainsRecoveryPath() {
+        LocalDate workDate = LocalDate.of(2026, 8, 3);
+        WorkShiftRequirement cancelled = requirement(30L, workDate);
+        cancelled.setStatus(WorkDailyShiftStatus.CANCELLED);
+        when(templateRepository.findAllById(List.of(2L))).thenReturn(List.of(template));
+        when(requirementRepository.findAllByShiftTemplateIdInAndWorkDateBetween(
+                List.of(2L), workDate, workDate)).thenReturn(List.of(cancelled));
+
+        var preview = service.previewBulk(new WorkDailyShiftBulkRequest(
+                workDate,
+                workDate,
+                Set.of(DayOfWeek.MONDAY),
+                List.of(new WorkDailyShiftBulkItemRequest(
+                        2L,
+                        "Ca sáng",
+                        LocalTime.of(7, 0),
+                        LocalTime.of(12, 0),
+                        1,
+                        true,
+                        WorkShiftAssignmentPolicy.MANUAL_APPROVAL,
+                        30,
+                        10,
+                        "#B8944F",
+                        null))), admin);
+
+        assertThat(preview.candidateCount()).isEqualTo(1);
+        assertThat(preview.creatableCount()).isZero();
+        assertThat(preview.skippedExistingCount()).isEqualTo(1);
+        assertThat(preview.items().get(0).action()).isEqualTo("SKIP_EXISTING");
+        assertThat(preview.items().get(0).existingStatus())
+                .isEqualTo(WorkDailyShiftStatus.CANCELLED);
+        assertThat(preview.items().get(0).reason()).contains("khôi phục");
     }
 
     private WorkShiftRequirement futureRequirement() {

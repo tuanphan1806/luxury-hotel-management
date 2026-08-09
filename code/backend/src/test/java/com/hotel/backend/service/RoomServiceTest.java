@@ -6,6 +6,7 @@ import com.hotel.backend.constant.RoomStatus;
 import com.hotel.backend.dto.request.RoomMaintenanceRequest;
 import com.hotel.backend.entity.ReservationRoom;
 import com.hotel.backend.entity.Room;
+import com.hotel.backend.entity.RoomMaintenanceLog;
 import com.hotel.backend.entity.RoomType;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.repository.ReservationRepository;
@@ -102,6 +103,42 @@ class RoomServiceTest {
         assertEquals(CleaningStatus.DIRTY, source.getCleaningStatus());
         assertEquals(RoomStatus.CHECKED_IN, target.getStatus());
         verify(reservationRoomRepository).save(activeStay);
+    }
+
+    @Test
+    void deleteRejectsRoomWithReservationHistory() {
+        Room room = room(1L, "101", RoomStatus.AVAILABLE, CleaningStatus.CLEAN);
+        when(roomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+        when(reservationRoomRepository.existsByRoomId(1L)).thenReturn(true);
+
+        assertThrows(AppException.class, () -> roomService.delete(1L));
+
+        verify(roomRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteRejectsRoomWithMaintenanceHistory() {
+        Room room = room(1L, "101", RoomStatus.AVAILABLE, CleaningStatus.CLEAN);
+        room.getMaintenanceHistory().add(RoomMaintenanceLog.builder()
+                .room(room)
+                .action("Bảo trì")
+                .build());
+        when(roomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+
+        assertThrows(AppException.class, () -> roomService.delete(1L));
+
+        verify(roomRepository, never()).delete(any());
+    }
+
+    @Test
+    void deletePermanentlyRemovesOnlyUnusedRoom() {
+        Room room = room(1L, "101", RoomStatus.AVAILABLE, CleaningStatus.CLEAN);
+        when(roomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+
+        roomService.delete(1L);
+
+        verify(roomRepository).delete(room);
+        verify(roomRepository).flush();
     }
 
     private Room room(Long id, String name, RoomStatus status, CleaningStatus cleaningStatus) {

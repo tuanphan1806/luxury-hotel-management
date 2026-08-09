@@ -48,7 +48,10 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Phụ phí: cho phép sửa nhiều lần nhưng không cộng dồn giá trị cũ.</li>
  * </ul>
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "hotel.pricing.engine-v2-enabled=true",
+        "hotel.pricing.engine-v2-room-type-codes=*"
+})
 @ActiveProfiles("test")
 @Transactional
 class ReservationOperationalFlowIntegrationTest {
@@ -58,6 +61,8 @@ class ReservationOperationalFlowIntegrationTest {
     @Autowired PaymentSessionExpiryService paymentSessionExpiryService;
     @Autowired ReservationRepository reservationRepository;
     @Autowired RoomTypeRepository roomTypeRepository;
+    @Autowired RoomRateProfileRepository roomRateProfileRepository;
+    @Autowired StayPolicyVersionRepository stayPolicyVersionRepository;
     @Autowired RoomRepository roomRepository;
     @Autowired PaymentTransactionRepository paymentTransactionRepository;
     @Autowired RoomHoldRepository roomHoldRepository;
@@ -138,23 +143,32 @@ class ReservationOperationalFlowIntegrationTest {
         assertEquals(ReservationStatus.CHECKED_IN, response.getStatus());
     }
 
-    /**
-     * TC-CI-04 - Không cho check-in trực tiếp khi đã qua ngày nhận phòng.
-     *
-     * <p>Reservation phải giữ nguyên CONFIRMED để staff xử lý theo quy trình
-     * no-show, thay vì tạo lịch sử check-in sai ngày.</p>
-     */
+    /** TC-CI-04 - Gói nghỉ giờ qua ngày nhận phòng phải đi qua flow no-show. */
     @Test
-    void checkInAfterTheArrivalDateIsRejectedForStaffNoShowHandling() {
-        // Given: đã sang ngày khác so với ngày check-in, dù check-out dự kiến chưa qua.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 4);
+    void hourlyCheckInAfterTheArrivalDateIsRejectedForStaffNoShowHandling() {
+        LocalDateTime futureDaytime = LocalDateTime.now().toLocalDate()
+                .plusDays(1).atTime(10, 0);
+        Fixture fixture = confirmedFixture(futureDaytime, 4);
         moveSchedule(fixture.reservationId(),
                 LocalDateTime.now().minusDays(1), LocalDateTime.now().plusHours(2));
 
-        // When/Then: check-in bị chặn để staff xử lý NO_SHOW theo flow riêng.
         assertThrows(RuntimeException.class, () -> checkIn(fixture));
         assertEquals(ReservationStatus.CONFIRMED,
                 reservationRepository.findById(fixture.reservationId()).orElseThrow().getStatus());
+    }
+
+    /**
+     * TC-CI-04B - Khách gói qua đêm được đến sau nửa đêm nếu checkout chưa qua.
+     */
+    @Test
+    void overnightCheckInAfterTheArrivalDateIsAllowedBeforeCheckout() {
+        LocalDateTime futureOvernight = LocalDateTime.now().toLocalDate()
+                .plusDays(1).atTime(22, 0);
+        Fixture fixture = confirmedFixture(futureOvernight, 4);
+        moveSchedule(fixture.reservationId(),
+                LocalDateTime.now().minusDays(1), LocalDateTime.now().plusHours(2));
+
+        assertEquals(ReservationStatus.CHECKED_IN, checkIn(fixture).getStatus());
     }
 
     /**
@@ -166,7 +180,7 @@ class ReservationOperationalFlowIntegrationTest {
     @Test
     void checkInRejectsDirtyRoomEvenWhenReservationIsConfirmed() {
         // Given: reservation hợp lệ nhưng phòng vật lý chưa dọn xong.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 3);
+        Fixture fixture = confirmedHourlyFixture(1);
         Room room = roomRepository.findById(fixture.roomId()).orElseThrow();
         room.setCleaningStatus(CleaningStatus.DIRTY);
         roomRepository.save(room);
@@ -175,25 +189,16 @@ class ReservationOperationalFlowIntegrationTest {
         assertThrows(RuntimeException.class, () -> checkIn(fixture));
     }
 
-    /**
-     * TC-CO-01 - Checkout sớm phải tính lại tiền phòng theo thời gian thực tế.
-     *
-     * <p>Khách đặt 4 giờ nhưng trả trong giờ đầu. Kết quả mong đợi: tiền phòng
-     * thực tế còn 100.000 VND và phần đã thanh toán thừa được đưa vào số tiền
-     * có thể hoàn, không được coi là số dư phải thu.</p>
-     */
+    /** TC-CO-01 - Gói giờ trả sớm tính lại theo sử dụng thực tế. */
     @Test
-    void earlyCheckoutRepricesActualUsageAndExposesRefundAmount() {
-        // Given: khách đặt 4 giờ (130.000), check-in ngay và đã thanh toán đủ giá dự kiến.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 4);
+    void hourlyEarlyCheckoutCreatesTheExactRefundableDifference() {
+        Fixture fixture = confirmedHourlyFixture(4);
         checkIn(fixture);
         payRemainingDirectly(fixture.reservationId(), PaymentProvider.SEPAY);
 
-        // When: staff mở đối soát ngay trong giờ đầu.
         FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
                 fixture.reservationId(), staff());
 
-        // Then: tiền phòng thực tế còn 100.000, giảm 30.000 và hoàn 30.000.
         assertEquals(130_000L, settlement.getPlannedRoomCharge());
         assertEquals(100_000L, settlement.getRoomCharge());
         assertEquals(30_000L, settlement.getEarlyCheckoutAdjustment());
@@ -211,7 +216,7 @@ class ReservationOperationalFlowIntegrationTest {
     @Test
     void checkoutWithinTheSameBillableHourKeepsRoomPriceAndHasNoLateFee() {
         // Given: actual check-in và check-out vẫn nằm trong cùng 1 giờ tính giá.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 1);
+        Fixture fixture = confirmedHourlyFixture(1);
         checkIn(fixture);
         Reservation reservation = reservationRepository.findById(fixture.reservationId()).orElseThrow();
         LocalDateTime now = LocalDateTime.now();
@@ -231,60 +236,53 @@ class ReservationOperationalFlowIntegrationTest {
         assertEquals(0L, settlement.getLateCheckoutFee());
     }
 
-    /**
-     * TC-CO-02B - Preview checkout sớm không được trở thành giảm giá vĩnh viễn.
-     *
-     * <p>Staff có thể mở màn hình đối soát khi khách định trả sớm, nhưng khách
-     * sau đó ở qua giờ trả phòng. Backend phải đảo khoản giảm đã preview rồi mới
-     * cộng phí checkout muộn, nếu không khách sạn sẽ bị tính thiếu tiền phòng.</p>
-     */
+    /** TC-CO-02B - Preview sớm giảm theo thực tế; ở thêm tính lại từ snapshot. */
     @Test
-    void earlySettlementIsReversedBeforeLateCheckoutRecalculation() {
-        // Given: booking 4 giờ đã preview checkout trong giờ đầu, giảm từ 130.000 còn 100.000.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 4);
+    void earlySettlementRepricesAndLaterStayRestoresTheActualCharge() {
+        Fixture fixture = confirmedHourlyFixture(4);
         checkIn(fixture);
         FinalPaymentResponse early = reservationService.calculateFinalPayment(
                 fixture.reservationId(), staff());
         assertEquals(30_000L, early.getEarlyCheckoutAdjustment());
         assertEquals(100_000L, early.getTotalAmount());
 
-        // When: khách ở lại và thời gian hiện tại đã muộn hơn checkout dự kiến 1 phút.
         moveSchedule(fixture.reservationId(),
-                LocalDateTime.now().minusHours(4), LocalDateTime.now().minusMinutes(1));
+                LocalDateTime.now().minusHours(5).minusMinutes(11),
+                LocalDateTime.now().minusMinutes(71));
         FinalPaymentResponse late = reservationService.calculateFinalPayment(
                 fixture.reservationId(), staff());
 
-        // Then: hoàn nguyên giá dự kiến 130.000, xóa giảm sớm và cộng 10.000 phí muộn.
         assertEquals(0L, late.getEarlyCheckoutAdjustment());
         assertEquals(10_000L, late.getLateCheckoutFee());
         assertEquals(140_000L, late.getTotalAmount());
-        assertEquals(130_000L, late.getRoomCharge());
+        assertEquals(140_000L, late.getRoomCharge());
     }
 
     /**
      * TC-CO-03 - Checkout muộn phải tính phí trễ và thu đúng phần còn thiếu.
      *
-     * <p>Khách trả muộn 61 phút nên được làm tròn thành 2 giờ phụ phí. Sau khi
+     * <p>Khách ở lâu hơn cam kết 71 phút; sau 15 phút grace, phần còn lại được
+     * làm tròn thành một đơn vị giờ bổ sung. Sau khi
      * thanh toán tiền mặt, remainingAmount phải về 0 và giao dịch phải mang
      * purpose FINAL_PAYMENT.</p>
      */
     @Test
     void lateCheckoutAddsFeeAndCashPaymentCollectsExactShortfall() {
-        // Given: reservation 1 phòng đã check-in, sau đó trả muộn 61 phút.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 4);
+        // Given: reservation 1 phòng đã check-in, sau đó ở lâu hơn cam kết 71 phút.
+        Fixture fixture = confirmedFixture(LocalDateTime.now().plusSeconds(5), 4);
         checkIn(fixture);
         moveSchedule(fixture.reservationId(),
-                LocalDateTime.now().minusHours(4),
-                LocalDateTime.now().minusMinutes(61).withNano(0));
+                LocalDateTime.now().minusHours(5).minusMinutes(11),
+                LocalDateTime.now().minusMinutes(71).withNano(0));
 
-        // When: backend đối soát; 61 phút được làm tròn thành 2 giờ trễ.
+        // When: backend đối soát theo cùng policy grace và đơn vị giờ đã snapshot.
         FinalPaymentResponse beforePayment = reservationService.calculateFinalPayment(
                 fixture.reservationId(), staff());
 
-        // Then: phụ phí trễ = 2 x 10.000 cho 1 phòng.
-        assertEquals(20_000L, beforePayment.getLateCheckoutFee());
-        assertEquals(150_000L, beforePayment.getTotalAmount());
-        assertEquals(85_000L, beforePayment.getRemainingAmount());
+        // Then: phần tăng so với cam kết là 1 x 10.000 cho 1 phòng.
+        assertEquals(10_000L, beforePayment.getLateCheckoutFee());
+        assertEquals(140_000L, beforePayment.getTotalAmount());
+        assertEquals(75_000L, beforePayment.getRemainingAmount());
 
         // When: staff thu tiền mặt; PaymentService phải tự lấy đúng phần còn thiếu.
         PaymentResponse payment = createCashFinalPayment(fixture.reservationId(), PaymentPurpose.FINAL_PAYMENT);
@@ -293,7 +291,7 @@ class ReservationOperationalFlowIntegrationTest {
         assertEquals(PaymentProvider.CASH, payment.getProvider());
         assertEquals(PaymentPurpose.FINAL_PAYMENT, payment.getPurpose());
         assertEquals(PaymentStatus.SUCCESS, payment.getStatus());
-        assertEquals(85_000L, payment.getAmount());
+        assertEquals(75_000L, payment.getAmount());
         assertEquals(0L, reservationService.calculateFinalPayment(
                 fixture.reservationId(), staff()).getRemainingAmount());
     }
@@ -306,8 +304,9 @@ class ReservationOperationalFlowIntegrationTest {
      */
     @Test
     void additionalFeeCanBeEditedRepeatedlyWithoutAccumulatingOldValue() {
-        // Given: checkout sớm trong giờ đầu nên tiền phòng thực tế là 100.000.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusMinutes(30), 3);
+        // Given: gói giờ 3 giờ cam kết 120.000; thời gian thực tế hiện tại
+        // vẫn thuộc block đầu 100.000.
+        Fixture fixture = confirmedHourlyFixture(3);
         checkIn(fixture);
         reservationService.calculateFinalPayment(fixture.reservationId(), staff());
 
@@ -315,10 +314,11 @@ class ReservationOperationalFlowIntegrationTest {
         updateAdditionalFee(fixture.reservationId(), 30_000L);
         updateAdditionalFee(fixture.reservationId(), 10_000L);
 
-        // Then: tổng = 100.000 + 10.000, không phải 100.000 + 30.000 + 10.000.
+        // Then: tổng = 100.000 thực tế + 10.000 phụ phí, không cộng dồn phí cũ.
         FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
                 fixture.reservationId(), staff());
         assertEquals(10_000L, settlement.getCheckoutAdditionalFee());
+        assertEquals(20_000L, settlement.getEarlyCheckoutAdjustment());
         assertEquals(110_000L, settlement.getTotalAmount());
         assertEquals(2L, auditLogRepository.findByReservationIdOrderByCreatedAtDesc(fixture.reservationId())
                 .stream().filter(log -> log.getAction() == ReservationAuditAction.UPDATE_CHECKOUT_FEE).count());
@@ -526,12 +526,11 @@ class ReservationOperationalFlowIntegrationTest {
     }
 
     private Fixture confirmedFixture(LocalDateTime checkIn, int bookedHours) {
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Operational " + suffix())
                 .description("Operational flow integration test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
-                .build());
+                .build(), bookedHours);
         Room room = roomRepository.save(Room.builder()
                 .roomName("OPS-" + suffix())
                 .roomType(roomType)
@@ -564,13 +563,30 @@ class ReservationOperationalFlowIntegrationTest {
         return new Fixture(reservation.getId(), room.getId(), customer);
     }
 
+    private Fixture confirmedHourlyFixture(int bookedHours) {
+        LocalDateTime quoteCheckIn = LocalDateTime.now()
+                .plusDays(1)
+                .withHour(10)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0);
+        Fixture fixture = confirmedFixture(quoteCheckIn, bookedHours);
+        Reservation reservation = reservationRepository.findById(
+                fixture.reservationId()).orElseThrow();
+        LocalDateTime operationalCheckIn = LocalDateTime.now().plusSeconds(5);
+        reservation.setCheckIn(operationalCheckIn);
+        reservation.setCheckOut(operationalCheckIn.plusHours(bookedHours));
+        reservationRepository.save(reservation);
+        reload();
+        return fixture;
+    }
+
     private Long paymentPendingFixture() {
-        RoomType roomType = roomTypeRepository.save(RoomType.builder()
+        RoomType roomType = pricedRoomType(RoomType.builder()
                 .typeName("Pending hold " + suffix())
                 .description("Manual and automatic hold integration test")
-                .price(BigDecimal.valueOf(100_000))
                 .maxGuests(2)
-                .build());
+                .build(), 3);
         roomRepository.save(Room.builder()
                 .roomName("HOLD-" + suffix())
                 .roomType(roomType)
@@ -664,6 +680,9 @@ class ReservationOperationalFlowIntegrationTest {
         Reservation reservation = reservationRepository.findById(reservationId).orElseThrow();
         reservation.setCheckIn(checkIn);
         reservation.setCheckOut(checkOut);
+        if (reservation.getActualCheckIn() != null) {
+            reservation.setActualCheckIn(checkIn);
+        }
         reservationRepository.save(reservation);
         reload();
     }
@@ -704,6 +723,23 @@ class ReservationOperationalFlowIntegrationTest {
 
     private String suffix() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+    }
+
+    private RoomType pricedRoomType(RoomType draft, int bookedHours) {
+        // These scenarios characterize checkout repricing independently from
+        // the master-data tariffs: one-hour first block, then 10k per hour.
+        long committedPrice = 100_000L
+                + Math.max(0, bookedHours - 1) * 10_000L;
+        return IntegrationPricingFixture.persist(
+                roomTypeRepository,
+                roomRateProfileRepository,
+                stayPolicyVersionRepository,
+                draft,
+                60,
+                100_000,
+                10_000,
+                committedPrice,
+                1_000_000);
     }
 
     private void reload() {

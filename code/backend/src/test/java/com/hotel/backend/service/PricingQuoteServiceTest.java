@@ -161,6 +161,73 @@ class PricingQuoteServiceTest {
     }
 
     @Test
+    void pricesEachRoomTypeWithItsOwnRateProfileBeforeAggregatingTheOrder() {
+        RoomType deluxe = RoomType.builder()
+                .code("DELUXE")
+                .typeName("Phòng Deluxe")
+                .maxGuests(3)
+                .build();
+        deluxe.setId(2L);
+        RoomRateProfile deluxeRate = RoomRateProfile.builder()
+                .id(22L)
+                .roomType(deluxe)
+                .stayPolicyVersion(rateProfile.getStayPolicyVersion())
+                .profileVersion(1)
+                .includedGuests(2)
+                .firstBlockMinutes(120)
+                .firstBlockPrice(new BigDecimal("100000"))
+                .extraUnitMinutes(60)
+                .extraUnitPrice(new BigDecimal("25000"))
+                .overnightPrice(new BigDecimal("220000"))
+                .dailyPrice(new BigDecimal("400000"))
+                .extraGuestPrice(new BigDecimal("50000"))
+                .extraGuestBillingMode(ExtraGuestBillingMode.PER_PACKAGE_CYCLE)
+                .effectiveFromUtc(Instant.parse("2026-01-01T00:00:00Z"))
+                .active(true)
+                .createdAtUtc(Instant.parse("2026-01-01T00:00:00Z"))
+                .build();
+        when(roomTypeRepository.findAllById(List.of(1L, 2L)))
+                .thenReturn(List.of(roomType, deluxe));
+        when(rateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(1L, 2L)), any(Instant.class)))
+                .thenReturn(List.of(rateProfile, deluxeRate));
+        when(reservationAddOnService.previewBookingTimeForPackageCycles(
+                anyList(), eq(2), eq(1)))
+                .thenReturn(new ReservationAddOnService.BookingQuote(
+                        List.of(), BigDecimal.ZERO));
+        when(quoteRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        PricingQuoteRequest multiTypeRequest = PricingQuoteRequest.builder()
+                .checkIn(LocalDateTime.of(2026, 8, 1, 20, 0))
+                .checkOut(LocalDateTime.of(2026, 8, 2, 8, 0))
+                .guestCount(2)
+                .rooms(List.of(
+                        PricingQuoteRoomRequest.builder()
+                                .roomTypeId(1L)
+                                .quantity(1)
+                                .lineGuestCount(1)
+                                .build(),
+                        PricingQuoteRoomRequest.builder()
+                                .roomTypeId(2L)
+                                .quantity(1)
+                                .lineGuestCount(1)
+                                .build()))
+                .services(List.of())
+                .build();
+
+        PricingQuoteResponse response = service.createQuote(multiTypeRequest);
+
+        assertEquals(2, response.getLines().size());
+        assertMoney("170000", response.getLines().get(0).getRoomCharge());
+        assertMoney("220000", response.getLines().get(1).getRoomCharge());
+        assertMoney("390000", response.getRoomCharge());
+        assertMoney("390000", response.getTotalAmount());
+        assertEquals(21L, response.getLines().get(0).getRateProfileId());
+        assertEquals(22L, response.getLines().get(1).getRateProfileId());
+    }
+
+    @Test
     void rejectsAReservationGuestTotalThatDoesNotEqualLineAllocation() {
         AppException exception =
                 assertThrows(AppException.class, () -> service.createQuote(request(2)));

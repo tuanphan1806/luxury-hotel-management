@@ -3,7 +3,6 @@
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 
 export interface PublicRoomRate {
-  price?: number | string | null;
   packagePricingEnabled?: boolean;
   pricingAvailable?: boolean;
   includedGuests?: number;

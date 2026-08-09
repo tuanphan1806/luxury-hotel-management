@@ -6,8 +6,6 @@ import org.hibernate.annotations.BatchSize;
 
 
 import java.io.Serializable;
-import java.math.BigDecimal;
-
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
@@ -39,12 +37,14 @@ public class RoomType extends AbstractEntity<Long> implements Serializable{
     @Column(name = "description_en", columnDefinition = "TEXT")
     private String descriptionEn;
 
-    @Column(precision = 12, scale = 2)
-    private BigDecimal price;
-
     @Builder.Default
     @Column(name = "max_guests", nullable = false)
     private Integer maxGuests = 2;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean active = true;
+
     @Column(name = "image_url", length = 500)
     private String imageUrl;
 

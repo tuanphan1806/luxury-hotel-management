@@ -34,6 +34,7 @@ public class PricingDefinitionFactory {
                 policy.getOvernightStartTime(),
                 policy.getOvernightEarlyMorningEnd(),
                 policy.getEarlyMorningOvernightMinimumMinutes(),
+                policy.getOvernightRefundLockTime(),
                 policy.getOvernightHardCheckoutTime(),
                 policy.getOvernightMaximumMinutes(),
                 policy.getDailyThresholdMinutes(),

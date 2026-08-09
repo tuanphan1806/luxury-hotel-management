@@ -15,6 +15,8 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
 
     long countByReservationId(Long reservationId);
 
+    long countByRoomTypeId(Long roomTypeId);
+
     @Query("""
         SELECT rrt
         FROM ReservationRoomType rrt

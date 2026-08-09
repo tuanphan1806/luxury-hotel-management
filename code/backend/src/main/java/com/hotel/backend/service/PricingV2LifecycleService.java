@@ -23,9 +23,10 @@ import java.util.*;
 /**
  * Replays Pricing V2 from immutable committed rate versions.
  *
- * <p>It never consults the currently-open catalogue rate and never lowers a
- * committed charge. Preview is read-only; mutations append a new evidence
- * snapshot while the caller holds the reservation lock.</p>
+ * <p>It never consults the currently-open catalogue rate. Preview is read-only;
+ * mutations append a new evidence snapshot while the caller holds the
+ * reservation lock. An actual early checkout may lower hourly/daily usage and
+ * an overnight stay before its versioned refund-lock boundary.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -99,15 +100,25 @@ public class PricingV2LifecycleService {
                     ErrorCode.RESERVATION_INVALID_DATE);
         }
 
-        // Early departure never reduces the committed package. A late stay is
-        // replayed through the same engine. Once the guest has checked in, the
-        // operational stay starts at actualCheckIn; the immutable commitment
-        // remains the financial floor, so a late arrival can never lower the
-        // amount already agreed at booking.
-        LocalDateTime pricingCheckout =
-                requestedCheckout.isAfter(reservation.getCheckOut())
-                        ? requestedCheckout
-                        : reservation.getCheckOut();
+        boolean earlyCheckout = reservation.getStatus()
+                == ReservationStatus.CHECKED_IN
+                && reservation.getActualCheckIn() != null
+                && requestedCheckout.isBefore(reservation.getCheckOut());
+        LocalDateTime pricingCheckout;
+        if (earlyCheckout) {
+            // A reconciliation may be opened in the same clock tick as
+            // check-in. Keep the engine interval valid without inventing a
+            // billable minute; the engine still applies its normal minimum.
+            pricingCheckout = requestedCheckout.isAfter(
+                    reservation.getActualCheckIn())
+                    ? requestedCheckout
+                    : reservation.getActualCheckIn().plusNanos(1);
+        } else {
+            pricingCheckout = requestedCheckout.isAfter(
+                    reservation.getCheckOut())
+                    ? requestedCheckout
+                    : reservation.getCheckOut();
+        }
         List<ReservationRoomType> reservationLines = preloadedRoomTypes != null
                 ? preloadedRoomTypes
                 : reservationRoomTypeRepository.findDetailsByReservationId(
@@ -132,6 +143,7 @@ public class PricingV2LifecycleService {
         BigDecimal projectedBase = money(BigDecimal.ZERO);
         BigDecimal committedBase = money(BigDecimal.ZERO);
         BigDecimal plannedRoomCharge = money(BigDecimal.ZERO);
+        BigDecimal reductionReferenceRoomCharge = money(BigDecimal.ZERO);
         BigDecimal projectedRoomCharge = money(BigDecimal.ZERO);
         BigDecimal projectedExtraGuestCharge = money(BigDecimal.ZERO);
         StayPolicyVersion commonPolicy = null;
@@ -208,13 +220,39 @@ public class PricingV2LifecycleService {
                         ErrorCode.INVALID_REQUEST, exception.getMessage());
             }
 
-            BigDecimal finalRoomCharge = maxMoney(
-                    latest.getFinalRoomCharge(),
-                    commitment.getMinimumCommittedRoomCharge(),
-                    recalculated.roomCharge());
-            BigDecimal finalExtraGuestCharge = maxMoney(
-                    latest.getExtraGuestCharge(),
-                    recalculated.extraGuestCharge());
+            boolean overnightFloorApplies = earlyCheckout
+                    && commitment.getInitialPackage() == StayPackage.OVERNIGHT
+                    && overnightRefundFloorApplies(
+                            commitment, policy, pricingCheckout);
+            BigDecimal finalRoomCharge;
+            BigDecimal finalExtraGuestCharge;
+            if (earlyCheckout && !overnightFloorApplies) {
+                // Hourly, rolling-day and pre-23:00 overnight departures are
+                // authoritative actual-usage reprices and may create a refund.
+                finalRoomCharge = money(recalculated.roomCharge());
+                finalExtraGuestCharge = money(
+                        recalculated.extraGuestCharge());
+            } else if (overnightFloorApplies) {
+                // Once the operational night reaches the lock boundary, only
+                // the overnight package itself is non-refundable. Unused
+                // future extension units are not retained as a second floor.
+                finalRoomCharge = maxMoney(
+                        commitment.getMinimumCommittedRoomCharge(),
+                        recalculated.roomCharge());
+                finalExtraGuestCharge = maxMoney(
+                        commitment.getExtraGuestCharge(),
+                        recalculated.extraGuestCharge());
+            } else {
+                // Check-in and non-early/late transitions must never lower the
+                // currently committed obligation.
+                finalRoomCharge = maxMoney(
+                        latest.getFinalRoomCharge(),
+                        commitment.getMinimumCommittedRoomCharge(),
+                        recalculated.roomCharge());
+                finalExtraGuestCharge = maxMoney(
+                        latest.getExtraGuestCharge(),
+                        recalculated.extraGuestCharge());
+            }
             BigDecimal latestBase = money(latest.getFinalRoomCharge())
                     .add(money(latest.getExtraGuestCharge()));
             BigDecimal nextBase = finalRoomCharge
@@ -229,6 +267,15 @@ public class PricingV2LifecycleService {
             committedBase = committedBase.add(initialBase);
             plannedRoomCharge = plannedRoomCharge.add(
                     money(commitment.getFinalRoomCharge()));
+            BigDecimal lineReductionReference = snapshots.stream()
+                    .map(ReservationRateSnapshot::getFinalRoomCharge)
+                    .map(this::money)
+                    .max(BigDecimal::compareTo)
+                    .orElseGet(() -> money(
+                            commitment.getFinalRoomCharge()));
+            reductionReferenceRoomCharge =
+                    reductionReferenceRoomCharge.add(
+                            lineReductionReference);
             projectedRoomCharge = projectedRoomCharge.add(
                     finalRoomCharge);
             projectedExtraGuestCharge =
@@ -273,6 +320,11 @@ public class PricingV2LifecycleService {
         BigDecimal cumulativeIncrease =
                 projectedRoomCharge.subtract(plannedRoomCharge).max(
                         money(BigDecimal.ZERO));
+        BigDecimal earlyCheckoutAdjustment = earlyCheckout
+                ? reductionReferenceRoomCharge
+                        .subtract(projectedRoomCharge)
+                        .max(money(BigDecimal.ZERO))
+                : money(BigDecimal.ZERO);
         return new Projection(
                 pricingCheckout,
                 protectedUntil,
@@ -280,6 +332,7 @@ public class PricingV2LifecycleService {
                 plannedRoomCharge,
                 projectedRoomCharge,
                 projectedExtraGuestCharge,
+                earlyCheckoutAdjustment,
                 cumulativeIncrease,
                 delta,
                 aggregates.displayPackage(breakdowns),
@@ -373,6 +426,8 @@ public class PricingV2LifecycleService {
         }
         reservation.setLateCheckoutFee(
                 projection.cumulativePricingIncrease());
+        reservation.setEarlyCheckoutAdjustment(
+                projection.earlyCheckoutAdjustment());
         reservation.setDisplayPackageSummary(
                 projection.displayPackage());
         reservation.setInventoryProtectedUntil(
@@ -556,6 +611,23 @@ public class PricingV2LifecycleService {
                 .orElse(null);
     }
 
+    private boolean overnightRefundFloorApplies(
+            ReservationRateSnapshot commitment,
+            StayPolicyVersion policy,
+            LocalDateTime actualCheckout) {
+        LocalDateTime committedCheckIn =
+                commitment.getCommittedCheckIn();
+        if (committedCheckIn == null) {
+            throw missingSnapshot();
+        }
+        LocalDateTime refundLock = committedCheckIn
+                .toLocalDate()
+                .minusDays(committedCheckIn.toLocalTime().isBefore(
+                        policy.getOvernightEarlyMorningEnd()) ? 1L : 0L)
+                .atTime(policy.getOvernightRefundLockTime());
+        return !actualCheckout.isBefore(refundLock);
+    }
+
     private StayPackage highestPackage(
             StayPackage left, StayPackage right) {
         if (left == null) {
@@ -623,6 +695,7 @@ public class PricingV2LifecycleService {
             BigDecimal plannedRoomCharge,
             BigDecimal actualRoomCharge,
             BigDecimal extraGuestCharge,
+            BigDecimal earlyCheckoutAdjustment,
             BigDecimal cumulativePricingIncrease,
             BigDecimal deltaAmount,
             StayPackage displayPackage,

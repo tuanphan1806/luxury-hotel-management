@@ -231,7 +231,9 @@ Mỗi workflow dưới đây phải kiểm tra: happy path, invalid input, autho
 - Arbitrary minute check-in/out; checkout phải sau check-in; URL time invalid phải báo lỗi rõ và xóa stale result.
 - Số người reservation, từng room type, từng physical room và guest record không vượt capacity; vẫn linh hoạt với khách đại diện.
 - Một đơn nhiều loại và số lượng phòng; price per line và tổng đơn đúng.
-- Pricing V2: hourly/overnight/daily, late arrival, early checkout không hạ gói trái policy, late hour, 20-hour/day boundaries, multi-day remainder và monotonicity theo từng phút.
+- Pricing V2: hourly/overnight/daily, late arrival; early checkout HOURLY/DAILY
+  tính lại thực tế; OVERNIGHT trước 23:00 có thể hoàn và từ 23:00 giữ sàn gói;
+  late hour, biên 20 giờ/ngày, multi-day remainder và monotonicity theo từng phút.
 - Rate version/effective time/overlap guard; quote TTL; feature-flag/canary; timezone/DST assumptions.
 - Giá hiển thị public (qua đêm), room detail (qua đêm/ngày), booking dynamic theo stay window; không dùng legacy hourly catalog field.
 - Add-on booking-time theo quantity/unit/package cycle và deposit base; note/validation/snapshot.

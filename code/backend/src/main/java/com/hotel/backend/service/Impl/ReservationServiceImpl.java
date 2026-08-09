@@ -153,6 +153,7 @@ public class ReservationServiceImpl implements ReservationService {
         boolean pricingV2Requested =
                 pricingQuoteCommitmentService.requestsV2(request);
         PricingQuoteCommitmentService.Commitment pricingCommitment = null;
+        WalkInPricingService.Calculation directPricingCalculation = null;
 
         List<RoomTypeWithPrice> roomTypeWithPrices = new ArrayList<>();
 
@@ -167,6 +168,7 @@ public class ReservationServiceImpl implements ReservationService {
                         .findByIdForUpdate(item.getRoomTypeId())
                         .orElseThrow(() -> new AppException(
                                 ErrorCode.ROOM_TYPE_NOT_FOUND));
+                requireSellableRoomType(roomType);
                 lockedRoomTypes.put(roomType.getId(), roomType);
             }
             pricingCommitment = pricingQuoteCommitmentService
@@ -198,33 +200,43 @@ public class ReservationServiceImpl implements ReservationService {
                         .findByIdForUpdate(item.getRoomTypeId())
                         .orElseThrow(() -> new AppException(
                                 ErrorCode.ROOM_TYPE_NOT_FOUND));
-
-                checkAvailabilityOrThrow(
-                        roomType,
-                        item.getQuantity(),
-                        request.getCheckIn(),
-                        request.getCheckOut(),
-                        null);
-
-                BigDecimal pricePerRoom =
-                        pricingService.calculateStayPricePerRoom(
-                                roomType,
-                                request.getCheckIn(),
-                                request.getCheckOut());
-                BigDecimal subtotal = pricePerRoom.multiply(
-                        BigDecimal.valueOf(item.getQuantity()));
-
-                totalAmount = totalAmount.add(subtotal);
-                totalCapacity += roomCapacity(roomType) * item.getQuantity();
-                roomTypeWithPrices.add(new RoomTypeWithPrice(
-                        roomType,
-                        item.getQuantity(),
-                        pricePerRoom,
-                        subtotal,
-                        null,
-                        null,
-                        null));
+                requireSellableRoomType(roomType);
+                lockedRoomTypes.put(roomType.getId(), roomType);
             }
+            directPricingCalculation = walkInPricingService
+                    .calculateIfEligible(
+                            request.getCheckIn(),
+                            request.getCheckOut(),
+                            request.getGuestCount(),
+                            roomTypeRequests.stream()
+                                    .map(item -> new WalkInPricingService.LineInput(
+                                            lockedRoomTypes.get(item.getRoomTypeId()),
+                                            item.getQuantity(),
+                                            item.getLineGuestCount(),
+                                            item.getQuantity()))
+                                    .toList())
+                    .orElseThrow(() -> new AppException(
+                            ErrorCode.PRICING_ENGINE_DISABLED,
+                            "Bảng giá giờ/đêm/ngày chưa được bật đầy đủ"));
+            for (WalkInPricingService.CalculatedLine line
+                    : directPricingCalculation.lines()) {
+                checkAvailabilityOrThrow(
+                        line.roomType(),
+                        line.quantity(),
+                        request.getCheckIn(),
+                        directPricingCalculation.inventoryProtectedUntil(),
+                        null);
+                totalCapacity += roomCapacity(line.roomType()) * line.quantity();
+                roomTypeWithPrices.add(new RoomTypeWithPrice(
+                        line.roomType(),
+                        line.quantity(),
+                        line.breakdown().roomChargePerRoom(),
+                        line.breakdown().lineTotalBeforeServices(),
+                        line.lineGuestCount(),
+                        line.breakdown().roomCharge(),
+                        line.breakdown().appliedPackage()));
+            }
+            totalAmount = directPricingCalculation.totalBeforeServices();
         }
 
         validateCapacity(request.getGuestCount(), totalCapacity);
@@ -232,11 +244,11 @@ public class ReservationServiceImpl implements ReservationService {
         ReservationAddOnService.BookingQuote bookingServices =
                 pricingCommitment != null
                         ? pricingCommitment.bookingServices()
-                        : reservationAddOnService.quoteBookingTime(
+                        : reservationAddOnService.quoteBookingTimeForPackageCycles(
                                 request.getServices(),
                                 request.getGuestCount(),
-                                request.getCheckIn(),
-                                request.getCheckOut());
+                                Objects.requireNonNull(directPricingCalculation)
+                                        .packageCycles());
         if (pricingCommitment == null) {
             totalAmount = totalAmount.add(bookingServices.totalAmount());
         }
@@ -259,15 +271,13 @@ public class ReservationServiceImpl implements ReservationService {
                 .customerProfile(customerProfile)
                 .checkIn(request.getCheckIn())
                 .checkOut(request.getCheckOut())
-                .pricingVersion(pricingCommitment != null
-                        ? PricingAlgorithmVersion.MOTEL_PACKAGE_V2
-                        : PricingAlgorithmVersion.LEGACY_V1)
+                .pricingVersion(PricingAlgorithmVersion.MOTEL_PACKAGE_V2)
                 .displayPackageSummary(pricingCommitment != null
                         ? pricingCommitment.displayPackage()
-                        : null)
+                        : directPricingCalculation.displayPackage())
                 .inventoryProtectedUntil(pricingCommitment != null
                         ? pricingCommitment.inventoryProtectedUntil()
-                        : null)
+                        : directPricingCalculation.inventoryProtectedUntil())
                 .totalAmount(totalAmount)
                 .paymentPlan(paymentPlan)
                 .requiredInitialPayment(requiredInitialPayment)
@@ -315,6 +325,12 @@ public class ReservationServiceImpl implements ReservationService {
                     reservation, savedReservationLines, pricingCommitment);
             pricingQuoteCommitmentService.recordCommitment(
                     pricingCommitment, reservation);
+        } else {
+            rateSnapshotService.createWalkInSnapshots(
+                    reservation,
+                    savedReservationLines,
+                    Objects.requireNonNull(directPricingCalculation),
+                    bookingServices.totalAmount());
         }
 
         log.info("Reservation created: code={} total={}", reservation.getReservationCode(), totalAmount);
@@ -566,6 +582,7 @@ public class ReservationServiceImpl implements ReservationService {
         for (RoomTypeItemRequest item : roomTypeRequests) {
             RoomType roomType = roomTypeRepository.findByIdForUpdate(item.getRoomTypeId())
                     .orElseThrow(() -> new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND));
+            requireSellableRoomType(roomType);
             lockedRoomTypes.put(roomType.getId(), roomType);
             totalCapacity += roomCapacity(roomType) * item.getQuantity();
         }
@@ -584,67 +601,33 @@ public class ReservationServiceImpl implements ReservationService {
                                                 item.getLineGuestCount(),
                                                 0))
                                         .toList())
-                        .orElse(null);
-        if (pricingCalculation != null) {
-            for (WalkInPricingService.CalculatedLine line
-                    : pricingCalculation.lines()) {
-                checkAvailabilityOrThrow(
-                        line.roomType(),
-                        line.quantity(),
-                        actualCheckIn,
-                        pricingCalculation.inventoryProtectedUntil(),
-                        null);
-                roomTypeWithPrices.add(new RoomTypeWithPrice(
-                        line.roomType(),
-                        line.quantity(),
-                        line.breakdown().roomChargePerRoom(),
-                        line.breakdown().lineTotalBeforeServices(),
-                        line.lineGuestCount(),
-                        line.breakdown().roomCharge(),
-                        line.breakdown().appliedPackage()));
-            }
-            totalAmount = pricingCalculation.totalBeforeServices();
-        } else {
-            totalAmount = BigDecimal.ZERO;
-            for (RoomTypeItemRequest item : roomTypeRequests) {
-                RoomType roomType = lockedRoomTypes.get(item.getRoomTypeId());
-                checkAvailabilityOrThrow(
-                        roomType,
-                        item.getQuantity(),
-                        actualCheckIn,
-                        request.getCheckOut(),
-                        null);
-                BigDecimal pricePerRoom =
-                        pricingService.calculateStayPricePerRoom(
-                                roomType,
-                                actualCheckIn,
-                                request.getCheckOut());
-                BigDecimal subtotal = pricePerRoom.multiply(
-                        BigDecimal.valueOf(item.getQuantity()));
-                totalAmount = totalAmount.add(subtotal);
-                roomTypeWithPrices.add(new RoomTypeWithPrice(
-                        roomType,
-                        item.getQuantity(),
-                        pricePerRoom,
-                        subtotal,
-                        null,
-                        null,
-                        null));
-            }
+                        .orElseThrow(() -> new AppException(
+                                ErrorCode.PRICING_ENGINE_DISABLED,
+                                "Bảng giá giờ/đêm/ngày chưa được bật đầy đủ"));
+        for (WalkInPricingService.CalculatedLine line
+                : pricingCalculation.lines()) {
+            checkAvailabilityOrThrow(
+                    line.roomType(),
+                    line.quantity(),
+                    actualCheckIn,
+                    pricingCalculation.inventoryProtectedUntil(),
+                    null);
+            roomTypeWithPrices.add(new RoomTypeWithPrice(
+                    line.roomType(),
+                    line.quantity(),
+                    line.breakdown().roomChargePerRoom(),
+                    line.breakdown().lineTotalBeforeServices(),
+                    line.lineGuestCount(),
+                    line.breakdown().roomCharge(),
+                    line.breakdown().appliedPackage()));
         }
+        totalAmount = pricingCalculation.totalBeforeServices();
 
         ReservationAddOnService.BookingQuote bookingServices =
-                pricingCalculation != null
-                        ? reservationAddOnService
-                                .quoteBookingTimeForPackageCycles(
-                                        request.getServices(),
-                                        request.getGuestCount(),
-                                        pricingCalculation.packageCycles())
-                        : reservationAddOnService.quoteBookingTime(
-                                request.getServices(),
-                                request.getGuestCount(),
-                                actualCheckIn,
-                                request.getCheckOut());
+                reservationAddOnService.quoteBookingTimeForPackageCycles(
+                        request.getServices(),
+                        request.getGuestCount(),
+                        pricingCalculation.packageCycles());
         totalAmount = totalAmount.add(bookingServices.totalAmount());
 
         // Tạo Reservation — đi thẳng CONFIRMED, không qua DRAFT/Hold/Payment
@@ -653,15 +636,10 @@ public class ReservationServiceImpl implements ReservationService {
                 .customerProfile(customerProfile)
                 .checkIn(actualCheckIn)
                 .checkOut(request.getCheckOut())
-                .pricingVersion(pricingCalculation != null
-                        ? PricingAlgorithmVersion.MOTEL_PACKAGE_V2
-                        : PricingAlgorithmVersion.LEGACY_V1)
-                .displayPackageSummary(pricingCalculation != null
-                        ? pricingCalculation.displayPackage()
-                        : null)
-                .inventoryProtectedUntil(pricingCalculation != null
-                        ? pricingCalculation.inventoryProtectedUntil()
-                        : null)
+                .pricingVersion(PricingAlgorithmVersion.MOTEL_PACKAGE_V2)
+                .displayPackageSummary(pricingCalculation.displayPackage())
+                .inventoryProtectedUntil(
+                        pricingCalculation.inventoryProtectedUntil())
                 .totalAmount(totalAmount)
                 .paymentPlan(PaymentPlan.PAY_AT_HOTEL)
                 .requiredInitialPayment(BigDecimal.ZERO)
@@ -702,13 +680,11 @@ public class ReservationServiceImpl implements ReservationService {
 
         }
 
-        if (pricingCalculation != null) {
-            rateSnapshotService.createWalkInSnapshots(
-                    reservation,
-                    savedReservationLines,
-                    pricingCalculation,
-                    bookingServices.totalAmount());
-        }
+        rateSnapshotService.createWalkInSnapshots(
+                reservation,
+                savedReservationLines,
+                pricingCalculation,
+                bookingServices.totalAmount());
 
         log.info("Walk-in reservation created & confirmed: code={} total={}",
                 reservation.getReservationCode(), totalAmount);
@@ -770,6 +746,7 @@ public class ReservationServiceImpl implements ReservationService {
         for (Long roomTypeId : discoveredRoomTypeIds.stream().sorted().toList()) {
             RoomType roomType = roomTypeRepository.findByIdForUpdate(roomTypeId)
                     .orElseThrow(() -> new AppException(ErrorCode.ROOM_TYPE_NOT_FOUND));
+            requireSellableRoomType(roomType);
             lockedRoomTypes.put(roomTypeId, roomType);
         }
 
@@ -851,92 +828,64 @@ public class ReservationServiceImpl implements ReservationService {
         }
 
         WalkInPricingService.Calculation pricingCalculation =
-                priceOverrides.isEmpty()
-                        ? walkInPricingService.calculateIfEligible(
-                                        actualCheckIn,
-                                        request.getCheckOut(),
-                                        request.getGuestCount(),
-                                        assignmentsByRoomType.entrySet().stream()
-                                                .map(entry ->
-                                                        new WalkInPricingService.LineInput(
-                                                                lockedRoomTypes.get(
-                                                                        entry.getKey()),
-                                                                entry.getValue().size(),
-                                                                null,
-                                                                entry.getValue().stream()
-                                                                        .map(AssignRoomRequest::getGuests)
-                                                                        .filter(Objects::nonNull)
-                                                                        .mapToInt(List::size)
-                                                                        .sum()))
-                                                .toList())
-                                .orElse(null)
-                        : null;
+                walkInPricingService.calculateIfEligible(
+                                actualCheckIn,
+                                request.getCheckOut(),
+                                request.getGuestCount(),
+                                assignmentsByRoomType.entrySet().stream()
+                                        .map(entry ->
+                                                new WalkInPricingService.LineInput(
+                                                        lockedRoomTypes.get(
+                                                                entry.getKey()),
+                                                        entry.getValue().size(),
+                                                        null,
+                                                        entry.getValue().stream()
+                                                                .map(AssignRoomRequest::getGuests)
+                                                                .filter(Objects::nonNull)
+                                                                .mapToInt(List::size)
+                                                                .sum()))
+                                        .toList())
+                        .orElseThrow(() -> new AppException(
+                                ErrorCode.PRICING_ENGINE_DISABLED,
+                                "Bảng giá giờ/đêm/ngày chưa được bật đầy đủ"));
 
         BigDecimal totalAmount;
         Map<Long, BigDecimal> priceByRoomType = new LinkedHashMap<>();
         Map<Long, BigDecimal> systemPriceByRoomType = new LinkedHashMap<>();
         Map<Long, WalkInPricingService.CalculatedLine>
                 calculatedLineByRoomType = new LinkedHashMap<>();
-        if (pricingCalculation != null) {
-            totalAmount = pricingCalculation.totalBeforeServices();
-            for (WalkInPricingService.CalculatedLine line
-                    : pricingCalculation.lines()) {
-                checkAvailabilityOrThrow(
-                        line.roomType(),
-                        line.quantity(),
-                        actualCheckIn,
-                        pricingCalculation.inventoryProtectedUntil(),
-                        null);
-                calculatedLineByRoomType.put(
-                        line.roomType().getId(), line);
-                systemPriceByRoomType.put(
-                        line.roomType().getId(),
-                        line.breakdown().roomChargePerRoom());
-                priceByRoomType.put(
-                        line.roomType().getId(),
-                        line.breakdown().roomChargePerRoom());
-            }
-        } else {
-            totalAmount = BigDecimal.ZERO;
-            for (Map.Entry<Long, List<AssignRoomRequest>> entry
-                    : assignmentsByRoomType.entrySet()) {
-                RoomType roomType = lockedRoomTypes.get(entry.getKey());
-                int quantity = entry.getValue().size();
-                checkAvailabilityOrThrow(
-                        roomType,
-                        quantity,
-                        actualCheckIn,
-                        request.getCheckOut(),
-                        null);
-                BigDecimal systemPrice =
-                        pricingService.calculateStayPricePerRoom(
-                                roomType,
-                                actualCheckIn,
-                                request.getCheckOut());
-                systemPriceByRoomType.put(entry.getKey(), systemPrice);
-                WalkInPriceOverrideRequest override =
-                        priceOverrides.get(entry.getKey());
-                BigDecimal price = override != null
-                        ? override.getNewUnitPrice()
-                        : systemPrice;
-                priceByRoomType.put(entry.getKey(), price);
-                totalAmount = totalAmount.add(price.multiply(
-                        BigDecimal.valueOf(quantity)));
+        totalAmount = pricingCalculation.totalBeforeServices();
+        for (WalkInPricingService.CalculatedLine line
+                : pricingCalculation.lines()) {
+            checkAvailabilityOrThrow(
+                    line.roomType(),
+                    line.quantity(),
+                    actualCheckIn,
+                    pricingCalculation.inventoryProtectedUntil(),
+                    null);
+            calculatedLineByRoomType.put(
+                    line.roomType().getId(), line);
+            BigDecimal systemPrice = line.breakdown().roomChargePerRoom();
+            systemPriceByRoomType.put(line.roomType().getId(), systemPrice);
+            WalkInPriceOverrideRequest override =
+                    priceOverrides.get(line.roomType().getId());
+            BigDecimal appliedPrice = override != null
+                    ? override.getNewUnitPrice()
+                    : systemPrice;
+            priceByRoomType.put(line.roomType().getId(), appliedPrice);
+            if (override != null && systemPrice.compareTo(appliedPrice) != 0) {
+                totalAmount = totalAmount
+                        .subtract(line.breakdown().roomCharge())
+                        .add(appliedPrice.multiply(
+                                BigDecimal.valueOf(line.quantity())));
             }
         }
 
         ReservationAddOnService.BookingQuote bookingServices =
-                pricingCalculation != null
-                        ? reservationAddOnService
-                                .quoteBookingTimeForPackageCycles(
-                                        request.getServices(),
-                                        request.getGuestCount(),
-                                        pricingCalculation.packageCycles())
-                        : reservationAddOnService.quoteBookingTime(
-                                request.getServices(),
-                                request.getGuestCount(),
-                                actualCheckIn,
-                                request.getCheckOut());
+                reservationAddOnService.quoteBookingTimeForPackageCycles(
+                        request.getServices(),
+                        request.getGuestCount(),
+                        pricingCalculation.packageCycles());
         totalAmount = totalAmount.add(bookingServices.totalAmount());
 
         long remainingAmount = totalAmount.setScale(0, RoundingMode.CEILING).longValueExact();
@@ -958,13 +907,13 @@ public class ReservationServiceImpl implements ReservationService {
                 .checkIn(actualCheckIn)
                 .checkOut(request.getCheckOut())
                 .actualCheckIn(actualCheckIn)
-                .pricingVersion(pricingCalculation != null
+                .pricingVersion(priceOverrides.isEmpty()
                         ? PricingAlgorithmVersion.MOTEL_PACKAGE_V2
                         : PricingAlgorithmVersion.LEGACY_V1)
-                .displayPackageSummary(pricingCalculation != null
+                .displayPackageSummary(priceOverrides.isEmpty()
                         ? pricingCalculation.displayPackage()
                         : null)
-                .inventoryProtectedUntil(pricingCalculation != null
+                .inventoryProtectedUntil(priceOverrides.isEmpty()
                         ? pricingCalculation.inventoryProtectedUntil()
                         : null)
                 .totalAmount(totalAmount)
@@ -986,9 +935,9 @@ public class ReservationServiceImpl implements ReservationService {
             BigDecimal price = priceByRoomType.get(entry.getKey());
             WalkInPricingService.CalculatedLine calculatedLine =
                     calculatedLineByRoomType.get(entry.getKey());
-            BigDecimal subtotal = calculatedLine != null
-                    ? calculatedLine.breakdown().lineTotalBeforeServices()
-                    : price.multiply(BigDecimal.valueOf(entry.getValue().size()));
+            BigDecimal subtotal = price
+                    .multiply(BigDecimal.valueOf(entry.getValue().size()))
+                    .add(calculatedLine.breakdown().extraGuestCharge());
             ReservationRoomType reservationRoomType = reservationRoomTypeRepository.save(
                     ReservationRoomType.builder()
                             .reservation(reservation)
@@ -996,15 +945,11 @@ public class ReservationServiceImpl implements ReservationService {
                             .quantity(entry.getValue().size())
                             .roomPrice(price)
                             .subtotal(subtotal)
-                            .lineGuestCount(calculatedLine != null
-                                    ? calculatedLine.lineGuestCount()
-                                    : null)
-                            .minimumCommittedRoomCharge(calculatedLine != null
-                                    ? calculatedLine.breakdown().roomCharge()
-                                    : null)
-                            .maxPackageReached(calculatedLine != null
-                                    ? calculatedLine.breakdown().appliedPackage()
-                                    : null)
+                            .lineGuestCount(calculatedLine.lineGuestCount())
+                            .minimumCommittedRoomCharge(price.multiply(
+                                    BigDecimal.valueOf(entry.getValue().size())))
+                            .maxPackageReached(
+                                    calculatedLine.breakdown().appliedPackage())
                             .build());
             savedReservationLines.put(
                     roomType.getId(), reservationRoomType);
@@ -1062,7 +1007,7 @@ public class ReservationServiceImpl implements ReservationService {
             }
         }
 
-        if (pricingCalculation != null) {
+        if (priceOverrides.isEmpty()) {
             rateSnapshotService.createWalkInSnapshots(
                     reservation,
                     savedReservationLines,
@@ -1452,7 +1397,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     LocalDateTime now = LocalDateTime.now();
     long hours = pricingService.billableHours(checkIn, checkOut);
 
-    List<RoomType> roomTypes = roomTypeRepository.findAll();
+    List<RoomType> roomTypes = roomTypeRepository.findAllActiveWithFacilities();
     Map<Long, Integer> totalByRoomType = quantityByRoomType(
             roomTypeRepository.countAvailableRoomsGroupedByType());
     Map<Long, Integer> bookedByRoomType = quantityByRoomType(
@@ -1465,7 +1410,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             availabilityPricingService.estimateAll(
                     roomTypes, checkIn, checkOut);
 
-    return roomTypes.stream().map(rt -> {
+    return roomTypes.stream()
+            .filter(rt -> estimatesByRoomType.containsKey(rt.getId()))
+            .map(rt -> {
         int total = totalByRoomType.getOrDefault(rt.getId(), 0);
         int booked = bookedByRoomType.getOrDefault(rt.getId(), 0);
         int held = heldByRoomType.getOrDefault(rt.getId(), 0);
@@ -1479,20 +1426,11 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .roomTypeNameEn(rt.getTypeNameEn())
                 .description(rt.getDescription())
                 .descriptionEn(rt.getDescriptionEn())
-                .pricePerHour(rt.getPrice())
-                .firstBlockMinutes(pricingEstimate != null
-                        ? pricingEstimate.firstBlockMinutes()
-                        : 60)
-                .firstBlockPrice(pricingEstimate != null
-                        ? pricingEstimate.firstBlockPrice()
-                        : rt.getPrice())
-                .estimatedPricePerRoom(pricingEstimate != null
-                        ? pricingEstimate.estimatedPricePerRoom()
-                        : pricingService.calculateStayPricePerRoom(
-                                rt, checkIn, checkOut))
-                .estimatedPackage(pricingEstimate != null
-                        ? pricingEstimate.estimatedPackage()
-                        : null)
+                .firstBlockMinutes(pricingEstimate.firstBlockMinutes())
+                .firstBlockPrice(pricingEstimate.firstBlockPrice())
+                .estimatedPricePerRoom(
+                        pricingEstimate.estimatedPricePerRoom())
+                .estimatedPackage(pricingEstimate.estimatedPackage())
                 .maxGuestsPerRoom(roomCapacity(rt))
                 .imageUrl(rt.getImageUrl())
                 .imageUrls(rt.getImageUrls() == null || rt.getImageUrls().isEmpty()
@@ -2389,6 +2327,15 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         return roomType.getMaxGuests() != null ? Math.max(1, roomType.getMaxGuests()) : 2;
     }
 
+    private void requireSellableRoomType(RoomType roomType) {
+        if (!Boolean.TRUE.equals(roomType.getActive())) {
+            throw new AppException(
+                    ErrorCode.ROOM_TYPE_INACTIVE,
+                    "Hạng phòng " + roomType.getTypeName()
+                            + " đang ngừng hoạt động");
+        }
+    }
+
     private void validateReservationRequest(Integer guestCount, List<RoomTypeItemRequest> roomTypes) {
         if (guestCount == null || guestCount < 1) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Số khách phải lớn hơn 0");
@@ -2506,8 +2453,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     }
 
     /**
-     * Pricing V2 is replayed from immutable line snapshots and never receives
-     * the legacy early-checkout discount. Legacy reservations keep the
+     * Pricing V2 replays the versioned package policy from immutable line
+     * snapshots. Its lifecycle projection owns hourly/daily early repricing and
+     * the overnight refund-lock boundary. Legacy reservations keep the
      * existing calculation byte-for-byte through the two old helpers.
      */
     private void applyCheckoutPricing(
@@ -2527,7 +2475,6 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                         now,
                         RateSnapshotStage.ADJUSTMENT);
             }
-            reservation.setEarlyCheckoutAdjustment(BigDecimal.ZERO);
             reservationRepository.save(reservation);
             return;
         }
@@ -2619,16 +2566,24 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 reservationAddOnService.committedTotal(reservation.getId());
 
         if (pricingV2LifecycleService.supports(reservation)) {
-            LocalDateTime requestedCheckout =
-                    now.isAfter(reservation.getCheckIn())
-                            ? now
-                            : reservation.getCheckOut();
+            LocalDateTime requestedCheckout;
+            if (reservation.getStatus() == ReservationStatus.CHECKED_IN
+                    && reservation.getActualCheckIn() != null) {
+                requestedCheckout = now.isAfter(
+                        reservation.getActualCheckIn())
+                        ? now
+                        : reservation.getActualCheckIn().plusNanos(1);
+            } else {
+                requestedCheckout = now.isAfter(reservation.getCheckIn())
+                        ? now
+                        : reservation.getCheckOut();
+            }
             PricingV2LifecycleService.Projection projection =
                     pricingV2LifecycleService.project(
                             reservation, requestedCheckout);
             return new ProjectedCheckout(
                     projection.projectedTotalAmount().longValue(),
-                    0L,
+                    projection.earlyCheckoutAdjustment().longValue(),
                     projection.cumulativePricingIncrease().longValue(),
                     additionalFee.longValue(),
                     addOnServiceAmount.longValue(),

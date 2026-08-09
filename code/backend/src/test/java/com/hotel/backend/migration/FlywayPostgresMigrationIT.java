@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "35";
+    private static final String LATEST_VERSION = "37";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -83,6 +83,8 @@ class FlywayPostgresMigrationIT {
             assertTableExists(connection, "work_shift_requirements");
             assertTableExists(connection, "work_shift_registration_requests");
             assertColumn(connection, "room_types", "code");
+            assertColumn(connection, "room_types", "active");
+            assertColumnAbsent(connection, "room_types", "price");
             assertColumn(connection, "reservations", "pricing_version");
             assertColumn(connection, "reservations", "display_package_summary");
             assertColumn(connection, "reservations", "inventory_protected_until");
@@ -94,6 +96,8 @@ class FlywayPostgresMigrationIT {
                     "early_morning_overnight_minimum_minutes");
             assertColumn(connection, "stay_policy_versions",
                     "remainder_cycle_starts_at_boundary");
+            assertColumn(connection, "stay_policy_versions",
+                    "overnight_refund_lock_time");
             assertColumn(connection, "payment_provider_events", "bank_reference_code");
             assertColumn(connection, "payment_refunds", "completion_provider_event_id");
             assertColumn(connection, "payment_refunds", "refund_detail_json");
@@ -183,6 +187,7 @@ class FlywayPostgresMigrationIT {
             assertIndex(connection, "idx_checkout_reconciliation_resolver");
             assertIndex(connection, "idx_pricing_quote_lines_room_type");
             assertIndex(connection, "idx_pricing_quote_lines_rate_profile");
+            assertIndex(connection, "idx_room_types_active_id");
             assertConstraint(connection, "chk_reservations_date_range");
             assertConstraint(connection, "chk_users_username_not_blank_and_trimmed");
             assertConstraint(connection, "chk_payment_refunds_amounts_nonnegative");
@@ -214,7 +219,7 @@ class FlywayPostgresMigrationIT {
             assertConstraint(connection, "chk_service_catalog_whole_vnd");
             assertConstraint(connection, "chk_service_catalog_pricing_unit");
             assertConstraint(connection, "chk_reservation_services_pricing_unit");
-            assertConstraint(connection, "chk_room_types_price_whole_vnd");
+            assertConstraintAbsent(connection, "chk_room_types_price_whole_vnd");
             assertConstraint(connection, "chk_rrt_minimum_one_guest_per_room");
             assertConstraint(connection, "chk_pricing_quote_minimum_one_guest_per_room");
             assertConstraint(connection, "chk_rate_snapshot_minimum_one_guest_per_room");
@@ -245,6 +250,15 @@ class FlywayPostgresMigrationIT {
                     "early_morning_overnight_minimum_minutes", "120");
             assertColumnDefault(connection, "stay_policy_versions",
                     "remainder_cycle_starts_at_boundary", "true");
+            assertScalar(connection, """
+                    SELECT overnight_refund_lock_time::text
+                    FROM stay_policy_versions
+                    WHERE policy_code = 'DEFAULT_MOTEL_POLICY'
+                      AND active = true
+                      AND effective_to_utc IS NULL
+                    ORDER BY policy_version DESC
+                    LIMIT 1
+                    """, "23:00:00");
             assertScalar(connection,
                     "SELECT count(*)::text FROM work_shift_templates WHERE active = true",
                     "3");
@@ -605,6 +619,12 @@ class FlywayPostgresMigrationIT {
                     FROM room_rate_profiles
                     WHERE room_type_id = %d
                     """.formatted(customRoomTypeId), "0");
+            assertScalar(connection,
+                    "SELECT active::text FROM room_types WHERE id = " + canonicalRoomTypeId,
+                    "true");
+            assertScalar(connection,
+                    "SELECT active::text FROM room_types WHERE id = " + customRoomTypeId,
+                    "false");
 
             try (PreparedStatement statement = connection.prepareStatement("""
                     SELECT line_guest_count, minimum_committed_room_charge,
@@ -756,6 +776,29 @@ class FlywayPostgresMigrationIT {
                 """))
                 .isInstanceOf(SQLException.class)
                 .hasMessageContaining("create a new version");
+        assertThatThrownBy(() -> executeSql("""
+                UPDATE stay_policy_versions
+                SET overnight_refund_lock_time = TIME '22:30:00'
+                WHERE policy_code = 'DEFAULT_MOTEL_POLICY'
+                  AND active = true
+                  AND effective_to_utc IS NULL
+                """))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("create a new version");
+
+        // A rate profile is immutable and cannot be deleted directly. An unused,
+        // inactive room type can still be removed as one aggregate; its private
+        // pricing history must be removed by the parent FK cascade.
+        executeSql("UPDATE room_types SET active = false WHERE id = " + roomTypeId);
+        executeSql("DELETE FROM room_types WHERE id = " + roomTypeId);
+        try (Connection connection = POSTGRES.createConnection("")) {
+            assertScalar(connection,
+                    "SELECT count(*)::text FROM room_types WHERE id = " + roomTypeId,
+                    "0");
+            assertScalar(connection,
+                    "SELECT count(*)::text FROM room_rate_profiles WHERE id = " + profileId,
+                    "0");
+        }
     }
 
     @Test
