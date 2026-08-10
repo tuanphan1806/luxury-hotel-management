@@ -38,7 +38,13 @@ public class OperationsDashboardService {
         LocalDateTime startOfTomorrow = startOfDay.plusDays(1);
 
         long totalRooms = roomRepository.count();
-        long availableRooms = roomRepository.countByStatus(RoomStatus.AVAILABLE);
+        long availableRooms = roomRepository.countByStatusAndCleaningStatus(
+                RoomStatus.AVAILABLE, CleaningStatus.CLEAN);
+        long dirtyRooms = roomRepository.countByStatusAndCleaningStatus(
+                RoomStatus.AVAILABLE, CleaningStatus.DIRTY)
+                + roomRepository.countByStatusAndCleaningStatusIsNull(RoomStatus.AVAILABLE);
+        long cleaningRooms = roomRepository.countByStatusAndCleaningStatus(
+                RoomStatus.AVAILABLE, CleaningStatus.IN_PROGRESS);
         long occupiedRooms = roomRepository.countByStatus(RoomStatus.CHECKED_IN);
         long maintenanceRooms = roomRepository.countByStatus(RoomStatus.MAINTENANCE);
         long sellableRooms = Math.max(0, totalRooms - maintenanceRooms);
@@ -69,7 +75,8 @@ public class OperationsDashboardService {
                 .availableRooms(availableRooms)
                 .occupiedRooms(occupiedRooms)
                 .maintenanceRooms(maintenanceRooms)
-                .dirtyRooms(roomRepository.countByCleaningStatus(CleaningStatus.DIRTY))
+                .dirtyRooms(dirtyRooms)
+                .cleaningRooms(cleaningRooms)
                 .occupancyRate(occupancyRate)
                 .customerAccounts(userRepository.countByType(UserType.CUSTOMER))
                 .customerProfiles(customerProfileRepository.count())

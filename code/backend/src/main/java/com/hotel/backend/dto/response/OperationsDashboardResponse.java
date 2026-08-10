@@ -24,6 +24,7 @@ public class OperationsDashboardResponse {
     private long occupiedRooms;
     private long maintenanceRooms;
     private long dirtyRooms;
+    private long cleaningRooms;
     private int occupancyRate;
 
     // User là tài khoản đăng nhập; CustomerProfile là hồ sơ khách đặt/lưu trú.

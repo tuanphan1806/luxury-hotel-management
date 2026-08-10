@@ -42,10 +42,15 @@ class OperationsDashboardServiceTest {
     @Test
     void summaryIncludesCurrentOperationalQueuesAndRoomReadiness() {
         when(roomRepository.count()).thenReturn(12L);
-        when(roomRepository.countByStatus(RoomStatus.AVAILABLE)).thenReturn(4L);
+        when(roomRepository.countByStatusAndCleaningStatus(
+                RoomStatus.AVAILABLE, CleaningStatus.CLEAN)).thenReturn(4L);
+        when(roomRepository.countByStatusAndCleaningStatus(
+                RoomStatus.AVAILABLE, CleaningStatus.DIRTY)).thenReturn(2L);
+        when(roomRepository.countByStatusAndCleaningStatusIsNull(RoomStatus.AVAILABLE)).thenReturn(1L);
+        when(roomRepository.countByStatusAndCleaningStatus(
+                RoomStatus.AVAILABLE, CleaningStatus.IN_PROGRESS)).thenReturn(1L);
         when(roomRepository.countByStatus(RoomStatus.CHECKED_IN)).thenReturn(6L);
         when(roomRepository.countByStatus(RoomStatus.MAINTENANCE)).thenReturn(2L);
-        when(roomRepository.countByCleaningStatus(CleaningStatus.DIRTY)).thenReturn(3L);
 
         when(reservationRepository.countByCheckInWindowAndStatuses(
                 any(LocalDateTime.class), any(LocalDateTime.class), anyList())).thenReturn(5L);
@@ -77,7 +82,9 @@ class OperationsDashboardServiceTest {
         assertEquals(3L, result.getPendingServiceRequests());
         assertEquals(4L, result.getOpenContactMessages());
         assertEquals(60, result.getOccupancyRate());
+        assertEquals(4L, result.getAvailableRooms());
         assertEquals(3L, result.getDirtyRooms());
+        assertEquals(1L, result.getCleaningRooms());
         assertEquals(2L, result.getMaintenanceRooms());
     }
 }

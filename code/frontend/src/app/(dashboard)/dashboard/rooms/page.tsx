@@ -12,6 +12,11 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import {
+  getRoomOperationalState,
+  summarizeRoomOperations,
+  type RoomOperationalState,
+} from "@/lib/room-operational-state";
+import {
   DashboardFilterPanel,
   DashboardSearchField,
   DashboardSelectField,
@@ -80,6 +85,57 @@ const formatReservationTime = (value: string, localeTag: string) => {
     hour: "2-digit",
     minute: "2-digit",
   });
+};
+
+const ROOM_OPERATIONAL_STYLES: Record<RoomOperationalState, {
+  tile: string;
+  card: string;
+  badge: string;
+  dot: string;
+  control: string;
+}> = {
+  READY: {
+    tile: "border-emerald-300 bg-emerald-50/70 text-emerald-900 hover:bg-emerald-50",
+    card: "border-emerald-200/80 bg-emerald-50/25 hover:border-emerald-300",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    dot: "bg-emerald-500",
+    control: "border-emerald-300 bg-emerald-50 text-emerald-800",
+  },
+  NEEDS_CLEANING: {
+    tile: "border-orange-300 bg-orange-50/80 text-orange-900 hover:bg-orange-50",
+    card: "border-orange-200 bg-orange-50/35 hover:border-orange-300",
+    badge: "border-orange-200 bg-orange-50 text-orange-800",
+    dot: "bg-orange-500",
+    control: "border-orange-300 bg-orange-50 text-orange-800",
+  },
+  CLEANING: {
+    tile: "border-violet-300 bg-violet-50/75 text-violet-900 hover:bg-violet-50",
+    card: "border-violet-200 bg-violet-50/30 hover:border-violet-300",
+    badge: "border-violet-200 bg-violet-50 text-violet-800",
+    dot: "bg-violet-500",
+    control: "border-violet-300 bg-violet-50 text-violet-800",
+  },
+  RESERVED: {
+    tile: "border-amber-300 bg-amber-50/75 text-amber-900 hover:bg-amber-50",
+    card: "border-amber-200 bg-amber-50/30 hover:border-amber-300",
+    badge: "border-amber-200 bg-amber-50 text-amber-800",
+    dot: "bg-amber-500",
+    control: "border-amber-300 bg-amber-50 text-amber-800",
+  },
+  OCCUPIED: {
+    tile: "border-sky-300 bg-sky-50/75 text-sky-900 hover:bg-sky-50",
+    card: "border-sky-200 bg-sky-50/30 hover:border-sky-300",
+    badge: "border-sky-200 bg-sky-50 text-sky-800",
+    dot: "bg-sky-500",
+    control: "border-sky-300 bg-sky-50 text-sky-800",
+  },
+  MAINTENANCE: {
+    tile: "border-rose-300 bg-rose-50/80 text-rose-900 hover:bg-rose-50",
+    card: "border-rose-200 bg-rose-50/35 hover:border-rose-300",
+    badge: "border-rose-200 bg-rose-50 text-rose-800",
+    dot: "bg-rose-500",
+    control: "border-rose-300 bg-rose-50 text-rose-800",
+  },
 };
 
 export default function RoomsManagement() {
@@ -421,7 +477,7 @@ export default function RoomsManagement() {
       const response = await apiClient.patch(`/api/rooms/${roomId}/status?status=${status}`);
       const updatedRoom = response.data;
       setRooms((current) => current.map((room) => room.id === roomId ? { ...room, ...updatedRoom } : room));
-      showToast(`Đã chuyển phòng sang ${status === "AVAILABLE" ? "Sẵn sàng" : status === "BOOKED" ? "Đã đặt" : status === "MAINTENANCE" ? "Bảo trì" : "Đang có khách"}.`, "success");
+      showToast(`Đã chuyển phòng sang ${status === "AVAILABLE" ? "Trống" : status === "BOOKED" ? "Đã đặt" : status === "MAINTENANCE" ? "Bảo trì" : "Đang có khách"}.`, "success");
       return true;
     } catch (error: unknown) {
       showToast(getApiErrorMessage(error, "Không thể thay đổi trạng thái phòng."), "error");
@@ -494,18 +550,34 @@ export default function RoomsManagement() {
             : r
         )
       );
-      showToast(`Đã chuyển trạng thái dọn dẹp sang ${cleaningStatus}!`, "success");
+      const cleaningLabel = {
+        CLEAN: localize("Sạch", "Clean"),
+        DIRTY: localize("Bẩn", "Dirty"),
+        IN_PROGRESS: localize("Đang dọn", "Cleaning"),
+      }[cleaningStatus];
+      showToast(localize(
+        `Đã chuyển tình trạng vệ sinh sang ${cleaningLabel}.`,
+        `Housekeeping status changed to ${cleaningLabel}.`,
+      ), "success");
       return true;
-    } catch {
-      showToast("Không thể cập nhật trạng thái vệ sinh phòng.", "error");
+    } catch (error: unknown) {
+      showToast(getApiErrorMessage(error, "Không thể cập nhật trạng thái vệ sinh phòng."), "error");
       return false;
     }
   };
 
   const handleOpenConfirmClean = (room: RoomItem, targetStatus: RoomItem["cleaningStatus"]) => {
+    if (room.cleaningStatus === targetStatus) return;
     setCleanTargetRoom(room);
     setCleanTargetStatus(targetStatus);
     setConfirmCleanOpen(true);
+  };
+
+  const handleContextCleaningStatus = (targetStatus: RoomItem["cleaningStatus"]) => {
+    if (!contextMenu) return;
+    const room = rooms.find((item) => item.id === contextMenu.roomId);
+    setContextMenu(null);
+    if (room) handleOpenConfirmClean(room, targetStatus);
   };
 
   const handleConfirmCleanSubmit = async () => {
@@ -540,41 +612,14 @@ export default function RoomsManagement() {
     }
   };
 
-  // Metrics
-  const totalCount = rooms.length;
-  const availableCount = rooms.filter((r) => r.status === "AVAILABLE").length;
-  const occupiedCount = rooms.filter((r) => r.status === "BOOKED" || r.status === "CHECKED_IN").length;
-  const maintenanceCount = rooms.filter((r) => r.status === "MAINTENANCE").length;
-
-  const getStatusStyle = (status: RoomItem["status"]) => {
-    switch (status) {
-      case "AVAILABLE":
-        return "text-[#5C7C64] bg-[#5C7C64]/5 border-[#5C7C64]/20";
-      case "BOOKED":
-        return "text-[#B8944F] bg-[#F0EADF] border-[#F0EADF]";
-      case "CHECKED_IN":
-        return "text-[#4A607A] bg-[#4A607A]/5 border-[#4A607A]/20";
-      case "MAINTENANCE":
-        return "text-[#A66E6E] bg-[#A66E6E]/5 border-[#A66E6E]/20";
-    }
-  };
-
-  const getStatusDotColor = (status: RoomItem["status"]) => {
-    switch (status) {
-      case "AVAILABLE":
-        return "bg-[#5C7C64]";
-      case "BOOKED":
-        return "bg-[#B8944F]";
-      case "CHECKED_IN":
-        return "bg-[#4A607A]";
-      case "MAINTENANCE":
-        return "bg-[#A66E6E]";
-    }
-  };
+  // Operational metrics combine physical status and housekeeping. A vacant
+  // dirty room is intentionally not counted as ready for assignment.
+  const roomSummary = useMemo(() => summarizeRoomOperations(rooms), [rooms]);
+  const activeRoomCount = roomSummary.reserved + roomSummary.occupied;
 
   const getRoomStatusLabel = (status: RoomItem["status"] | "All") => ({
     All: localize("Tất cả", "All"),
-    AVAILABLE: localize("Sẵn sàng", "Available"),
+    AVAILABLE: localize("Trống", "Vacant"),
     BOOKED: localize("Đã đặt", "Booked"),
     CHECKED_IN: localize("Đang có khách", "Occupied"),
     MAINTENANCE: localize("Bảo trì", "Maintenance"),
@@ -585,6 +630,40 @@ export default function RoomsManagement() {
     DIRTY: localize("Bẩn", "Dirty"),
     IN_PROGRESS: localize("Đang dọn", "Cleaning"),
   }[status]);
+
+  const getOperationalStateLabel = (state: RoomOperationalState) => ({
+    READY: localize("Sẵn sàng", "Ready"),
+    NEEDS_CLEANING: localize("Cần dọn", "Needs cleaning"),
+    CLEANING: localize("Đang dọn", "Cleaning"),
+    RESERVED: localize("Đã đặt", "Reserved"),
+    OCCUPIED: localize("Đang có khách", "Occupied"),
+    MAINTENANCE: localize("Bảo trì", "Maintenance"),
+  }[state]);
+
+  const getOperationalStateDescription = (state: RoomOperationalState) => ({
+    READY: localize("Phòng trống, sạch và có thể gán cho khách.", "Vacant, clean and ready for assignment."),
+    NEEDS_CLEANING: localize("Phòng đang trống nhưng phải dọn trước khi gán.", "Vacant but must be cleaned before assignment."),
+    CLEANING: localize("Buồng phòng đang xử lý vệ sinh.", "Housekeeping is cleaning this room."),
+    RESERVED: localize("Trạng thái đã đặt từ dữ liệu tương thích cũ.", "Reserved state from legacy-compatible data."),
+    OCCUPIED: localize("Phòng đang được sử dụng trong một đơn lưu trú.", "The room is assigned to an active stay."),
+    MAINTENANCE: localize("Phòng ngừng bán trong thời gian bảo trì.", "The room is out of service for maintenance."),
+  }[state]);
+
+  const hasActiveRoomFilters = Boolean(
+    searchQuery
+    || selectedStatus !== "All"
+    || selectedType !== "All"
+    || !cleaningFilter.CLEAN
+    || !cleaningFilter.DIRTY
+    || !cleaningFilter.IN_PROGRESS,
+  );
+
+  const resetRoomFilters = () => {
+    setSearchQuery("");
+    setSelectedStatus("All");
+    setSelectedType("All");
+    setCleaningFilter({ CLEAN: true, DIRTY: true, IN_PROGRESS: true });
+  };
 
   return (
     <div className="ops-page mx-auto w-full max-w-[1440px] space-y-7 p-4 sm:p-6 lg:p-8">
@@ -619,7 +698,7 @@ export default function RoomsManagement() {
               </svg>
             </div>
             <div>
-              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{totalCount}</span>
+              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{roomSummary.total}</span>
               <span className="mt-1 block text-[11px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Tổng số phòng", "Total rooms")}</span>
             </div>
           </div>
@@ -634,8 +713,9 @@ export default function RoomsManagement() {
               </svg>
             </div>
             <div>
-              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{availableCount}</span>
+              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{roomSummary.ready}</span>
               <span className="mt-1 block text-[11px] font-bold uppercase tracking-wider text-emerald-800">{localize("Phòng sẵn sàng", "Available rooms")}</span>
+              <span className="mt-1 block text-[10px] font-medium text-emerald-700/80">{localize("Trống + sạch", "Vacant + clean")}</span>
             </div>
           </div>
         </div>
@@ -649,8 +729,11 @@ export default function RoomsManagement() {
               </svg>
             </div>
             <div>
-              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{occupiedCount}</span>
+              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{activeRoomCount}</span>
               <span className="mt-1 block text-[11px] font-bold uppercase tracking-wider text-blue-800">{localize("Đã đặt / đang ở", "Booked / occupied")}</span>
+              <span className="mt-1 block text-[10px] font-medium text-blue-700/80">
+                {localize(`${roomSummary.occupied} đang ở · ${roomSummary.reserved} đã đặt`, `${roomSummary.occupied} occupied · ${roomSummary.reserved} reserved`)}
+              </span>
             </div>
           </div>
         </div>
@@ -665,8 +748,11 @@ export default function RoomsManagement() {
               </svg>
             </div>
             <div>
-              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{maintenanceCount}</span>
-              <span className="mt-1 block text-[11px] font-bold uppercase tracking-wider text-rose-800">{localize("Đang bảo trì", "Under maintenance")}</span>
+              <span className="block text-2xl font-serif font-bold text-[#0F2A43]">{roomSummary.attention}</span>
+              <span className="mt-1 block text-[11px] font-bold uppercase tracking-wider text-rose-800">{localize("Cần xử lý", "Needs attention")}</span>
+              <span className="mt-1 block text-[10px] font-medium text-rose-700/80">
+                {localize(`${roomSummary.needsCleaning} cần dọn · ${roomSummary.cleaning} đang dọn · ${roomSummary.maintenance} bảo trì`, `${roomSummary.needsCleaning} dirty · ${roomSummary.cleaning} cleaning · ${roomSummary.maintenance} maintenance`)}
+              </span>
             </div>
           </div>
         </div>
@@ -744,15 +830,10 @@ export default function RoomsManagement() {
           resultCount={filteredRooms.length}
           resultLabel={localize("phòng phù hợp", "matching rooms")}
           resultNote={localize(`${roomsByFloor.length} tầng đang hiển thị`, `${roomsByFloor.length} floors shown`)}
-          hasActiveFilters={Boolean(searchQuery || selectedStatus !== "All" || selectedType !== "All" || !cleaningFilter.CLEAN || !cleaningFilter.DIRTY || !cleaningFilter.IN_PROGRESS)}
+          hasActiveFilters={hasActiveRoomFilters}
           activeFilterCount={Number(Boolean(searchQuery)) + Number(selectedStatus !== "All") + Number(selectedType !== "All") + Number(!cleaningFilter.CLEAN || !cleaningFilter.DIRTY || !cleaningFilter.IN_PROGRESS)}
           activeFilterLabel={localize("bộ lọc đang dùng", "active filters")}
-          onReset={() => {
-            setSearchQuery("");
-            setSelectedStatus("All");
-            setSelectedType("All");
-            setCleaningFilter({ CLEAN: true, DIRTY: true, IN_PROGRESS: true });
-          }}
+          onReset={resetRoomFilters}
           resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
           actions={(
             <>
@@ -776,7 +857,7 @@ export default function RoomsManagement() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <DashboardSelectField
               id="room-status"
-              label={localize("Trạng thái phòng", "Room status")}
+               label={localize("Tình trạng sử dụng", "Occupancy state")}
               value={selectedStatus}
               onChange={(event) => setSelectedStatus(event.target.value as typeof selectedStatus)}
             >
@@ -799,7 +880,15 @@ export default function RoomsManagement() {
               <legend className="mb-2 text-xs font-bold text-[#66727C]">{localize("Tình trạng vệ sinh", "Housekeeping")}</legend>
               <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
                 {(["CLEAN", "DIRTY", "IN_PROGRESS"] as const).map((status) => (
-                  <label key={status} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-[#0F2A43]/14 bg-[#F1F0EA] px-3 text-xs font-bold text-[#66727C] transition hover:border-[#0F2A43]/30">
+                  <label key={status} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-xs font-bold transition ${
+                    cleaningFilter[status]
+                      ? status === "CLEAN"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : status === "DIRTY"
+                          ? "border-orange-200 bg-orange-50 text-orange-800"
+                          : "border-violet-200 bg-violet-50 text-violet-800"
+                      : "border-[#0F2A43]/12 bg-white text-[#66727C] opacity-65 hover:border-[#0F2A43]/30"
+                  }`}>
                     <input
                       type="checkbox"
                       checked={cleaningFilter[status]}
@@ -815,11 +904,13 @@ export default function RoomsManagement() {
         </DashboardFilterPanel>
 
         <div className="flex flex-wrap gap-x-5 gap-y-2 rounded-xl border border-[#0F2A43]/10 bg-[#E5E9ED] px-4 py-3 text-xs font-semibold text-[#66727C]">
-          <span className="font-bold text-[#0F2A43]">{localize("Chú thích:", "Legend:")}</span>
-          <span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500" />{localize("Sẵn sàng", "Available")}</span>
-          <span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-amber-500" />{localize("Đã đặt", "Booked")}</span>
-          <span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-blue-500" />{localize("Đang có khách", "Occupied")}</span>
-          <span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full bg-rose-500" />{localize("Bảo trì", "Maintenance")}</span>
+          <span className="font-bold text-[#0F2A43]">{localize("Trạng thái vận hành:", "Operational status:")}</span>
+          {(["READY", "NEEDS_CLEANING", "CLEANING", "RESERVED", "OCCUPIED", "MAINTENANCE"] as const).map((state) => (
+            <span key={state} className="flex items-center gap-2">
+              <i className={`h-2.5 w-2.5 rounded-full ${ROOM_OPERATIONAL_STYLES[state].dot}`} aria-hidden="true" />
+              {getOperationalStateLabel(state)}
+            </span>
+          ))}
           <span className="ml-auto hidden text-[11px] font-medium text-[#66727C] lg:inline">{localize("Nhấp chuột phải vào ô phòng để mở thao tác nhanh", "Right-click a room tile for quick actions")}</span>
         </div>
 
@@ -828,8 +919,13 @@ export default function RoomsManagement() {
             {[0, 1].map((floor) => <section key={floor} className="rounded-2xl border border-[#0F2A43]/10 bg-white p-4 sm:p-6"><div className="h-7 w-32 animate-pulse rounded bg-[#E5E9ED]" /><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">{[0, 1, 2, 3, 4, 5].map((room) => <div key={room} className="h-32 animate-pulse rounded-xl bg-[#F1F0EA]" />)}</div></section>)}
           </div>
         ) : filteredRooms.length === 0 ? (
-          <div className="bg-white text-center py-12 border-2 border-dashed border-[#0F2A43]/10 rounded-xl text-[#66727C] font-semibold text-sm">
-            {localize("Không có phòng phù hợp với bộ lọc hiện tại.", "No rooms match the current filters.")}
+          <div className="rounded-xl border-2 border-dashed border-[#0F2A43]/10 bg-white px-5 py-12 text-center text-sm font-semibold text-[#66727C]">
+            <p>{localize("Không có phòng phù hợp với bộ lọc hiện tại.", "No rooms match the current filters.")}</p>
+            {hasActiveRoomFilters && (
+              <button type="button" onClick={resetRoomFilters} className="mt-4 min-h-10 rounded-lg border border-[#0F2A43]/20 bg-[#F1F0EA] px-4 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">
+                {localize("Xóa bộ lọc", "Clear filters")}
+              </button>
+            )}
           </div>
         ) : viewMode === "floor" ? (
           /* FLOOR MATRIX GRID VIEW */
@@ -843,13 +939,10 @@ export default function RoomsManagement() {
                 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                   {rooms.map((room) => {
-                    const occupantName = room.status === "CHECKED_IN" || room.status === "BOOKED" 
-                      ? localize("Được gán trong đơn đặt phòng", "Assigned in reservations")
-                      : localize("Không có", "None");
-                    
-                    const tooltipText = room.status === "AVAILABLE" 
-                      ? localize(`Phòng #${room.roomName} (${localize(room.roomTypeName, room.roomTypeNameEn)}) - Trống sạch`, `Room #${room.roomName} (${localize(room.roomTypeName, room.roomTypeNameEn)}) - Available and clean`)
-                      : localize(`Phòng #${room.roomName} (${localize(room.roomTypeName, room.roomTypeNameEn)}) - Khách lưu trú: ${occupantName}`, `Room #${room.roomName} (${localize(room.roomTypeName, room.roomTypeNameEn)}) - Guest: ${occupantName}`);
+                    const operationalState = getRoomOperationalState(room);
+                    const operationalStyle = ROOM_OPERATIONAL_STYLES[operationalState];
+                    const operationalLabel = getOperationalStateLabel(operationalState);
+                    const tooltipText = `${localize("Phòng", "Room")} #${room.roomName} · ${localize(room.roomTypeName, room.roomTypeNameEn)} · ${operationalLabel}: ${getOperationalStateDescription(operationalState)}`;
 
                     // Cleaning indicator
                     let cleaningIconSvg = (
@@ -861,16 +954,16 @@ export default function RoomsManagement() {
                     let cleaningColor = "text-emerald-600";
                     if (room.cleaningStatus === "DIRTY") {
                       cleaningIconSvg = (
-                        <svg className="w-2.5 h-2.5 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <svg className="w-2.5 h-2.5 text-orange-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="18" y1="6" x2="6" y2="18" />
                           <line x1="6" y1="6" x2="18" y2="18" />
                         </svg>
                       );
                       cleaningText = getCleaningStatusLabel("DIRTY");
-                      cleaningColor = "text-rose-600";
+                      cleaningColor = "text-orange-700";
                     } else if (room.cleaningStatus === "IN_PROGRESS") {
                       cleaningIconSvg = (
-                        <svg className="w-2.5 h-2.5 text-yellow-600 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <svg className="w-2.5 h-2.5 text-violet-600 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="12" y1="2" x2="12" y2="6" />
                           <line x1="12" y1="18" x2="12" y2="22" />
                           <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
@@ -882,17 +975,7 @@ export default function RoomsManagement() {
                         </svg>
                       );
                       cleaningText = getCleaningStatusLabel("IN_PROGRESS");
-                      cleaningColor = "text-yellow-600";
-                    }
-
-                    // Status Tile Colors
-                    let tileColors = "border-emerald-250 bg-emerald-50/20 text-emerald-800 hover:bg-emerald-50/40";
-                    if (room.status === "BOOKED") {
-                      tileColors = "border-amber-250 bg-amber-50/30 text-amber-800 hover:bg-amber-50/50";
-                    } else if (room.status === "CHECKED_IN") {
-                      tileColors = "border-blue-200 bg-blue-50/20 text-blue-800 hover:bg-blue-50/40";
-                    } else if (room.status === "MAINTENANCE") {
-                      tileColors = "border-red-200 bg-red-50/10 text-red-800 hover:bg-red-50/20";
+                      cleaningColor = "text-violet-700";
                     }
 
                     return (
@@ -910,7 +993,8 @@ export default function RoomsManagement() {
                             y: e.clientY
                           });
                         }}
-                        className={`relative flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border p-4 text-center shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${tileColors}`}
+                        data-operational-state={operationalState}
+                        className={`relative flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border p-4 text-center shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${operationalStyle.tile}`}
                       >
                         {isAdmin && (
                           <button
@@ -932,6 +1016,10 @@ export default function RoomsManagement() {
                         )}
                         <span className="max-w-full truncate text-[11px] font-bold uppercase tracking-wider opacity-70">{localize(room.roomTypeName, room.roomTypeNameEn)}</span>
                         <span className="mt-1 font-serif text-2xl font-bold">#{room.roomName}</span>
+                        <span className={`mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-extrabold ${operationalStyle.badge}`}>
+                          <i className={`h-1.5 w-1.5 rounded-full ${operationalStyle.dot}`} aria-hidden="true" />
+                          {operationalLabel}
+                        </span>
                         
                         <div className="mt-2.5 flex flex-col items-center gap-1">
                           {room.status === "CHECKED_IN" ? (
@@ -946,7 +1034,7 @@ export default function RoomsManagement() {
                             >
                               {checkoutRoomId === room.id ? localize("Đang mở...", "Opening...") : localize("Trả phòng", "Check out")}
                             </button>
-                          ) : (
+                          ) : room.status === "MAINTENANCE" ? null : (
                             <select
                               value={room.status}
                               onClick={(event) => event.stopPropagation()}
@@ -960,27 +1048,25 @@ export default function RoomsManagement() {
                               }}
                               aria-label={localize(`Trạng thái phòng ${room.roomName}`, `Room ${room.roomName} status`)}
                               title={localize("Đổi trạng thái phòng", "Change room status")}
-                              className={`min-h-8 rounded-md border px-2 text-[10px] font-extrabold outline-none focus:ring-2 focus:ring-[#B8944F] ${
-                                room.status === "AVAILABLE" ? "border-emerald-300 bg-emerald-50 text-emerald-800" :
-                                room.status === "BOOKED" ? "border-amber-300 bg-amber-50 text-amber-800" :
-                                "border-red-300 bg-red-50 text-red-800"
-                              }`}
+                              className={`min-h-8 rounded-md border px-2 text-[10px] font-extrabold outline-none focus:ring-2 focus:ring-[#B8944F] ${operationalStyle.control}`}
                             >
                               <option value="AVAILABLE">{getRoomStatusLabel("AVAILABLE")}</option>
                               {room.status === "BOOKED" && <option value="BOOKED" disabled>{localize("Đã đặt (dữ liệu cũ)", "Booked (legacy data)")}</option>}
                               <option value="MAINTENANCE">{getRoomStatusLabel("MAINTENANCE")}</option>
                             </select>
                           )}
-                          <span 
+                          <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleOpenConfirmClean(room, room.cleaningStatus === "CLEAN" ? "DIRTY" : "CLEAN");
                             }}
-                            className={`text-[9px] font-bold mt-0.5 flex items-center gap-1.5 ${cleaningColor} hover:underline cursor-pointer`}
+                            aria-label={localize(`Cập nhật vệ sinh phòng ${room.roomName}, hiện tại ${cleaningText}`, `Update housekeeping for room ${room.roomName}, currently ${cleaningText}`)}
+                            className={`mt-0.5 flex min-h-8 items-center gap-1.5 rounded-md px-2 text-[9px] font-bold ${cleaningColor} transition hover:bg-white/70 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]`}
                           >
                             {cleaningIconSvg}
                             <span>{cleaningText}</span>
-                          </span>
+                          </button>
                           
                           {room.status === "MAINTENANCE" && (
                             <button
@@ -1004,18 +1090,21 @@ export default function RoomsManagement() {
         ) : (
           /* LIST CARDS VIEW */
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filteredRooms.map((room) => (
-              <article key={room.id} className="flex flex-col justify-between rounded-2xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-[#B8944F]/60 hover:shadow-lg">
+            {filteredRooms.map((room) => {
+              const operationalState = getRoomOperationalState(room);
+              const operationalStyle = ROOM_OPERATIONAL_STYLES[operationalState];
+              return (
+              <article key={room.id} data-operational-state={operationalState} className={`flex flex-col justify-between rounded-2xl border p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${operationalStyle.card}`}>
                 <div>
-                  <div className="flex justify-between items-start">
+                  <div className="flex items-start justify-between gap-3">
                     <div>
                       <span className="block text-[11px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Tầng", "Floor")} {room.floor}</span>
                       <h4 className="mt-0.5 font-serif text-2xl font-bold text-[#0F2A43]">{localize("Phòng", "Room")} #{room.roomName}</h4>
                     </div>
 
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${getStatusStyle(room.status)}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(room.status)}`} />
-                      {getRoomStatusLabel(room.status)}
+                    <span className={`inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-bold ${operationalStyle.badge}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${operationalStyle.dot}`} />
+                      {getOperationalStateLabel(operationalState)}
                     </span>
                   </div>
 
@@ -1035,8 +1124,8 @@ export default function RoomsManagement() {
                     <div className="flex justify-between pt-1 border-t border-gray-100">
                       <span>{localize("Tình trạng vệ sinh", "Housekeeping status")}</span>
                       <span className={`font-bold ${
-                        room.cleaningStatus === "DIRTY" ? "text-rose-600" :
-                        room.cleaningStatus === "IN_PROGRESS" ? "text-yellow-600" : "text-emerald-600"
+                        room.cleaningStatus === "DIRTY" ? "text-orange-700" :
+                        room.cleaningStatus === "IN_PROGRESS" ? "text-violet-700" : "text-emerald-600"
                       }`}>
                         {getCleaningStatusLabel(room.cleaningStatus || "CLEAN")}
                       </span>
@@ -1050,8 +1139,8 @@ export default function RoomsManagement() {
                 </div>
 
                 {/* Footer Controls */}
-                <div className="mt-6 pt-4 border-t border-[#0F2A43]/5 flex justify-between items-center">
-                  <div className="flex gap-2">
+                <div className="mt-6 flex flex-col gap-3 border-t border-[#0F2A43]/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-wrap gap-2">
                     {room.status === "CHECKED_IN" ? (
                       <button type="button" onClick={() => void openRoomCheckout(room.id)} className="min-h-9 rounded-lg border border-rose-200 bg-rose-50 px-3 text-[10px] font-bold text-rose-700">{localize("Trả phòng", "Check out")}</button>
                     ) : room.status === "MAINTENANCE" ? (
@@ -1064,7 +1153,8 @@ export default function RoomsManagement() {
                           if (nextStatus === "MAINTENANCE") handleOpenMaintenanceForm(room);
                           else void handleStatusUpdate(room.id, nextStatus);
                         }}
-                        className="min-h-9 rounded-lg border border-gray-200 bg-[#F1F0EA] px-2.5 text-[10px] font-bold text-[#66727C] focus:outline-none"
+                        aria-label={localize(`Trạng thái phòng ${room.roomName}`, `Room ${room.roomName} status`)}
+                        className={`min-h-10 rounded-lg border px-2.5 text-[10px] font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] ${operationalStyle.control}`}
                       >
                         <option value="AVAILABLE">{getRoomStatusLabel("AVAILABLE")}</option>
                         {room.status === "BOOKED" && <option value="BOOKED" disabled>{localize("Đã đặt (cũ)", "Booked (legacy)")}</option>}
@@ -1074,8 +1164,9 @@ export default function RoomsManagement() {
 
                     <select
                       value={room.cleaningStatus || "CLEAN"}
-                      onChange={(e) => handleCleaningStatusUpdate(room.id, e.target.value as RoomItem["cleaningStatus"])}
-                      className="px-2.5 py-1 bg-[#F1F0EA] border border-gray-200 rounded-lg text-[10px] font-bold text-[#66727C] focus:outline-none"
+                      onChange={(event) => handleOpenConfirmClean(room, event.target.value as RoomItem["cleaningStatus"])}
+                      aria-label={localize(`Tình trạng vệ sinh phòng ${room.roomName}`, `Housekeeping status for room ${room.roomName}`)}
+                      className="min-h-10 rounded-lg border border-[#0F2A43]/15 bg-white/80 px-2.5 text-[10px] font-bold text-[#66727C] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
                     >
                       <option value="CLEAN">{getCleaningStatusLabel("CLEAN")}</option>
                       <option value="DIRTY">{getCleaningStatusLabel("DIRTY")}</option>
@@ -1084,17 +1175,17 @@ export default function RoomsManagement() {
                   </div>
 
                   {isAdmin && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
                       <button
                         disabled={room.status === "CHECKED_IN"}
                         onClick={() => openEditModal(room)}
-                        className="px-3 py-1 border border-gray-200 hover:border-[#B8944F] text-gray-500 hover:text-[#B8944F] text-[10px] font-bold rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                        className="min-h-10 rounded-lg border border-gray-200 px-3 text-[10px] font-bold text-gray-500 transition-colors hover:border-[#B8944F] hover:text-[#B8944F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {localize("Sửa", "Edit")}
                       </button>
                       <button
                         onClick={() => openDeleteModal(room)}
-                        className="px-3 py-1 border border-red-200 hover:bg-red-50 text-red-600 text-[10px] font-bold rounded-lg transition-colors"
+                        className="min-h-10 rounded-lg border border-red-200 px-3 text-[10px] font-bold text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                       >
                         {localize("Xóa", "Delete")}
                       </button>
@@ -1102,7 +1193,8 @@ export default function RoomsManagement() {
                   )}
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1464,31 +1556,22 @@ export default function RoomsManagement() {
           </div>
           
           <button
-            onClick={() => {
-              handleCleaningStatusUpdate(contextMenu.roomId, "CLEAN");
-              setContextMenu(null);
-            }}
+            onClick={() => handleContextCleaningStatus("CLEAN")}
             className={`w-full text-left px-4 py-1.5 hover:bg-gray-100 flex items-center gap-2 ${contextMenu.cleaningStatus === "CLEAN" ? "text-emerald-600 font-bold" : ""}`}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-500" /> {getCleaningStatusLabel("CLEAN")}
           </button>
           <button
-            onClick={() => {
-              handleCleaningStatusUpdate(contextMenu.roomId, "DIRTY");
-              setContextMenu(null);
-            }}
-            className={`w-full text-left px-4 py-1.5 hover:bg-gray-100 flex items-center gap-2 ${contextMenu.cleaningStatus === "DIRTY" ? "text-rose-600 font-bold" : ""}`}
+            onClick={() => handleContextCleaningStatus("DIRTY")}
+            className={`w-full text-left px-4 py-1.5 hover:bg-gray-100 flex items-center gap-2 ${contextMenu.cleaningStatus === "DIRTY" ? "text-orange-700 font-bold" : ""}`}
           >
-            <span className="w-2 h-2 rounded-full bg-rose-500" /> {getCleaningStatusLabel("DIRTY")}
+            <span className="w-2 h-2 rounded-full bg-orange-500" /> {getCleaningStatusLabel("DIRTY")}
           </button>
           <button
-            onClick={() => {
-              handleCleaningStatusUpdate(contextMenu.roomId, "IN_PROGRESS");
-              setContextMenu(null);
-            }}
-            className={`w-full text-left px-4 py-1.5 hover:bg-gray-100 flex items-center gap-2 ${contextMenu.cleaningStatus === "IN_PROGRESS" ? "text-yellow-600 font-bold" : ""}`}
+            onClick={() => handleContextCleaningStatus("IN_PROGRESS")}
+            className={`w-full text-left px-4 py-1.5 hover:bg-gray-100 flex items-center gap-2 ${contextMenu.cleaningStatus === "IN_PROGRESS" ? "text-violet-700 font-bold" : ""}`}
           >
-            <span className="w-2 h-2 rounded-full bg-yellow-500" /> {getCleaningStatusLabel("IN_PROGRESS")}
+            <span className="w-2 h-2 rounded-full bg-violet-500" /> {getCleaningStatusLabel("IN_PROGRESS")}
           </button>
         </div>,
         document.body,
