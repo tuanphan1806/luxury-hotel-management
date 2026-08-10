@@ -184,9 +184,11 @@ Request tạo đơn/báo giá/availability/walk-in được giới hạn bởi
 đích là chặn payload breakdown theo chu kỳ tăng không giới hạn; checkout thực
 tế vẫn luôn được phép tính lại nên không thể bị kẹt chỉ vì khách trả muộn.
 
-Với policy hiện tại, `operationalNightHardCheckout` là 12:00. Vì vậy khách
-đến muộn vẫn có thể dùng đủ tối đa 12 giờ nhưng không quá 12:00 mà không bị
-đơn kế tiếp bán chồng quyền đã hứa. Khi khách checkout sớm:
+Với policy hiện tại, `operationalNightHardCheckout` là 10:00. Quyền lưu trú
+cơ sở vẫn tối đa 12 giờ nhưng bị chặn tại 10:00: nhận 20:00 được đến 08:00,
+21:00 đến 09:00, còn từ 22:00 trở đi không được vượt 10:00. Nhận từ 00:00 đến
+trước 05:00 được phân loại OVERNIGHT ngay và cũng không vượt 10:00. Khi khách
+checkout sớm:
 
 - reservation chuyển `CHECKED_OUT`;
 - assignment chuyển `CHECKED_OUT`;
@@ -250,12 +252,13 @@ Thứ tự:
 7. `V20__prevent_overlapping_pricing_versions.sql`
 8. `V21__version_pricing_boundary_policy.sql`
 9. `V22__canonicalize_add_on_package_cycle_unit.sql`
+10. `V38__version_overnight_early_morning_and_checkout_policy.sql`
 
 Đã kiểm chứng trên PostgreSQL 16 Testcontainers. Chuỗi Flyway hiện tại chạy
-từ V1 đến V37; các mục V14–V22 và V37 dưới đây là phần trực tiếp của Pricing
+từ V1 đến V38; các mục V14–V22, V37 và V38 dưới đây là phần trực tiếp của Pricing
 V2:
 
-- database mới từ V1 đến V37;
+- database mới từ V1 đến V38;
 - database mô phỏng có reservation/invoice cũ rồi nâng đến schema mới nhất;
 - constraint/index/backfill;
 - V17 chỉ seed rate profile cho room type canonical chưa có bất kỳ profile nào,
@@ -269,6 +272,9 @@ V2:
   đều được clone sang policy mới mà không mất khoảng hiệu lực;
 - V22 đổi catalog `PER_NIGHT` thành `PER_PACKAGE_CYCLE` nhưng giữ alias trong
   snapshot dịch vụ đã phát sinh;
+- V38 version hóa policy hiện hành để nhận 00:00–04:59 vào OVERNIGHT ngay và
+  đổi hard checkout sang 10:00; rate hiện tại/tương lai được clone sang policy
+  mới, còn quote, reservation, invoice và rate lịch sử giữ nguyên;
 - policy inactive/future/expired không bị seed rate trái ý operator;
 - Hibernate schema validation.
 
@@ -283,13 +289,13 @@ suite.
 - frontend unit test: 80 test pass, gồm contract chatbot → booking V2,
   giới hạn khoảng lưu trú và
   canonical/legacy add-on pricing unit;
-- backend full unit/integration suite: 570 test pass, không
+- backend full unit/integration suite: 571 test pass, không
   failure/error/skip;
 - PostgreSQL migration profile: 20 test pass, gồm database mới, nâng cấp dữ
-  liệu cũ, migration V1–V37 và Hibernate validation;
+  liệu cũ, migration V1–V38 và Hibernate validation;
 - runtime quote smoke trên PostgreSQL local: `STANDARD`, 20:00 → 08:00 được
   phân loại `OVERNIGHT`, tổng `170.000 VND`, policy V2 và bảo vệ tồn phòng
-  tới `12:30` đúng turnover buffer;
+  tới `10:30` đúng hard checkout và turnover buffer;
 - ba mốc giờ chính sách dùng JDBC 4.2 `LocalTime` theo wall-clock và khai báo
   cột `time`; cách này ngăn Hibernate dịch giờ qua timezone nhưng không thay
   đổi storage của các `LocalDateTime` reservation hiện hữu;

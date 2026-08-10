@@ -50,13 +50,14 @@ public class StayPolicyVersion {
     private LocalTime overnightEarlyMorningEnd;
 
     /**
-     * Prevents very short early-morning stays from being charged as a full
-     * overnight package merely because check-in happened before the cutoff.
-     * Historical policy versions use zero to retain their original behavior.
+     * Minimum duration needed for the early-morning overnight trigger. The
+     * current policy uses zero so every stay beginning before the configured
+     * cutoff enters OVERNIGHT immediately; historical versions retain their
+     * snapshotted value.
      */
     @Builder.Default
     @Column(name = "early_morning_overnight_minimum_minutes", nullable = false)
-    private Integer earlyMorningOvernightMinimumMinutes = 120;
+    private Integer earlyMorningOvernightMinimumMinutes = 0;
 
     /**
      * The overnight package becomes the non-refundable room-charge floor once

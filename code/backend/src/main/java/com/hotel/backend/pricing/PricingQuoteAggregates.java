@@ -37,7 +37,7 @@ public class PricingQuoteAggregates {
 
     /**
      * An overnight guest may arrive late and still use up to the configured
-     * maximum duration, capped at the hard noon boundary. Inventory is
+     * maximum duration, capped at the configured hard checkout boundary. Inventory is
      * therefore reserved through that hard boundary from the initial quote;
      * otherwise a later booking could make the already-sold overnight right
      * impossible to honour at check-in. This protection affects availability
