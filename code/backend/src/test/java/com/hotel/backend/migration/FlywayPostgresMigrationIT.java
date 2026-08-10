@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "37";
+    private static final String LATEST_VERSION = "38";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -247,7 +247,7 @@ class FlywayPostgresMigrationIT {
             assertConstraintAbsent(connection, "uk_media_assets_owner");
             assertColumnDefault(connection, "rooms", "sellable", "true");
             assertColumnDefault(connection, "stay_policy_versions",
-                    "early_morning_overnight_minimum_minutes", "120");
+                    "early_morning_overnight_minimum_minutes", "0");
             assertColumnDefault(connection, "stay_policy_versions",
                     "remainder_cycle_starts_at_boundary", "true");
             assertScalar(connection, """
@@ -581,13 +581,13 @@ class FlywayPostgresMigrationIT {
                             + "FROM stay_policy_versions "
                             + "WHERE policy_code = 'DEFAULT_MOTEL_POLICY' "
                             + "AND active = true AND effective_to_utc IS NULL",
-                    "08:00:00");
+                    "05:00:00");
             assertScalar(connection,
                     "SELECT early_morning_overnight_minimum_minutes::text "
                             + "FROM stay_policy_versions "
                             + "WHERE policy_code = 'DEFAULT_MOTEL_POLICY' "
                             + "AND active = true AND effective_to_utc IS NULL",
-                    "120");
+                    "0");
             assertScalar(connection,
                     "SELECT remainder_cycle_starts_at_boundary::text "
                             + "FROM stay_policy_versions "
@@ -606,7 +606,7 @@ class FlywayPostgresMigrationIT {
                     SELECT count(*)::text
                     FROM room_rate_profiles
                     WHERE room_type_id = %d
-                    """.formatted(canonicalRoomTypeId), "3");
+                    """.formatted(canonicalRoomTypeId), "4");
             assertScalar(connection, """
                     SELECT first_block_price::text
                     FROM room_rate_profiles
@@ -858,7 +858,7 @@ class FlywayPostgresMigrationIT {
                       AND active = true
                       AND effective_to_utc IS NULL
                     """,
-                    "15|20:00:00|08:00:00|120|12:00:00|720|1200|1440|30|t");
+                    "15|20:00:00|05:00:00|0|10:00:00|720|1200|1440|30|t");
         }
     }
 
@@ -946,7 +946,9 @@ class FlywayPostgresMigrationIT {
                     WHERE room_type.code = 'FINITE_RATE_CHAIN'
                       AND profile.active = true
                       AND policy.active = true
-                      AND policy.early_morning_overnight_minimum_minutes = 120
+                      AND policy.overnight_early_morning_end = TIME '05:00'
+                      AND policy.early_morning_overnight_minimum_minutes = 0
+                      AND policy.overnight_hard_checkout_time = TIME '10:00'
                       AND policy.remainder_cycle_starts_at_boundary = true
                     """, "2");
             assertScalar(connection, """
@@ -968,7 +970,7 @@ class FlywayPostgresMigrationIT {
                       ON room_type.id = profile.room_type_id
                     WHERE room_type.code = 'FINITE_RATE_CHAIN'
                       AND profile.active = true
-                    """, "3,4");
+                    """, "5,6");
             assertScalar(connection, """
                     SELECT count(*)::text
                     FROM room_rate_profiles profile
@@ -1219,7 +1221,7 @@ class FlywayPostgresMigrationIT {
                     FROM room_rate_profiles profile
                     JOIN room_types room_type ON room_type.id = profile.room_type_id
                     WHERE room_type.code = 'STANDARD'
-                    """, "3");
+                    """, "4");
             assertScalar(connection, """
                     SELECT first_block_price::text
                     FROM room_rate_profiles profile
@@ -1233,7 +1235,7 @@ class FlywayPostgresMigrationIT {
                     FROM room_rate_profiles profile
                     JOIN room_types room_type ON room_type.id = profile.room_type_id
                     WHERE room_type.code = 'DELUXE'
-                    """, "3");
+                    """, "4");
             assertScalar(connection, """
                     SELECT profile_version::text || ':' || first_block_price::text
                     FROM room_rate_profiles profile
@@ -1241,7 +1243,7 @@ class FlywayPostgresMigrationIT {
                     WHERE room_type.code = 'DELUXE'
                       AND profile.active = true
                       AND profile.effective_to_utc IS NULL
-                    """, "9:111000.00");
+                    """, "10:111000.00");
         }
     }
 

@@ -203,7 +203,7 @@ class IdempotencyPostgresMigrationIT {
         assertThat(quote.getTotalAmount())
                 .isEqualByComparingTo(new BigDecimal("170000.00"));
         assertThat(quote.getInventoryProtectedUntil())
-                .isEqualTo(checkIn.toLocalDate().plusDays(1).atTime(12, 30));
+                .isEqualTo(checkIn.toLocalDate().plusDays(1).atTime(10, 30));
     }
 
     private void sleep(long milliseconds) {

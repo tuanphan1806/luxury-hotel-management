@@ -90,7 +90,7 @@ export function RoomRateCompact({ rate, className = "", display = "published" }:
           : null,
         packageLabel,
       ].filter(Boolean).join(" · ")
-    : "20:00–08:00";
+    : localize("20:00–08:00 · trả trước 10:00", "20:00–08:00 · checkout by 10:00");
 
   return (
     <div className={`min-w-[10.5rem] rounded-xl border border-white/75 bg-[#FBFAF6]/96 px-3.5 py-2.5 text-[#0F2A43] shadow-[0_10px_28px_rgba(9,30,48,0.18)] backdrop-blur-sm ${className}`}>
@@ -133,7 +133,7 @@ export function RoomRatePanel({ rate, className = "" }: RoomRatePanelProps) {
       label: localize("Qua đêm", "Overnight"),
       price: rate.overnightPrice,
       unit: localize("mỗi kỳ", "per stay"),
-      note: localize("Khung 20:00–08:00 · quyền lưu trú tối đa 12 giờ", "20:00–08:00 window · up to 12 hours"),
+      note: localize("Khung đêm 20:00–08:00 · trả muộn nhất 10:00", "20:00–08:00 overnight window · checkout by 10:00"),
     },
     {
       key: "daily",

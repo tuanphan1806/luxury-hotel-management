@@ -19,6 +19,8 @@ import com.hotel.backend.service.CashierShiftService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -192,18 +194,20 @@ class ReservationOperationalFlowIntegrationTest {
     /** TC-CO-01 - Gói giờ trả sớm tính lại theo sử dụng thực tế. */
     @Test
     void hourlyEarlyCheckoutCreatesTheExactRefundableDifference() {
-        Fixture fixture = confirmedHourlyFixture(4);
-        checkIn(fixture);
-        payRemainingDirectly(fixture.reservationId(), PaymentProvider.SEPAY);
+        try (MockedStatic<LocalDateTime> ignored = freezeAtDaytime()) {
+            Fixture fixture = confirmedHourlyFixture(4);
+            checkIn(fixture);
+            payRemainingDirectly(fixture.reservationId(), PaymentProvider.SEPAY);
 
-        FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff());
+            FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff());
 
-        assertEquals(130_000L, settlement.getPlannedRoomCharge());
-        assertEquals(100_000L, settlement.getRoomCharge());
-        assertEquals(30_000L, settlement.getEarlyCheckoutAdjustment());
-        assertEquals(30_000L, settlement.getRefundableAmount());
-        assertEquals(0L, settlement.getRemainingAmount());
+            assertEquals(130_000L, settlement.getPlannedRoomCharge());
+            assertEquals(100_000L, settlement.getRoomCharge());
+            assertEquals(30_000L, settlement.getEarlyCheckoutAdjustment());
+            assertEquals(30_000L, settlement.getRefundableAmount());
+            assertEquals(0L, settlement.getRemainingAmount());
+        }
     }
 
     /**
@@ -239,23 +243,25 @@ class ReservationOperationalFlowIntegrationTest {
     /** TC-CO-02B - Preview sớm giảm theo thực tế; ở thêm tính lại từ snapshot. */
     @Test
     void earlySettlementRepricesAndLaterStayRestoresTheActualCharge() {
-        Fixture fixture = confirmedHourlyFixture(4);
-        checkIn(fixture);
-        FinalPaymentResponse early = reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff());
-        assertEquals(30_000L, early.getEarlyCheckoutAdjustment());
-        assertEquals(100_000L, early.getTotalAmount());
+        try (MockedStatic<LocalDateTime> ignored = freezeAtDaytime()) {
+            Fixture fixture = confirmedHourlyFixture(4);
+            checkIn(fixture);
+            FinalPaymentResponse early = reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff());
+            assertEquals(30_000L, early.getEarlyCheckoutAdjustment());
+            assertEquals(100_000L, early.getTotalAmount());
 
-        moveSchedule(fixture.reservationId(),
-                LocalDateTime.now().minusHours(5).minusMinutes(11),
-                LocalDateTime.now().minusMinutes(71));
-        FinalPaymentResponse late = reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff());
+            moveSchedule(fixture.reservationId(),
+                    LocalDateTime.now().minusHours(5).minusMinutes(11),
+                    LocalDateTime.now().minusMinutes(71));
+            FinalPaymentResponse late = reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff());
 
-        assertEquals(0L, late.getEarlyCheckoutAdjustment());
-        assertEquals(10_000L, late.getLateCheckoutFee());
-        assertEquals(140_000L, late.getTotalAmount());
-        assertEquals(140_000L, late.getRoomCharge());
+            assertEquals(0L, late.getEarlyCheckoutAdjustment());
+            assertEquals(10_000L, late.getLateCheckoutFee());
+            assertEquals(140_000L, late.getTotalAmount());
+            assertEquals(140_000L, late.getRoomCharge());
+        }
     }
 
     /**
@@ -268,32 +274,34 @@ class ReservationOperationalFlowIntegrationTest {
      */
     @Test
     void lateCheckoutAddsFeeAndCashPaymentCollectsExactShortfall() {
-        // Given: reservation 1 phòng đã check-in, sau đó ở lâu hơn cam kết 71 phút.
-        Fixture fixture = confirmedFixture(LocalDateTime.now().plusSeconds(5), 4);
-        checkIn(fixture);
-        moveSchedule(fixture.reservationId(),
-                LocalDateTime.now().minusHours(5).minusMinutes(11),
-                LocalDateTime.now().minusMinutes(71).withNano(0));
+        try (MockedStatic<LocalDateTime> ignored = freezeAtDaytime()) {
+            // Given: reservation 1 phòng đã check-in, sau đó ở lâu hơn cam kết 71 phút.
+            Fixture fixture = confirmedFixture(LocalDateTime.now().plusSeconds(5), 4);
+            checkIn(fixture);
+            moveSchedule(fixture.reservationId(),
+                    LocalDateTime.now().minusHours(5).minusMinutes(11),
+                    LocalDateTime.now().minusMinutes(71).withNano(0));
 
-        // When: backend đối soát theo cùng policy grace và đơn vị giờ đã snapshot.
-        FinalPaymentResponse beforePayment = reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff());
+            // When: backend đối soát theo cùng policy grace và đơn vị giờ đã snapshot.
+            FinalPaymentResponse beforePayment = reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff());
 
-        // Then: phần tăng so với cam kết là 1 x 10.000 cho 1 phòng.
-        assertEquals(10_000L, beforePayment.getLateCheckoutFee());
-        assertEquals(140_000L, beforePayment.getTotalAmount());
-        assertEquals(75_000L, beforePayment.getRemainingAmount());
+            // Then: phần tăng so với cam kết là 1 x 10.000 cho 1 phòng.
+            assertEquals(10_000L, beforePayment.getLateCheckoutFee());
+            assertEquals(140_000L, beforePayment.getTotalAmount());
+            assertEquals(75_000L, beforePayment.getRemainingAmount());
 
-        // When: staff thu tiền mặt; PaymentService phải tự lấy đúng phần còn thiếu.
-        PaymentResponse payment = createCashFinalPayment(fixture.reservationId(), PaymentPurpose.FINAL_PAYMENT);
+            // When: staff thu tiền mặt; PaymentService phải tự lấy đúng phần còn thiếu.
+            PaymentResponse payment = createCashFinalPayment(fixture.reservationId(), PaymentPurpose.FINAL_PAYMENT);
 
-        // Then: thông tin giao dịch và số dư đều chính xác.
-        assertEquals(PaymentProvider.CASH, payment.getProvider());
-        assertEquals(PaymentPurpose.FINAL_PAYMENT, payment.getPurpose());
-        assertEquals(PaymentStatus.SUCCESS, payment.getStatus());
-        assertEquals(75_000L, payment.getAmount());
-        assertEquals(0L, reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff()).getRemainingAmount());
+            // Then: thông tin giao dịch và số dư đều chính xác.
+            assertEquals(PaymentProvider.CASH, payment.getProvider());
+            assertEquals(PaymentPurpose.FINAL_PAYMENT, payment.getPurpose());
+            assertEquals(PaymentStatus.SUCCESS, payment.getStatus());
+            assertEquals(75_000L, payment.getAmount());
+            assertEquals(0L, reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff()).getRemainingAmount());
+        }
     }
 
     /**
@@ -304,24 +312,26 @@ class ReservationOperationalFlowIntegrationTest {
      */
     @Test
     void additionalFeeCanBeEditedRepeatedlyWithoutAccumulatingOldValue() {
-        // Given: gói giờ 3 giờ cam kết 120.000; thời gian thực tế hiện tại
-        // vẫn thuộc block đầu 100.000.
-        Fixture fixture = confirmedHourlyFixture(3);
-        checkIn(fixture);
-        reservationService.calculateFinalPayment(fixture.reservationId(), staff());
+        try (MockedStatic<LocalDateTime> ignored = freezeAtDaytime()) {
+            // Given: gói giờ 3 giờ cam kết 120.000; thời gian thực tế hiện tại
+            // vẫn thuộc block đầu 100.000.
+            Fixture fixture = confirmedHourlyFixture(3);
+            checkIn(fixture);
+            reservationService.calculateFinalPayment(fixture.reservationId(), staff());
 
-        // When: staff nhập phụ phí 30.000, sau đó sửa lại còn 10.000.
-        updateAdditionalFee(fixture.reservationId(), 30_000L);
-        updateAdditionalFee(fixture.reservationId(), 10_000L);
+            // When: staff nhập phụ phí 30.000, sau đó sửa lại còn 10.000.
+            updateAdditionalFee(fixture.reservationId(), 30_000L);
+            updateAdditionalFee(fixture.reservationId(), 10_000L);
 
-        // Then: tổng = 100.000 thực tế + 10.000 phụ phí, không cộng dồn phí cũ.
-        FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff());
-        assertEquals(10_000L, settlement.getCheckoutAdditionalFee());
-        assertEquals(20_000L, settlement.getEarlyCheckoutAdjustment());
-        assertEquals(110_000L, settlement.getTotalAmount());
-        assertEquals(2L, auditLogRepository.findByReservationIdOrderByCreatedAtDesc(fixture.reservationId())
-                .stream().filter(log -> log.getAction() == ReservationAuditAction.UPDATE_CHECKOUT_FEE).count());
+            // Then: tổng = 100.000 thực tế + 10.000 phụ phí, không cộng dồn phí cũ.
+            FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff());
+            assertEquals(10_000L, settlement.getCheckoutAdditionalFee());
+            assertEquals(20_000L, settlement.getEarlyCheckoutAdjustment());
+            assertEquals(110_000L, settlement.getTotalAmount());
+            assertEquals(2L, auditLogRepository.findByReservationIdOrderByCreatedAtDesc(fixture.reservationId())
+                    .stream().filter(log -> log.getAction() == ReservationAuditAction.UPDATE_CHECKOUT_FEE).count());
+        }
     }
 
     /**
@@ -723,6 +733,15 @@ class ReservationOperationalFlowIntegrationTest {
 
     private String suffix() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+    }
+
+    private MockedStatic<LocalDateTime> freezeAtDaytime() {
+        LocalDateTime frozenNow = LocalDateTime.of(2026, 8, 10, 15, 0);
+        MockedStatic<LocalDateTime> mocked = Mockito.mockStatic(
+                LocalDateTime.class,
+                Mockito.CALLS_REAL_METHODS);
+        mocked.when(LocalDateTime::now).thenReturn(frozenNow);
+        return mocked;
     }
 
     private RoomType pricedRoomType(RoomType draft, int bookedHours) {

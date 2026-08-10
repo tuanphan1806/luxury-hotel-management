@@ -183,7 +183,9 @@ export default function ReservationRoomQuickViewModal({
                 {localize("Giá qua đêm", "Overnight rate")}
               </dt>
               <dd className="mt-1.5 font-sans text-xl font-extrabold tabular-nums tracking-[-0.02em] text-[#0F2A43]">{formatVND(room.overnightPrice)}</dd>
-              <dd className="mt-1 text-xs font-semibold text-[#66727C]">20:00–08:00</dd>
+              <dd className="mt-1 text-xs font-semibold text-[#66727C]">
+                {localize("20:00–08:00 · trả trước 10:00", "20:00–08:00 · checkout by 10:00")}
+              </dd>
             </div>
             <div className="rounded-xl border border-[#B8944F]/28 bg-[#F7F1E6] p-3.5">
               <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#80632F]">{localize("Giá ngày đêm", "Daily rate")}</dt>

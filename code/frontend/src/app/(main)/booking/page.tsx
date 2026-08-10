@@ -471,7 +471,7 @@ function BookingFormContent() {
   const isEarlyMorningOvernight =
     pricingQuote?.displayPackageSummary === "OVERNIGHT"
     && checkInHourMatch != null
-    && Number(checkInHourMatch[1]) < 8;
+    && Number(checkInHourMatch[1]) < 5;
   const isBookingActionDisabled = isSubmitting || (
     !pendingReservation
     && (
@@ -1366,8 +1366,8 @@ function BookingFormContent() {
                   {isEarlyMorningOvernight && (
                     <p className="rounded-lg border border-[#B8944F]/35 bg-[#F7F1E5] px-3 py-2 text-xs font-semibold leading-relaxed text-[#6F5425]">
                       {localize(
-                        "Nhận phòng trước 08:00 với kỳ lưu trú từ 2 giờ được áp dụng gói qua đêm.",
-                        "Check-in before 08:00 with a stay of at least 2 hours uses the overnight package.",
+                        "Nhận phòng từ 00:00 đến trước 05:00 được áp dụng ngay gói qua đêm và trả muộn nhất 10:00.",
+                        "Check-in from 00:00 until before 05:00 uses the overnight package immediately, with checkout no later than 10:00.",
                       )}
                     </p>
                   )}

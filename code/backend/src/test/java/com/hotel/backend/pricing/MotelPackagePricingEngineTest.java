@@ -66,7 +66,7 @@ class MotelPackagePricingEngineTest {
     }
 
     @Test
-    void overnightLateArrivalBuysTwelveHoursButNeverPastNoon() {
+    void overnightLateArrivalRespectsTheTenOClockHardCheckout() {
         LocalDateTime checkIn = at(2026, 8, 1, 22, 0);
         PricingBreakdown lateEvening =
                 calculate(standard(), checkIn, at(2026, 8, 2, 5, 0));
@@ -77,23 +77,23 @@ class MotelPackagePricingEngineTest {
                 lateEvening.packageIncludedCheckout());
 
         LocalDateTime earlyMorning = at(2026, 8, 2, 1, 0);
-        PricingBreakdown cappedAtNoon =
+        PricingBreakdown cappedAtTen =
                 calculate(standard(), earlyMorning, at(2026, 8, 2, 7, 0));
-        assertEquals(at(2026, 8, 2, 12, 0),
-                cappedAtNoon.packageIncludedCheckout());
+        assertEquals(at(2026, 8, 2, 10, 0),
+                cappedAtTen.packageIncludedCheckout());
     }
 
     @Test
-    void earlyMorningArrivalBeforeEightUsesTheOvernightPackage() {
+    void earlyMorningArrivalBeforeFiveUsesTheOvernightPackageImmediately() {
         PricingBreakdown result = calculate(
                 standard(),
-                at(2026, 8, 2, 7, 30),
-                at(2026, 8, 2, 9, 30));
+                at(2026, 8, 2, 4, 30),
+                at(2026, 8, 2, 4, 31));
 
         assertEquals(StayPackage.OVERNIGHT, result.appliedPackage());
         assertMoney("170000", result.roomChargePerRoom());
         assertEquals(
-                at(2026, 8, 2, 12, 0),
+                at(2026, 8, 2, 10, 0),
                 result.packageIncludedCheckout());
     }
 
@@ -143,6 +143,30 @@ class MotelPackagePricingEngineTest {
                 at(2026, 8, 1, 19, 45).minusNanos(1),
                 at(2026, 8, 2, 5, 0))
                 .roomChargePerRoom());
+    }
+
+    @Test
+    void overnightOverageTransitionsToDailyAtThePriceOrDurationBoundary() {
+        LocalDateTime checkIn = at(2026, 8, 1, 22, 0);
+
+        PricingBreakdown belowPriceCap = calculate(
+                standard(), checkIn, at(2026, 8, 2, 16, 15));
+        PricingBreakdown reachesPriceCap = calculate(
+                standard(), checkIn, at(2026, 8, 2, 16, 16));
+        PricingBreakdown reachesDurationThreshold = calculate(
+                standard(), checkIn, checkIn.plusHours(20));
+
+        assertEquals(StayPackage.OVERNIGHT, belowPriceCap.appliedPackage());
+        assertMoney("290000", belowPriceCap.roomChargePerRoom());
+        assertEquals(StayPackage.DAILY, reachesPriceCap.appliedPackage());
+        assertEquals(PricingTransitionReason.PRICE_CAP,
+                reachesPriceCap.transitionReason());
+        assertMoney("300000", reachesPriceCap.roomChargePerRoom());
+        assertEquals(StayPackage.DAILY,
+                reachesDurationThreshold.appliedPackage());
+        assertEquals(PricingTransitionReason.DAILY_DURATION,
+                reachesDurationThreshold.transitionReason());
+        assertMoney("300000", reachesDurationThreshold.roomChargePerRoom());
     }
 
     @Test
@@ -303,7 +327,7 @@ class MotelPackagePricingEngineTest {
     }
 
     @Test
-    void dailyThresholdAndOvernightWindowBoundariesAreExplicit() {
+    void dailyThresholdAndFiveOClockOvernightBoundaryAreExplicit() {
         LocalDateTime daytimeStart = at(2026, 8, 1, 8, 0);
         PricingBreakdown threshold = calculate(
                 standard(), daytimeStart, daytimeStart.plusHours(20));
@@ -312,37 +336,32 @@ class MotelPackagePricingEngineTest {
                 PricingTransitionReason.DAILY_DURATION,
                 threshold.transitionReason());
 
-        PricingBreakdown beforeEight = calculate(
+        PricingBreakdown beforeFive = calculate(
                 standard(),
-                at(2026, 8, 2, 7, 59),
-                at(2026, 8, 2, 9, 59));
-        PricingBreakdown atEight = calculate(
+                at(2026, 8, 2, 4, 59),
+                at(2026, 8, 2, 5, 0));
+        PricingBreakdown atFive = calculate(
                 standard(),
-                at(2026, 8, 2, 8, 0),
-                at(2026, 8, 2, 10, 0));
-        assertEquals(StayPackage.OVERNIGHT, beforeEight.appliedPackage());
-        assertEquals(StayPackage.HOURLY, atEight.appliedPackage());
-        assertMoney("170000", beforeEight.roomChargePerRoom());
-        assertMoney("70000", atEight.roomChargePerRoom());
+                at(2026, 8, 2, 5, 0),
+                at(2026, 8, 2, 5, 1));
+        assertEquals(StayPackage.OVERNIGHT, beforeFive.appliedPackage());
+        assertEquals(StayPackage.HOURLY, atFive.appliedPackage());
+        assertMoney("170000", beforeFive.roomChargePerRoom());
+        assertMoney("70000", atFive.roomChargePerRoom());
     }
 
     @Test
-    void shortEarlyMorningStayRemainsHourlyUntilMinimumOvernightDuration() {
-        LocalDateTime checkIn = at(2026, 8, 2, 7, 59);
+    void midnightThroughFourAlwaysUsesOvernightEvenForOneMinute() {
+        for (int hour = 0; hour <= 4; hour++) {
+            LocalDateTime checkIn = at(2026, 8, 2, hour, 0);
+            PricingBreakdown result = calculate(
+                    standard(), checkIn, checkIn.plusMinutes(1));
 
-        PricingBreakdown elevenMinutes = calculate(
-                standard(), checkIn, at(2026, 8, 2, 8, 10));
-        PricingBreakdown oneHundredNineteenMinutes = calculate(
-                standard(), checkIn, checkIn.plusMinutes(119));
-        PricingBreakdown twoHours = calculate(
-                standard(), checkIn, checkIn.plusMinutes(120));
-
-        assertEquals(StayPackage.HOURLY, elevenMinutes.appliedPackage());
-        assertEquals(StayPackage.HOURLY, oneHundredNineteenMinutes.appliedPackage());
-        assertEquals(StayPackage.OVERNIGHT, twoHours.appliedPackage());
-        assertMoney("70000", elevenMinutes.roomChargePerRoom());
-        assertMoney("70000", oneHundredNineteenMinutes.roomChargePerRoom());
-        assertMoney("170000", twoHours.roomChargePerRoom());
+            assertEquals(StayPackage.OVERNIGHT, result.appliedPackage());
+            assertMoney("170000", result.roomChargePerRoom());
+            assertEquals(at(2026, 8, 2, 10, 0),
+                    result.packageIncludedCheckout());
+        }
     }
 
     @Test
@@ -410,10 +429,9 @@ class MotelPackagePricingEngineTest {
     void allSeedRatesRemainMonotonicForFixedBoundaryCheckIns() {
         List<RoomRateDefinition> rates = seedRates();
         List<LocalDateTime> fixedCheckIns = List.of(
-                at(2026, 8, 1, 5, 59),
-                at(2026, 8, 1, 6, 0),
-                at(2026, 8, 1, 7, 59),
-                at(2026, 8, 1, 8, 0),
+                at(2026, 8, 1, 0, 0),
+                at(2026, 8, 1, 4, 59),
+                at(2026, 8, 1, 5, 0),
                 at(2026, 8, 1, 19, 59),
                 at(2026, 8, 1, 20, 0),
                 at(2026, 8, 1, 23, 59),
@@ -476,10 +494,10 @@ class MotelPackagePricingEngineTest {
         return new StayPolicyDefinition(
                 15,
                 LocalTime.of(20, 0),
-                LocalTime.of(8, 0),
-                120,
+                LocalTime.of(5, 0),
+                0,
                 LocalTime.of(23, 0),
-                LocalTime.NOON,
+                LocalTime.of(10, 0),
                 720,
                 1200,
                 1440,
