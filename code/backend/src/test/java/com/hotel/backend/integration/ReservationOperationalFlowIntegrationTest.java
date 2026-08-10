@@ -194,18 +194,20 @@ class ReservationOperationalFlowIntegrationTest {
     /** TC-CO-01 - Gói giờ trả sớm tính lại theo sử dụng thực tế. */
     @Test
     void hourlyEarlyCheckoutCreatesTheExactRefundableDifference() {
-        Fixture fixture = confirmedHourlyFixture(4);
-        checkIn(fixture);
-        payRemainingDirectly(fixture.reservationId(), PaymentProvider.SEPAY);
+        try (MockedStatic<LocalDateTime> ignored = freezeAtDaytime()) {
+            Fixture fixture = confirmedHourlyFixture(4);
+            checkIn(fixture);
+            payRemainingDirectly(fixture.reservationId(), PaymentProvider.SEPAY);
 
-        FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff());
+            FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff());
 
-        assertEquals(130_000L, settlement.getPlannedRoomCharge());
-        assertEquals(100_000L, settlement.getRoomCharge());
-        assertEquals(30_000L, settlement.getEarlyCheckoutAdjustment());
-        assertEquals(30_000L, settlement.getRefundableAmount());
-        assertEquals(0L, settlement.getRemainingAmount());
+            assertEquals(130_000L, settlement.getPlannedRoomCharge());
+            assertEquals(100_000L, settlement.getRoomCharge());
+            assertEquals(30_000L, settlement.getEarlyCheckoutAdjustment());
+            assertEquals(30_000L, settlement.getRefundableAmount());
+            assertEquals(0L, settlement.getRemainingAmount());
+        }
     }
 
     /**
@@ -310,24 +312,26 @@ class ReservationOperationalFlowIntegrationTest {
      */
     @Test
     void additionalFeeCanBeEditedRepeatedlyWithoutAccumulatingOldValue() {
-        // Given: gói giờ 3 giờ cam kết 120.000; thời gian thực tế hiện tại
-        // vẫn thuộc block đầu 100.000.
-        Fixture fixture = confirmedHourlyFixture(3);
-        checkIn(fixture);
-        reservationService.calculateFinalPayment(fixture.reservationId(), staff());
+        try (MockedStatic<LocalDateTime> ignored = freezeAtDaytime()) {
+            // Given: gói giờ 3 giờ cam kết 120.000; thời gian thực tế hiện tại
+            // vẫn thuộc block đầu 100.000.
+            Fixture fixture = confirmedHourlyFixture(3);
+            checkIn(fixture);
+            reservationService.calculateFinalPayment(fixture.reservationId(), staff());
 
-        // When: staff nhập phụ phí 30.000, sau đó sửa lại còn 10.000.
-        updateAdditionalFee(fixture.reservationId(), 30_000L);
-        updateAdditionalFee(fixture.reservationId(), 10_000L);
+            // When: staff nhập phụ phí 30.000, sau đó sửa lại còn 10.000.
+            updateAdditionalFee(fixture.reservationId(), 30_000L);
+            updateAdditionalFee(fixture.reservationId(), 10_000L);
 
-        // Then: tổng = 100.000 thực tế + 10.000 phụ phí, không cộng dồn phí cũ.
-        FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
-                fixture.reservationId(), staff());
-        assertEquals(10_000L, settlement.getCheckoutAdditionalFee());
-        assertEquals(20_000L, settlement.getEarlyCheckoutAdjustment());
-        assertEquals(110_000L, settlement.getTotalAmount());
-        assertEquals(2L, auditLogRepository.findByReservationIdOrderByCreatedAtDesc(fixture.reservationId())
-                .stream().filter(log -> log.getAction() == ReservationAuditAction.UPDATE_CHECKOUT_FEE).count());
+            // Then: tổng = 100.000 thực tế + 10.000 phụ phí, không cộng dồn phí cũ.
+            FinalPaymentResponse settlement = reservationService.calculateFinalPayment(
+                    fixture.reservationId(), staff());
+            assertEquals(10_000L, settlement.getCheckoutAdditionalFee());
+            assertEquals(20_000L, settlement.getEarlyCheckoutAdjustment());
+            assertEquals(110_000L, settlement.getTotalAmount());
+            assertEquals(2L, auditLogRepository.findByReservationIdOrderByCreatedAtDesc(fixture.reservationId())
+                    .stream().filter(log -> log.getAction() == ReservationAuditAction.UPDATE_CHECKOUT_FEE).count());
+        }
     }
 
     /**
