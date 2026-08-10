@@ -25,9 +25,10 @@ inventoryProtectedUntil
 RoomHold, room assignment, extension và next booking. Thời gian dọn phòng
 không được cộng vào tiền phòng, số giờ phụ thu hoặc doanh thu hóa đơn.
 
-Với `OVERNIGHT`, `packageEntitlementEnd` là giờ checkout cứng của đêm vận
-hành (12:00 theo policy V1), không chỉ là checkout đã nhập. Quy tắc này bảo
-vệ lời hứa “đến muộn vẫn có thể dùng tối đa 12 giờ nhưng không quá 12:00”.
+Với `OVERNIGHT`, `packageEntitlementEnd` không vượt quá giờ checkout cứng của
+đêm vận hành. Policy hiện tại dùng 10:00; policy V1 lịch sử dùng 12:00. Quy
+tắc này bảo vệ tồn phòng theo đúng quyền lưu trú đã báo giá mà không viết lại
+snapshot của các đơn cũ.
 
 Khi staff xác nhận checkout sớm, phòng được giải phóng theo workflow dọn phòng
 hiện hữu và tiền được replay từ `actualCheckIn` đến `actualCheckout`. HOURLY và
@@ -61,13 +62,17 @@ không bị nuốt vào trần này.
 ### OVERNIGHT
 
 - Khung vận hành mặc định: `20:00 → 08:00`.
-- Khách đến muộn được dùng tối đa 12 giờ nhưng không quá 12:00 hôm sau.
+- Quyền lưu trú cơ sở tối đa 12 giờ nhưng không bao giờ vượt quá 10:00 hôm
+  sau. Ví dụ nhận 20:00 có entitlement đến 08:00, nhận 21:00 đến 09:00,
+  nhận từ 22:00 trở đi bị chặn tại 10:00.
 - Trả trước 23:00 của đêm vận hành: tính lại theo thời gian thực tế và có thể
   chuyển về HOURLY.
 - Từ 23:00 trở đi: giữ giá OVERNIGHT làm sàn; phần gia hạn tương lai chưa dùng
   vẫn được loại khỏi nghĩa vụ.
-- Khách nhận trước 08:00 trong cùng ngày chỉ vào gói qua đêm khi kỳ lưu trú
-  đạt tối thiểu 120 phút. Kỳ ngắn hơn đi HOURLY.
+- Khách nhận từ `00:00` đến trước `05:00` vào gói OVERNIGHT ngay, không phụ
+  thuộc thời lượng đã nhập, và entitlement bị chặn tại 10:00 cùng ngày.
+- Từ đúng `05:00`, cửa sổ sáng sớm không còn áp dụng; engine phân loại theo
+  HOURLY/DAILY hoặc kỳ lưu trú thực sự đi qua đêm như bình thường.
 - Phút đến trước 20:00 và phút trả sau entitlement được trừ grace riêng, làm
   tròn lên block giờ rồi cộng `extraUnitPrice`.
 - Nếu tiền phòng qua đêm cộng block đạt giá DAILY thì tiền phòng chuyển lên
@@ -192,8 +197,9 @@ Trước check-in, guest assignment của từng phòng vật lý vẫn phải k
 - Rate/policy version không được sửa giá trị cũ; chỉ được đóng
   `effectiveToUtc/active` rồi tạo version mới.
 - Policy trước V21 giữ `earlyMorningOvernightMinimumMinutes=0` và
-  `remainderCycleStartsAtBoundary=false` để tái hiện quote lịch sử. Policy
-  active mới dùng `120/true`.
+  `remainderCycleStartsAtBoundary=false` để tái hiện quote lịch sử. V21 dùng
+  `120/true`; policy active từ V38 dùng `0/true`, cutoff sáng sớm 05:00 và
+  hard checkout 10:00. Mỗi quote/reservation vẫn giữ policy version đã chốt.
 
 Feature flags mặc định:
 

@@ -462,10 +462,11 @@ public class DataSeeder implements CommandLineRunner {
                                     .graceMinutes(15)
                                     .overnightStartTime(LocalTime.of(20, 0))
                                     .overnightEarlyMorningEnd(
-                                            LocalTime.of(8, 0))
-                                    .earlyMorningOvernightMinimumMinutes(120)
+                                            LocalTime.of(5, 0))
+                                    .earlyMorningOvernightMinimumMinutes(0)
                                     .overnightRefundLockTime(LocalTime.of(23, 0))
-                                    .overnightHardCheckoutTime(LocalTime.NOON)
+                                    .overnightHardCheckoutTime(
+                                            LocalTime.of(10, 0))
                                     .overnightMaximumMinutes(720)
                                     .dailyThresholdMinutes(1200)
                                     .dailyDurationMinutes(1440)

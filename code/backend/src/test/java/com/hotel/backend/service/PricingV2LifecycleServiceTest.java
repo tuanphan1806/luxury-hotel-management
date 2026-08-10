@@ -70,7 +70,7 @@ class PricingV2LifecycleServiceTest {
                 .pricingVersion(PricingAlgorithmVersion.MOTEL_PACKAGE_V2)
                 .displayPackageSummary(StayPackage.OVERNIGHT)
                 .inventoryProtectedUntil(
-                        LocalDateTime.of(2026, 8, 2, 12, 30))
+                        LocalDateTime.of(2026, 8, 2, 10, 30))
                 .status(ReservationStatus.CHECKED_IN)
                 .build();
         reservation.setId(101L);
@@ -363,7 +363,7 @@ class PricingV2LifecycleServiceTest {
     }
 
     @Test
-    void lateArrivalReceivesTwelveHoursWithoutDroppingCommitmentOrOvercharging() {
+    void lateArrivalPastTenOClockPaysOneRoundedExtraHour() {
         reservation.setActualCheckIn(
                 LocalDateTime.of(2026, 8, 1, 23, 0));
 
@@ -372,18 +372,18 @@ class PricingV2LifecycleServiceTest {
                         reservation,
                         LocalDateTime.of(2026, 8, 2, 11, 0));
 
-        assertEquals(money("170000"), projection.projectedTotalAmount());
-        assertEquals(money("0"), projection.deltaAmount());
+        assertEquals(money("190000"), projection.projectedTotalAmount());
+        assertEquals(money("20000"), projection.deltaAmount());
         assertEquals(StayPackage.OVERNIGHT, projection.displayPackage());
         assertEquals(
-                LocalDateTime.of(2026, 8, 2, 12, 30),
+                LocalDateTime.of(2026, 8, 2, 11, 30),
                 projection.inventoryProtectedUntil());
         assertEquals(
                 LocalDateTime.of(2026, 8, 1, 23, 0),
                 projection.lines().get(0).breakdown().cycles()
                         .get(0).billableStart());
         assertEquals(
-                LocalDateTime.of(2026, 8, 2, 11, 0),
+                LocalDateTime.of(2026, 8, 2, 10, 0),
                 projection.lines().get(0).breakdown()
                         .packageIncludedCheckout());
     }
@@ -562,9 +562,10 @@ class PricingV2LifecycleServiceTest {
                 .policyVersion(1)
                 .graceMinutes(15)
                 .overnightStartTime(LocalTime.of(20, 0))
-                .overnightEarlyMorningEnd(LocalTime.of(8, 0))
+                .overnightEarlyMorningEnd(LocalTime.of(5, 0))
+                .earlyMorningOvernightMinimumMinutes(0)
                 .overnightRefundLockTime(LocalTime.of(23, 0))
-                .overnightHardCheckoutTime(LocalTime.NOON)
+                .overnightHardCheckoutTime(LocalTime.of(10, 0))
                 .overnightMaximumMinutes(720)
                 .dailyThresholdMinutes(1200)
                 .dailyDurationMinutes(1440)

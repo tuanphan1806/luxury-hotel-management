@@ -15,6 +15,8 @@ import com.hotel.backend.service.ReservationService;
 import com.hotel.backend.service.CashierShiftService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -814,6 +816,12 @@ class ReservationScenarioIntegrationTest {
      */
     @Test
     void earlyCheckoutReductionIsRefundedBeforeCheckoutPersistsActualUsagePrice() {
+        try (MockedStatic<LocalDateTime> ignored = freezeAtDaytime()) {
+            verifyEarlyCheckoutReductionIsRefundedBeforeCheckoutPersistsActualUsagePrice();
+        }
+    }
+
+    private void verifyEarlyCheckoutReductionIsRefundedBeforeCheckoutPersistsActualUsagePrice() {
         RoomType roomType = IntegrationPricingFixture.persist(
                 roomTypeRepository,
                 roomRateProfileRepository,
@@ -917,6 +925,15 @@ class ReservationScenarioIntegrationTest {
                 persisted.getEarlyCheckoutAdjustment());
         assertEquals(RoomStatus.AVAILABLE,
                 roomRepository.findById(room.getId()).orElseThrow().getStatus());
+    }
+
+    private MockedStatic<LocalDateTime> freezeAtDaytime() {
+        LocalDateTime frozenNow = LocalDateTime.of(2026, 8, 10, 15, 0);
+        MockedStatic<LocalDateTime> mocked = Mockito.mockStatic(
+                LocalDateTime.class,
+                Mockito.CALLS_REAL_METHODS);
+        mocked.when(LocalDateTime::now).thenReturn(frozenNow);
+        return mocked;
     }
 
     /**
