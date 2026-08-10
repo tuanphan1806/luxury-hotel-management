@@ -45,6 +45,7 @@ type DashboardSummary = {
   occupiedRooms: number;
   maintenanceRooms: number;
   dirtyRooms: number;
+  cleaningRooms: number;
   occupancyRate: number;
   customerAccounts: number;
   customerProfiles: number;
@@ -91,6 +92,7 @@ const emptySummary: DashboardSummary = {
   occupiedRooms: 0,
   maintenanceRooms: 0,
   dirtyRooms: 0,
+  cleaningRooms: 0,
   occupancyRate: 0,
   customerAccounts: 0,
   customerProfiles: 0,
@@ -301,8 +303,8 @@ export default function DashboardOverview() {
     },
     {
       label: localize("Phòng cần xử lý", "Rooms needing action"),
-      value: summary.dirtyRooms + summary.maintenanceRooms,
-      detail: localize(`${summary.dirtyRooms} cần dọn · ${summary.maintenanceRooms} bảo trì`, `${summary.dirtyRooms} dirty · ${summary.maintenanceRooms} maintenance`),
+      value: summary.dirtyRooms + summary.cleaningRooms + summary.maintenanceRooms,
+      detail: localize(`${summary.dirtyRooms} cần dọn · ${summary.cleaningRooms} đang dọn · ${summary.maintenanceRooms} bảo trì`, `${summary.dirtyRooms} dirty · ${summary.cleaningRooms} cleaning · ${summary.maintenanceRooms} maintenance`),
       href: "/dashboard/rooms",
       accent: "border-t-rose-500",
     },
@@ -339,6 +341,7 @@ export default function DashboardOverview() {
     { label: localize("Sẵn sàng", "Ready"), value: summary.availableRooms, dot: "bg-emerald-500" },
     { label: localize("Đang có khách", "Occupied"), value: summary.occupiedRooms, dot: "bg-blue-500" },
     { label: localize("Cần dọn", "Needs cleaning"), value: summary.dirtyRooms, dot: "bg-amber-500" },
+    { label: localize("Đang dọn", "Cleaning"), value: summary.cleaningRooms, dot: "bg-violet-500" },
     { label: localize("Bảo trì", "Maintenance"), value: summary.maintenanceRooms, dot: "bg-rose-500" },
   ];
 
