@@ -12,6 +12,7 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { useDashboardRole } from "@/hooks/use-dashboard-role";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
 import {
+  getEffectiveRoomCleaningStatus,
   getRoomOperationalState,
   summarizeRoomOperations,
   type RoomOperationalState,
@@ -42,7 +43,7 @@ interface RoomItem {
   roomName: string;
   floor: number;
   status: "AVAILABLE" | "BOOKED" | "CHECKED_IN" | "MAINTENANCE";
-  cleaningStatus: "CLEAN" | "DIRTY" | "IN_PROGRESS";
+  cleaningStatus: "CLEAN" | "DIRTY" | "IN_PROGRESS" | null;
   description: string;
   roomTypeId: number;
   roomTypeName: string;
@@ -51,6 +52,8 @@ interface RoomItem {
   maintenanceExpectedCompletedDate?: string;
   maintenanceHistory?: { date: string; action: string; note: string }[];
 }
+
+type RoomCleaningStatus = NonNullable<RoomItem["cleaningStatus"]>;
 
 interface ConfirmedReservation {
   id: number;
@@ -163,7 +166,7 @@ export default function RoomsManagement() {
     roomId: number;
     roomName: string;
     status: RoomItem["status"];
-    cleaningStatus: RoomItem["cleaningStatus"];
+    cleaningStatus: RoomCleaningStatus;
     x: number;
     y: number;
   } | null>(null);
@@ -201,7 +204,7 @@ export default function RoomsManagement() {
   // US: Housekeeping & Maintenance state variables
   const [confirmCleanOpen, setConfirmCleanOpen] = useState(false);
   const [cleanTargetRoom, setCleanTargetRoom] = useState<RoomItem | null>(null);
-  const [cleanTargetStatus, setCleanTargetStatus] = useState<RoomItem["cleaningStatus"]>("CLEAN");
+  const [cleanTargetStatus, setCleanTargetStatus] = useState<RoomCleaningStatus>("CLEAN");
 
   const [maintenanceFormOpen, setMaintenanceFormOpen] = useState(false);
   const [maintenanceTargetRoom, setMaintenanceTargetRoom] = useState<RoomItem | null>(null);
@@ -310,7 +313,7 @@ export default function RoomsManagement() {
       const matchesType = selectedType === "All" || String(room.roomTypeId) === selectedType;
 
       // AC-GRID-02: filter by cleaning status
-      const matchesCleaning = cleaningFilter[room.cleaningStatus || "CLEAN"];
+      const matchesCleaning = cleaningFilter[getEffectiveRoomCleaningStatus(room)];
 
       return matchesSearch && matchesStatus && matchesType && matchesCleaning;
     });
@@ -534,7 +537,7 @@ export default function RoomsManagement() {
     }
   };
 
-  const handleCleaningStatusUpdate = async (roomId: number, cleaningStatus: RoomItem["cleaningStatus"]) => {
+  const handleCleaningStatusUpdate = async (roomId: number, cleaningStatus: RoomCleaningStatus) => {
     try {
       const res = await apiClient.patch(`/api/rooms/${roomId}/cleaning-status?cleaningStatus=${cleaningStatus}`);
       const updatedRoom = res.data;
@@ -566,14 +569,14 @@ export default function RoomsManagement() {
     }
   };
 
-  const handleOpenConfirmClean = (room: RoomItem, targetStatus: RoomItem["cleaningStatus"]) => {
-    if (room.cleaningStatus === targetStatus) return;
+  const handleOpenConfirmClean = (room: RoomItem, targetStatus: RoomCleaningStatus) => {
+    if (getEffectiveRoomCleaningStatus(room) === targetStatus) return;
     setCleanTargetRoom(room);
     setCleanTargetStatus(targetStatus);
     setConfirmCleanOpen(true);
   };
 
-  const handleContextCleaningStatus = (targetStatus: RoomItem["cleaningStatus"]) => {
+  const handleContextCleaningStatus = (targetStatus: RoomCleaningStatus) => {
     if (!contextMenu) return;
     const room = rooms.find((item) => item.id === contextMenu.roomId);
     setContextMenu(null);
@@ -625,7 +628,7 @@ export default function RoomsManagement() {
     MAINTENANCE: localize("Bảo trì", "Maintenance"),
   }[status]);
 
-  const getCleaningStatusLabel = (status: RoomItem["cleaningStatus"]) => ({
+  const getCleaningStatusLabel = (status: RoomCleaningStatus) => ({
     CLEAN: localize("Sạch", "Clean"),
     DIRTY: localize("Bẩn", "Dirty"),
     IN_PROGRESS: localize("Đang dọn", "Cleaning"),
@@ -940,6 +943,7 @@ export default function RoomsManagement() {
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                   {rooms.map((room) => {
                     const operationalState = getRoomOperationalState(room);
+                    const effectiveCleaningStatus = getEffectiveRoomCleaningStatus(room);
                     const operationalStyle = ROOM_OPERATIONAL_STYLES[operationalState];
                     const operationalLabel = getOperationalStateLabel(operationalState);
                     const tooltipText = `${localize("Phòng", "Room")} #${room.roomName} · ${localize(room.roomTypeName, room.roomTypeNameEn)} · ${operationalLabel}: ${getOperationalStateDescription(operationalState)}`;
@@ -952,7 +956,7 @@ export default function RoomsManagement() {
                     );
                     let cleaningText = getCleaningStatusLabel("CLEAN");
                     let cleaningColor = "text-emerald-600";
-                    if (room.cleaningStatus === "DIRTY") {
+                    if (effectiveCleaningStatus === "DIRTY") {
                       cleaningIconSvg = (
                         <svg className="w-2.5 h-2.5 text-orange-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="18" y1="6" x2="6" y2="18" />
@@ -961,7 +965,7 @@ export default function RoomsManagement() {
                       );
                       cleaningText = getCleaningStatusLabel("DIRTY");
                       cleaningColor = "text-orange-700";
-                    } else if (room.cleaningStatus === "IN_PROGRESS") {
+                    } else if (effectiveCleaningStatus === "IN_PROGRESS") {
                       cleaningIconSvg = (
                         <svg className="w-2.5 h-2.5 text-violet-600 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="12" y1="2" x2="12" y2="6" />
@@ -988,7 +992,7 @@ export default function RoomsManagement() {
                             roomId: room.id,
                             roomName: room.roomName,
                             status: room.status,
-                            cleaningStatus: room.cleaningStatus || "CLEAN",
+                            cleaningStatus: effectiveCleaningStatus,
                             x: e.clientX,
                             y: e.clientY
                           });
@@ -1092,6 +1096,7 @@ export default function RoomsManagement() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredRooms.map((room) => {
               const operationalState = getRoomOperationalState(room);
+              const effectiveCleaningStatus = getEffectiveRoomCleaningStatus(room);
               const operationalStyle = ROOM_OPERATIONAL_STYLES[operationalState];
               return (
               <article key={room.id} data-operational-state={operationalState} className={`flex flex-col justify-between rounded-2xl border p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${operationalStyle.card}`}>
@@ -1124,10 +1129,10 @@ export default function RoomsManagement() {
                     <div className="flex justify-between pt-1 border-t border-gray-100">
                       <span>{localize("Tình trạng vệ sinh", "Housekeeping status")}</span>
                       <span className={`font-bold ${
-                        room.cleaningStatus === "DIRTY" ? "text-orange-700" :
-                        room.cleaningStatus === "IN_PROGRESS" ? "text-violet-700" : "text-emerald-600"
+                        effectiveCleaningStatus === "DIRTY" ? "text-orange-700" :
+                        effectiveCleaningStatus === "IN_PROGRESS" ? "text-violet-700" : "text-emerald-600"
                       }`}>
-                        {getCleaningStatusLabel(room.cleaningStatus || "CLEAN")}
+                        {getCleaningStatusLabel(effectiveCleaningStatus)}
                       </span>
                     </div>
                     {room.description && (
@@ -1163,8 +1168,8 @@ export default function RoomsManagement() {
                     )}
 
                     <select
-                      value={room.cleaningStatus || "CLEAN"}
-                      onChange={(event) => handleOpenConfirmClean(room, event.target.value as RoomItem["cleaningStatus"])}
+                      value={effectiveCleaningStatus}
+                      onChange={(event) => handleOpenConfirmClean(room, event.target.value as RoomCleaningStatus)}
                       aria-label={localize(`Tình trạng vệ sinh phòng ${room.roomName}`, `Housekeeping status for room ${room.roomName}`)}
                       className="min-h-10 rounded-lg border border-[#0F2A43]/15 bg-white/80 px-2.5 text-[10px] font-bold text-[#66727C] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
                     >

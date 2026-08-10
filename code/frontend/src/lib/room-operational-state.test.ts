@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getEffectiveRoomCleaningStatus,
   getRoomOperationalState,
   isRoomReady,
   summarizeRoomOperations,
@@ -7,6 +8,12 @@ import {
 } from "./room-operational-state";
 
 describe("room operational state", () => {
+  it("treats a missing legacy housekeeping value as dirty everywhere", () => {
+    expect(getEffectiveRoomCleaningStatus({ cleaningStatus: null })).toBe("DIRTY");
+    expect(getEffectiveRoomCleaningStatus({})).toBe("DIRTY");
+    expect(getEffectiveRoomCleaningStatus({ cleaningStatus: "CLEAN" })).toBe("CLEAN");
+  });
+
   it("only presents an available and clean room as ready", () => {
     expect(getRoomOperationalState({ status: "AVAILABLE", cleaningStatus: "CLEAN" })).toBe("READY");
     expect(getRoomOperationalState({ status: "AVAILABLE", cleaningStatus: "DIRTY" })).toBe("NEEDS_CLEANING");

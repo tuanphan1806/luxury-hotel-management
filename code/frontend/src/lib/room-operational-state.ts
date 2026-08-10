@@ -26,6 +26,18 @@ export interface RoomOperationalSummary {
 }
 
 /**
+ * Legacy room rows may not have a housekeeping value. The backend already
+ * treats those rows as requiring attention and room assignment requires an
+ * explicit CLEAN value, so every room-board control must use the same safe
+ * fallback instead of presenting an unknown room as clean.
+ */
+export function getEffectiveRoomCleaningStatus(
+  room: Pick<RoomOperationalSource, "cleaningStatus">,
+): RoomCleaningStatus {
+  return room.cleaningStatus ?? "DIRTY";
+}
+
+/**
  * Combines the physical room state and housekeeping state into the single
  * operational state staff need when reading the room board.
  *
@@ -37,8 +49,9 @@ export function getRoomOperationalState(room: RoomOperationalSource): RoomOperat
   if (room.status === "MAINTENANCE") return "MAINTENANCE";
   if (room.status === "CHECKED_IN") return "OCCUPIED";
   if (room.status === "BOOKED") return "RESERVED";
-  if (room.cleaningStatus === "IN_PROGRESS") return "CLEANING";
-  if (room.cleaningStatus === "CLEAN") return "READY";
+  const cleaningStatus = getEffectiveRoomCleaningStatus(room);
+  if (cleaningStatus === "IN_PROGRESS") return "CLEANING";
+  if (cleaningStatus === "CLEAN") return "READY";
 
   // Legacy rows can still have a null cleaning status because the original
   // PostgreSQL baseline allowed it. Assignment already requires CLEAN, so an
