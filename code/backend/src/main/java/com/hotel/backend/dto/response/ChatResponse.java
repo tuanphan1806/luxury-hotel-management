@@ -13,7 +13,6 @@ public class ChatResponse {
 
     private String action;
 
-    private Object payload;
+    private ChatActionPayload payload;
 
 }
-

@@ -5,12 +5,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import org.springframework.stereotype.Component;
+
 /**
  * Pure input policy extracted from the chatbot orchestration.
  *
- * <p>The constants and matching rules are intentionally kept byte-for-byte
- * equivalent to the previous {@code ChatBotService} implementation.</p>
+ * <p>Rules are deliberately deterministic and conservative: legitimate hotel
+ * corrections remain usable, while explicit attempts to override system or
+ * developer instructions are rejected before any provider call.</p>
  */
+@Component
 public final class ChatInputPolicy {
 
     private static final int MAX_QUESTION_LENGTH = 500;
@@ -26,14 +30,18 @@ public final class ChatInputPolicy {
             "trong khong", "co khong", "may gio", "view", "ban cong", "bon tam",
             "may lanh", "dieu hoa", "mini bar", "laundry", "giat ui", "spa",
             "gym", "fitness", "bar", "cafe", "ca phe", "danh gia", "rating",
-            "review", "sao", "dep khong", "gan bien", "gan trung tam",
+            "review", "bao nhieu sao", "may sao", "hang sao", "dep khong", "gan bien", "gan trung tam",
             "gia dinh", "nguoi khuyet tat", "khong hut thuoc", "hut thuoc",
             "yen tinh", "thang may", "dat coc", "hoan tien", "hoa don", "vat",
             "the tin dung", "chuyen khoan", "tien mat", "sepay", "vietqr", "an toan",
             "chinh sach", "giay to", "can cuoc", "ho chieu", "cong tac",
             "cuoi tuan", "phuong tien cong cong", "bien", "trung tam thanh pho",
             "reservation", "booking", "room", "facility", "hotel", "breakfast",
-            "restaurant", "pool", "airport", "available", "availability"
+            "restaurant", "pool", "airport", "available", "availability",
+            "pet", "pets", "elevator", "non-smoking", "accessible", "quiet",
+            "balcony", "bathtub", "cash", "invoice", "refund", "policy",
+            "contact", "address", "reception", "luggage", "parking",
+            "tra cuu", "don cua toi", "kiem tra don", "trang thai don"
     );
 
     private static final List<String> HOTEL_QUESTION_PHRASES = List.of(
@@ -48,10 +56,12 @@ public final class ChatInputPolicy {
             "xin chao", "chao", "hello", "hi", "hey", "alo"
     );
 
-    private static final List<String> PROMPT_INJECTION_PATTERNS = List.of(
-            "bo qua", "ignore", "previous instruction", "system prompt",
-            "developer message", "jailbreak", "khong gioi han", "dong vai",
-            "roleplay", "prompt injection", "tra loi bat ky", "khong can tuan thu"
+    private static final List<Pattern> PROMPT_INJECTION_PATTERNS = List.of(
+            Pattern.compile("\\b(?:system prompt|developer message|jailbreak|prompt injection)\\b"),
+            Pattern.compile("\\bignore\\s+(?:all\\s+)?(?:previous|prior|system|developer)\\s+(?:instruction|instructions|message|prompt)\\b"),
+            Pattern.compile("\\bbo qua\\s+(?:tat ca\\s+)?(?:huong dan|chi dan|quy tac|system|developer|prompt)(?:\\s+truoc)?\\b"),
+            Pattern.compile("\\b(?:khong can tuan thu|tra loi bat ky|khong gioi han)\\b"),
+            Pattern.compile("\\b(?:dong vai|roleplay as)\\s+(?:system|developer|quan tri vien|administrator)\\b")
     );
 
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
@@ -79,7 +89,7 @@ public final class ChatInputPolicy {
 
     public boolean looksLikePromptInjection(String text) {
         String normalized = normalizeForMatching(text);
-        return PROMPT_INJECTION_PATTERNS.stream().anyMatch(normalized::contains);
+        return PROMPT_INJECTION_PATTERNS.stream().anyMatch(pattern -> pattern.matcher(normalized).find());
     }
 
     public boolean isGreeting(String text) {
@@ -97,6 +107,9 @@ public final class ChatInputPolicy {
     }
 
     public String normalizeForMatching(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
         String withoutAccents = Normalizer.normalize(text, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "")
                 .replace('đ', 'd')

@@ -2,12 +2,28 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { publicApiClient, type ApiErrorPayload } from "@/lib/api";
 import {
   buildChatBookingUrl,
+  isCompleteChatBookingState,
   type ChatBookingPayload,
+  type ChatBookingState,
 } from "@/lib/chat-booking";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
+import {
+  buildChatHistory,
+  clearChatSession,
+  createConversationId,
+  loadChatSession,
+  MAX_CHAT_INPUT_LENGTH,
+  MAX_STORED_CHAT_MESSAGES,
+  saveChatSession,
+  type ChatAction,
+  type ChatActionPayload,
+  type StoredChatMessage,
+} from "@/lib/chat-session";
 
 /**
  * ChatWidget - Floating chatbot widget tích hợp API /api/chat
@@ -16,20 +32,13 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
  * Khi click sẽ mở panel chat cho phép khách hỏi đáp về khách sạn.
  */
 
-interface ChatMessage {
-  id: string;
-  role: "user" | "bot";
-  content: string;
-  timestamp: Date | null;
-}
-
 interface ChatApiResponse {
   answer?: string;
-  action?: string;
-  payload?: ChatBookingPayload | { context?: string };
+  action?: ChatAction;
+  payload?: ChatActionPayload;
 }
 
-const INITIAL_BOT_MESSAGE: ChatMessage = {
+const INITIAL_BOT_MESSAGE: StoredChatMessage = {
   id: "welcome",
   role: "bot",
   content: "",
@@ -39,25 +48,61 @@ const INITIAL_BOT_MESSAGE: ChatMessage = {
 };
 
 export default function ChatWidget() {
+  const router = useRouter();
   const { locale, localize } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const welcomeMessage = localize(
     "Xin chào! Tôi là trợ lý AI của Luxury Hotel. Tôi có thể hỗ trợ bạn về phòng, giá, tiện nghi và thông tin đặt phòng. Hãy hỏi tôi bất cứ điều gì! 🏨",
     "Hello! I am Luxury Hotel's virtual assistant. I can help with rooms, rates, facilities, and booking information. Ask me anything! 🏨",
   );
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<StoredChatMessage[]>([
     { ...INITIAL_BOT_MESSAGE, content: welcomeMessage },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
-  const [pendingReservationPayload, setPendingReservationPayload] =
-    useState<ChatBookingPayload | null>(null);
-  const [pendingChatContext, setPendingChatContext] = useState<string | null>(null);
+  const [pendingBookingState, setPendingBookingState] =
+    useState<ChatBookingState | null>(null);
+  const [isSessionHydrated, setIsSessionHydrated] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const bubbleRef = useRef<HTMLButtonElement>(null);
   const chatSessionIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestGenerationRef = useRef(0);
+  const isSendingRef = useRef(false);
+  const isOpenRef = useRef(false);
+
+  useEffect(() => {
+    const stored = loadChatSession(window.sessionStorage);
+    if (stored) {
+      chatSessionIdRef.current = stored.conversationId;
+      if (stored.messages.length) setMessages(stored.messages);
+      setPendingBookingState(stored.pendingBookingState ?? null);
+    } else {
+      chatSessionIdRef.current = createConversationId();
+    }
+    setIsSessionHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    // Không ghi session ở render đầu tiên: state mặc định chỉ có lời chào và
+    // sẽ xóa lịch sử cũ trước khi effect hydrate kịp cập nhật state.
+    if (!isSessionHydrated || !chatSessionIdRef.current) return;
+    saveChatSession(window.sessionStorage, {
+      conversationId: chatSessionIdRef.current,
+      messages,
+      pendingBookingState,
+    });
+  }, [isSessionHydrated, messages, pendingBookingState]);
+
+  useEffect(() => () => {
+    requestGenerationRef.current += 1;
+    isSendingRef.current = false;
+    abortControllerRef.current?.abort();
+  }, []);
 
   // Auto-scroll khi có tin nhắn mới
   const scrollToBottom = useCallback(() => {
@@ -76,25 +121,52 @@ export default function ChatWidget() {
 
   // Focus vào input khi mở chat
   useEffect(() => {
+    isOpenRef.current = isOpen;
     if (isOpen) {
       setHasUnread(false);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!panelRef.current?.contains(target) && !bubbleRef.current?.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [isOpen]);
+
   const generateId = () => `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-  const appendBotMessage = (content: string) => {
-    const botMsg: ChatMessage = {
+  const appendBotMessage = (
+    content: string,
+    action?: ChatAction,
+    payload?: ChatActionPayload,
+  ) => {
+    const botMsg: StoredChatMessage = {
       id: generateId(),
       role: "bot",
       content,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
+      action,
+      payload,
     };
 
-    setMessages((prev) => [...prev, botMsg]);
+    setMessages((prev) => [...prev, botMsg].slice(-MAX_STORED_CHAT_MESSAGES));
 
-    if (!isOpen) {
+    if (!isOpenRef.current) {
       setHasUnread(true);
     }
   };
@@ -113,8 +185,54 @@ export default function ChatWidget() {
 
   const isReservationCancellation = (value: string) => {
     const normalized = normalizeMessage(value);
-    return ["huy", "khong", "cancel", "no"].includes(normalized);
+    return [
+      "huy",
+      "huy yeu cau",
+      "khong dat nua",
+      "cancel",
+      "cancel booking",
+      "cancel request",
+    ].includes(normalized);
   };
+
+  const clearPendingActions = (source: StoredChatMessage[]) => source.map((message) => (
+    message.action === "CREATE_RESERVATION_CONFIRM"
+      ? { ...message, action: undefined, payload: undefined }
+      : message
+  ));
+
+  const navigateToCanonicalBooking = (payload: ChatBookingPayload) => {
+    const bookingUrl = buildChatBookingUrl(payload);
+    const nextMessages = clearPendingActions(messages);
+    setPendingBookingState(null);
+    setMessages(nextMessages);
+    if (chatSessionIdRef.current) {
+      saveChatSession(window.sessionStorage, {
+        conversationId: chatSessionIdRef.current,
+        messages: nextMessages,
+        pendingBookingState: null,
+      });
+    }
+    router.push(bookingUrl);
+  };
+
+  const handleClearConversation = () => {
+    requestGenerationRef.current += 1;
+    isSendingRef.current = false;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    clearChatSession(window.sessionStorage);
+    chatSessionIdRef.current = createConversationId();
+    setMessages([{ ...INITIAL_BOT_MESSAGE, content: welcomeMessage }]);
+    setPendingBookingState(null);
+    setInput("");
+    setIsLoading(false);
+    setHasUnread(false);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const isAmbiguousReservationDecline = (value: string) =>
+    ["khong", "no"].includes(normalizeMessage(value));
 
   const getChatErrorMessage = (error: unknown) => {
     const status = axios.isAxiosError<ApiErrorPayload>(error) ? error.response?.status : undefined;
@@ -156,76 +274,126 @@ export default function ChatWidget() {
 
   const sendMessage = async () => {
     const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || isLoading || isSendingRef.current) return;
 
-    const userMsg: ChatMessage = {
+    isSendingRef.current = true;
+    const requestGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = requestGeneration;
+    let controller: AbortController | null = null;
+
+    const userMsg: StoredChatMessage = {
       id: generateId(),
       role: "user",
       content: trimmed,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg].slice(-MAX_STORED_CHAT_MESSAGES));
     setInput("");
     setIsLoading(true);
 
     try {
-      if (pendingChatContext && isReservationCancellation(trimmed)) {
-        setPendingChatContext(null);
-        appendBotMessage(localize("Mình đã hủy yêu cầu tư vấn đặt phòng đang nhập. Chưa có đơn nào được tạo.", "The booking inquiry has been cancelled. No reservation was created."));
+      if (pendingBookingState && isReservationCancellation(trimmed)) {
+        setPendingBookingState(null);
+        setMessages((current) => current.map((message) => (
+          message.action === "CREATE_RESERVATION_CONFIRM"
+            ? { ...message, action: undefined, payload: undefined }
+            : message
+        )));
+        appendBotMessage(localize("Mình đã hủy yêu cầu đặt phòng đang nhập. Chưa có đơn hoặc giao dịch nào được tạo.", "The booking inquiry was cancelled. No booking or transaction was created."));
         return;
       }
 
-      if (pendingReservationPayload && isReservationCancellation(trimmed)) {
-        setPendingReservationPayload(null);
-        appendBotMessage(localize("Mình đã hủy yêu cầu đặt phòng đang chờ xác nhận. Bạn có thể gửi lại thông tin mới bất cứ lúc nào.", "The pending booking request has been cancelled. You can send new details at any time."));
+      if (pendingBookingState && isAmbiguousReservationDecline(trimmed)) {
+        appendBotMessage(localize(
+          "Bạn muốn hủy yêu cầu đặt phòng đang nhập, hay chỉ muốn sửa một thông tin? Hãy nhắn “hủy yêu cầu” hoặc nói rõ nội dung cần đổi.",
+          "Do you want to cancel the pending booking inquiry, or only change a detail? Reply “cancel request” or tell me what to update.",
+        ));
         return;
       }
 
-      if (pendingReservationPayload && isReservationConfirmation(trimmed)) {
-        setPendingReservationPayload(null);
-        window.location.assign(buildChatBookingUrl(pendingReservationPayload));
+      if (isCompleteChatBookingState(pendingBookingState) && isReservationConfirmation(trimmed)) {
+        navigateToCanonicalBooking(pendingBookingState);
         return;
       }
+
+      abortControllerRef.current?.abort();
+      controller = new AbortController();
+      abortControllerRef.current = controller;
 
       // Hỏi đáp chatbot là endpoint public. Không gắn access token hoặc kích hoạt
       // refresh/redirect đăng nhập khi khách chỉ đang cần tư vấn.
       const response = await publicApiClient.post("/api/chat", {
-        question: pendingChatContext
-          ? `${pendingChatContext}\nThông tin bổ sung: ${trimmed}`
-          : trimmed,
-        conversationId: chatSessionIdRef.current ||= typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `chat_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      }, { timeout: 20_000 });
+        question: trimmed,
+        conversationId: chatSessionIdRef.current ||= createConversationId(),
+        locale,
+        history: buildChatHistory(messages),
+        bookingContext: pendingBookingState?.context,
+        bookingState: pendingBookingState,
+      }, { timeout: 20_000, signal: controller.signal });
+      if (requestGeneration !== requestGenerationRef.current) return;
       const chatResponse = response.data as ChatApiResponse;
 
       const answer = chatResponse?.answer || localize("Xin lỗi, tôi chưa thể trả lời câu hỏi này.", "Sorry, I cannot answer that question yet.");
 
       if (chatResponse?.action === "CONTINUE_RESERVATION") {
-        const continuation = chatResponse.payload as { context?: string } | undefined;
-        setPendingChatContext(continuation?.context || pendingChatContext || trimmed);
+        setPendingBookingState({
+          ...pendingBookingState,
+          ...chatResponse.payload,
+          context: chatResponse.payload?.context || pendingBookingState?.context || trimmed,
+        });
       } else if (
         chatResponse?.action === "CREATE_RESERVATION_CONFIRM" &&
-        chatResponse?.payload
+        chatResponse?.payload?.roomTypes
       ) {
-        setPendingChatContext(null);
-        setPendingReservationPayload(chatResponse.payload as ChatBookingPayload);
-      } else {
-        setPendingChatContext(null);
+        setPendingBookingState(chatResponse.payload);
       }
 
-      appendBotMessage(answer);
+      appendBotMessage(answer, chatResponse?.action, chatResponse?.payload);
     } catch (error) {
-      const errorMsg: ChatMessage = {
+      if (requestGeneration !== requestGenerationRef.current) return;
+      if (axios.isCancel(error) || (error instanceof DOMException && error.name === "AbortError")) {
+        return;
+      }
+      const errorMsg: StoredChatMessage = {
         id: generateId(),
         role: "bot",
         content: getChatErrorMessage(error),
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, errorMsg].slice(-MAX_STORED_CHAT_MESSAGES));
     } finally {
-      setIsLoading(false);
+      if (requestGeneration === requestGenerationRef.current) {
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+        isSendingRef.current = false;
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const handleMessageAction = (message: StoredChatMessage, confirmed: boolean) => {
+    if (message.action === "CREATE_RESERVATION_CONFIRM") {
+      if (!confirmed) {
+        setPendingBookingState(null);
+        setMessages((current) => current.map((item) => (
+          item.id === message.id ? { ...item, action: undefined, payload: undefined } : item
+        )));
+        appendBotMessage(localize(
+          "Mình đã hủy yêu cầu đặt phòng đang chờ. Chưa có đơn hoặc giao dịch nào được tạo.",
+          "The pending booking request was cancelled. No booking or transaction was created.",
+        ));
+        return;
+      }
+      const payload = message.payload;
+      if (isCompleteChatBookingState(payload)) {
+        try {
+          navigateToCanonicalBooking(payload);
+        } catch (error) {
+          appendBotMessage(getChatErrorMessage(error));
+        }
+      }
     }
   };
 
@@ -236,9 +404,11 @@ export default function ChatWidget() {
     }
   };
 
-  const formatTime = (date: Date | null) => {
+  const formatTime = (date: string | null) => {
     if (!date) return localize("Bây giờ", "Now");
-    return date.toLocaleTimeString(locale === "vi" ? "vi-VN" : "en-US", {
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) return localize("Bây giờ", "Now");
+    return parsed.toLocaleTimeString(locale === "vi" ? "vi-VN" : "en-US", {
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -248,13 +418,19 @@ export default function ChatWidget() {
     <>
       {/* Chat Panel */}
       <div
-        className={`fixed bottom-40 right-4 z-[9999] w-[380px] max-w-[calc(100vw-2rem)] origin-bottom-right transition-all duration-300 sm:right-6 lg:bottom-24 ${
+        ref={panelRef}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="luxury-hotel-chat-title"
+        aria-hidden={!isOpen}
+        inert={!isOpen}
+        className={`fixed bottom-20 right-4 z-[9999] w-[380px] max-w-[calc(100vw-2rem)] origin-bottom-right transition-all duration-300 sm:bottom-24 sm:right-6 ${
           isOpen
             ? "scale-100 opacity-100 translate-y-0 pointer-events-auto"
             : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         }`}
       >
-        <div className="rounded-2xl shadow-2xl overflow-hidden border border-white/10 flex flex-col" style={{ height: "520px" }}>
+        <div className="flex h-[min(560px,calc(100dvh-6rem))] flex-col overflow-hidden rounded-2xl border border-white/10 shadow-2xl">
           {/* Header */}
           <div className="bg-[#0F2A43] px-5 py-4 flex items-center gap-3 shrink-0">
             {/* Bot Avatar */}
@@ -275,15 +451,27 @@ export default function ChatWidget() {
               </svg>
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-white font-bold text-sm tracking-wide">
+              <h3 id="luxury-hotel-chat-title" className="text-white font-bold text-sm tracking-wide">
                 {localize("Trợ lý Luxury Hotel", "Luxury Hotel assistant")}
               </h3>
               <p className="text-white/50 text-xs font-medium">
                 {localize("Trợ lý ảo 24/7", "Virtual assistant 24/7")}
               </p>
             </div>
+            <button
+              type="button"
+              onClick={handleClearConversation}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C8A35B]"
+              aria-label={localize("Xóa cuộc trò chuyện", "Clear conversation")}
+              title={localize("Xóa cuộc trò chuyện", "Clear conversation")}
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14M10 10v6m4-6v6" />
+              </svg>
+            </button>
             {/* Close button */}
             <button
+              type="button"
               onClick={() => setIsOpen(false)}
               className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors text-white/60 hover:text-white"
               aria-label={localize("Đóng chat", "Close chat")}
@@ -295,7 +483,11 @@ export default function ChatWidget() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto bg-[#F1F0EA] px-4 py-4 space-y-3">
+          <div
+            className="flex-1 overflow-y-auto bg-[#F1F0EA] px-4 py-4 space-y-3"
+            aria-live="polite"
+            aria-busy={isLoading}
+          >
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -315,6 +507,33 @@ export default function ChatWidget() {
                       {line}
                     </React.Fragment>
                   ))}
+                  {msg.action === "OPEN_MY_BOOKINGS" && (
+                    <Link
+                      href="/my-bookings"
+                      onClick={() => setIsOpen(false)}
+                      className="mt-3 flex min-h-11 w-full items-center justify-center rounded-xl bg-[#B8944F] px-3 py-2 text-xs font-bold text-[#0F2A43] transition hover:bg-[#caa45d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F2A43]"
+                    >
+                      {localize("Mở lịch sử đặt phòng", "Open My bookings")}
+                    </Link>
+                  )}
+                  {msg.action === "CREATE_RESERVATION_CONFIRM" && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleMessageAction(msg, false)}
+                        className="min-h-11 rounded-xl border border-[#0F2A43]/20 bg-white px-3 py-2 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F7F1E5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                      >
+                        {localize("Hủy", "Cancel")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMessageAction(msg, true)}
+                        className="min-h-11 rounded-xl bg-[#B8944F] px-3 py-2 text-xs font-bold text-[#0F2A43] transition hover:bg-[#caa45d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F2A43]"
+                      >
+                        {localize("Xem giá & tiếp tục", "Review price")}
+                      </button>
+                    </div>
+                  )}
                   <div
                     className={`text-[10px] mt-1.5 ${
                       msg.role === "user" ? "text-white/40" : "text-[#999]"
@@ -351,11 +570,14 @@ export default function ChatWidget() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
+                maxLength={MAX_CHAT_INPUT_LENGTH}
                 placeholder={localize("Nhập câu hỏi của bạn...", "Type your question...")}
+                aria-label={localize("Câu hỏi cho trợ lý khách sạn", "Question for the hotel assistant")}
                 disabled={isLoading}
                 className="flex-1 bg-[#F1F0EA] border border-[#D8DDE1] rounded-xl px-4 py-2.5 text-sm text-[#0F2A43] placeholder:text-[#66727C] focus:outline-none focus:border-[#C8A35B] focus:ring-1 focus:ring-[#C8A35B]/30 transition-colors disabled:opacity-50"
               />
               <button
+                type="button"
                 onClick={sendMessage}
                 disabled={!input.trim() || isLoading}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0F2A43] text-white transition-all hover:bg-[#091E30] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
@@ -366,17 +588,22 @@ export default function ChatWidget() {
                 </svg>
               </button>
             </div>
-            <p className="text-[10px] text-[#aaa] text-center mt-2">
-              {localize("Trợ lý AI • Hỗ trợ tiếng Việt và English", "AI assistant • Vietnamese and English support")}
-            </p>
+            <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-[#7A838B]">
+              <span>{localize("Không chia sẻ OTP, mật khẩu hoặc số thẻ.", "Never share OTPs, passwords, or card numbers.")}</span>
+              <span aria-live="polite" className={input.length >= 450 ? "font-semibold text-[#9A5D13]" : "shrink-0"}>
+                {input.length}/{MAX_CHAT_INPUT_LENGTH}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Floating Bubble Button */}
       <button
+        type="button"
+        ref={bubbleRef}
         onClick={() => setIsOpen(!isOpen)}
-        className={`group fixed bottom-24 right-1 z-[9999] flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-300 active:scale-90 sm:right-6 sm:h-14 sm:w-14 lg:bottom-6 ${
+        className={`group fixed bottom-4 right-4 z-[9999] flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-300 active:scale-90 sm:bottom-6 sm:right-6 sm:h-14 sm:w-14 ${
           isOpen
             ? "rotate-0 bg-[#0F2A43] hover:bg-[#091E30]"
             : "bg-gradient-to-br from-[#C8A35B] to-[#c99a4e] hover:from-[#d4a85e] hover:to-[#b8893f] hover:shadow-xl hover:shadow-[#C8A35B]/25"

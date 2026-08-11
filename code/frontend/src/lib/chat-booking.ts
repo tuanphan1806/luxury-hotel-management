@@ -1,12 +1,39 @@
-export interface ChatBookingPayload {
-  checkIn: string;
-  checkOut: string;
+export interface ChatBookingState {
+  checkIn?: string;
+  checkOut?: string;
   guestCount?: number;
+  adults?: number;
+  children?: number;
   note?: string;
-  roomTypes: Array<{
+  context?: string;
+  roomTypes?: Array<{
     roomTypeId: number;
     quantity: number;
   }>;
+  pendingRoomTypeIds?: number[];
+}
+
+export interface ChatBookingPayload extends ChatBookingState {
+  checkIn: string;
+  checkOut: string;
+  roomTypes: NonNullable<ChatBookingState["roomTypes"]>;
+}
+
+export function isCompleteChatBookingState(
+  state: ChatBookingState | null | undefined,
+): state is ChatBookingPayload {
+  const hasGuestCount = (
+    Number.isInteger(state?.adults) && Number(state?.adults) >= 1
+  ) || (
+    Number.isInteger(state?.guestCount) && Number(state?.guestCount) >= 1
+  );
+  return Boolean(
+    state?.checkIn
+    && state?.checkOut
+    && Array.isArray(state.roomTypes)
+    && state.roomTypes.length > 0
+    && hasGuestCount
+  );
 }
 
 /**
@@ -55,8 +82,18 @@ export function buildChatBookingUrl(payload: ChatBookingPayload): string {
     (sum, line) => sum + Number(line.quantity),
     0,
   );
-  const guestCount = Number(payload.guestCount ?? minimumGuests);
-  if (!Number.isInteger(guestCount) || guestCount < minimumGuests) {
+  const children = Number(payload.children ?? 0);
+  const legacyGuestCount = Number(payload.guestCount ?? minimumGuests);
+  const adults = Number(payload.adults ?? Math.max(1, legacyGuestCount - children));
+  const guestCount = adults + children;
+  if (
+    !Number.isInteger(adults)
+    || adults < 1
+    || !Number.isInteger(children)
+    || children < 0
+    || !Number.isInteger(guestCount)
+    || guestCount < minimumGuests
+  ) {
     throw new Error(
       `Số khách phải ít nhất bằng số phòng đã chọn (${minimumGuests})`,
     );
@@ -66,8 +103,8 @@ export function buildChatBookingUrl(payload: ChatBookingPayload): string {
     roomTypes: roomTypes.join(","),
     checkIn,
     checkOut,
-    adults: String(guestCount),
-    children: "0",
+    adults: String(adults),
+    children: String(children),
     source: "chatbot",
   });
   return `/booking?${params.toString()}`;

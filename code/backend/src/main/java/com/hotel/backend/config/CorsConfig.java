@@ -13,9 +13,12 @@ import java.util.Arrays;
 @Configuration
 public class CorsConfig {
 
+    static final String DEFAULT_ALLOWED_ORIGINS =
+            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001";
+
     private final List<String> allowedOrigins;
 
-    public CorsConfig(@Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:3001}") String origins) {
+    public CorsConfig(@Value("${app.cors.allowed-origins:" + DEFAULT_ALLOWED_ORIGINS + "}") String origins) {
         this.allowedOrigins = Arrays.stream(origins.split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
