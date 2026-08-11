@@ -178,14 +178,17 @@ The current scenario matrix contains:
 - payment pending, paid draft, confirmed deposit and confirmed multi-room
   bookings;
 - an active checked-in stay;
-- ten checked-out stays spread across the current day, recent weeks and three
-  calendar months;
+- twenty checked-out stays spread across the current day, recent weeks and
+  several calendar months, including ten review showcase stays;
 - hourly, overnight and daily pricing examples, multi-room bookings and
   booking-time add-on services;
 - SePay and cash payments, one overpayment refund, cancellation refunds by
   bank and cash, and a no-show without fabricated cash;
 - immutable checkout invoices, balanced financial journal entries and a
   completed demo cashier shift with matching cash movements.
+- 60 ownership-valid reviews linked to completed reservations: exactly ten
+  reviews for each canonical room type, created idempotently without orphan
+  review rows.
 
 Cash scenarios run inside a dedicated demo shift. The seeder refuses to attach
 fixture movements to a real active STAFF shift, starts the demo shift at zero

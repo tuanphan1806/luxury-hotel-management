@@ -267,6 +267,7 @@ Base path: `/api/reviews`
 | Method | Endpoint | Body / Params | Mo ta |
 | --- | --- | --- | --- |
 | GET | `/api/reviews/room-type/{roomTypeId}` | Path `roomTypeId` | Lay review theo loai phong |
+| GET | `/api/reviews/room-type/{roomTypeId}/page` | `page`, `size` (1-12), `sort=newest|highest|lowest` | Lay review cong khai theo trang, khong lo dinh danh noi bo |
 | GET | `/api/reviews/room-type/rating/{roomTypeId}` | Path `roomTypeId` | Lay diem trung binh va so review cua loai phong |
 | POST | `/api/reviews` | Body `CreateReviewRequest` | Tao review cua user hien tai |
 | GET | `/api/reviews/my` | Dang nhap | Lay review cua user hien tai |

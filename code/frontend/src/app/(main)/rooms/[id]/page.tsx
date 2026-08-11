@@ -14,6 +14,7 @@ import { getPublicFacilities, getPublicRoomTypes } from "@/lib/public-catalog";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import ViewportModal from "@/components/UI/ViewportModal";
 import GuestPageHero from "@/components/guest/GuestPageHero";
+import RoomReviewsSection from "@/components/guest/RoomReviewsSection";
 import FacilityDetailModal, { type FacilityDetailItem } from "@/components/guest/FacilityDetailModal";
 import { ROOMS_CONTENT } from "@/constants/content";
 import { useFavorites } from "@/components/favorites/FavoritesProvider";
@@ -43,16 +44,6 @@ interface RoomDetails extends PublicRoomRate {
 
 interface RoomAmenity extends FacilityDetailItem {
   name: string;
-}
-
-interface ReviewItem {
-  id?: number;
-  userName?: string;
-  userImageUrl?: string;
-  roomTypeName?: string;
-  rating?: number;
-  comment?: string;
-  createdAt?: string;
 }
 
 interface RoomTypeRating {
@@ -96,20 +87,6 @@ interface RoomRecommendation {
   image?: string;
 }
 
-const getListPayload = (payload: unknown): ReviewItem[] => {
-  if (Array.isArray(payload)) return payload as ReviewItem[];
-  if (!payload || typeof payload !== "object") return [];
-
-  const record = payload as Record<string, unknown>;
-  if (Array.isArray(record.data)) return record.data as ReviewItem[];
-  if (Array.isArray(record.content)) return record.content as ReviewItem[];
-  if (record.data && typeof record.data === "object") {
-    const nestedData = record.data as Record<string, unknown>;
-    if (Array.isArray(nestedData.content)) return nestedData.content as ReviewItem[];
-  }
-  return [];
-};
-
 const getApiErrorMessage = (error: unknown, fallback: string) =>
   axios.isAxiosError<{ message?: string }>(error)
     ? error.response?.data?.message || fallback
@@ -123,7 +100,6 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
   const roomId = resolvedParams.id;
 
   const [room, setRoom] = useState<RoomDetails | null>(null);
-  const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [rating, setRating] = useState<RoomTypeRating | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -342,13 +318,6 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
         setIsLoading(false);
       });
 
-    apiClient.get(`/api/reviews/room-type/${roomId}`)
-      .then((res) => setReviews(getListPayload(res.data)))
-      .catch((err) => {
-        console.error("Failed to fetch room reviews:", err);
-        setReviews([]);
-      });
-
   }, [roomId, localize]);
 
   if (isLoading) {
@@ -554,59 +523,11 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
               )}
             </div>
 
-            <div className="rounded-[1.75rem] bg-[#F1F0EA] p-6 md:p-8">
-              <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-                <div>
-                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Đánh giá của khách", "Guest reviews")}</p>
-                  <h3 className="font-serif text-3xl font-bold text-primary-navy">{localize("Trải nghiệm thực tế với loại phòng này", "Real stays in this room type")}</h3>
-                </div>
-                {rating?.totalReviews ? (
-                  <div className="rounded-[1.15rem] bg-white px-4 py-3 text-right shadow-sm">
-                    <p className="font-serif text-2xl font-bold text-[#80632F]">{Number(rating.averageRating || 0).toFixed(1)}</p>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#66727C]">{rating.totalReviews} {localize("lượt đánh giá", "reviews")}</p>
-                  </div>
-                ) : null}
-              </div>
-
-              {reviews.length ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {reviews.slice(0, 4).map((review, index) => {
-                    const score = Math.max(1, Math.min(5, Number(review.rating || 5)));
-                    return (
-                      <article key={review.id || `${review.userName}-${index}`} className="rounded-[1.25rem] bg-white p-5 shadow-sm">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <h4 className="font-serif text-xl font-bold text-primary-navy">{review.userName || localize("Khách lưu trú", "Hotel guest")}</h4>
-                            <div className="mt-2 flex gap-1 text-xs text-[#B8944F]" aria-label={localize(`${score} trên 5 sao`, `${score} out of 5 stars`)}>
-                              {Array.from({ length: 5 }).map((_, starIndex) => (
-                                <span key={starIndex}>{starIndex < score ? "★" : "☆"}</span>
-                              ))}
-                            </div>
-                          </div>
-                          {review.userImageUrl ? (
-                            <Image src={resolveMediaSource(review.userImageUrl)} alt={review.userName || localize("Khách", "Guest")} width={40} height={40} className="h-10 w-10 rounded-full object-cover" />
-                          ) : (
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#E5E9ED] font-serif font-bold text-[#80632F]">
-                              {(review.userName || "G").charAt(0)}
-                            </div>
-                          )}
-                        </div>
-                        <p className="mt-4 text-sm font-medium leading-7 text-[#66727C]">
-                          &quot;{review.comment || localize("Kỳ nghỉ thoải mái, phục vụ thân thiện và quá trình đặt phòng thuận tiện.", "A comfortable stay with warm service and a smooth booking experience.")}&quot;
-                        </p>
-                      </article>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-[1.25rem] border border-dashed border-[#0F2A43]/15 bg-white/70 p-6">
-                  <h4 className="font-serif text-xl font-bold text-primary-navy">{localize("Chưa có đánh giá", "No reviews yet")}</h4>
-                  <p className="mt-2 text-sm leading-6 text-[#66727C]">
-                    {localize("Đánh giá sẽ xuất hiện sau khi khách hoàn tất kỳ nghỉ và gửi nhận xét cho loại phòng này.", "Reviews appear after guests complete their stay and share feedback for this room type.")}
-                  </p>
-                </div>
-              )}
-            </div>
+            <RoomReviewsSection
+              roomTypeId={roomId}
+              averageRating={Number(rating?.averageRating || 0)}
+              totalReviews={Number(rating?.totalReviews || 0)}
+            />
           </div>
 
           {/* Quick booking for this room type only */}
