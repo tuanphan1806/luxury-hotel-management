@@ -1,5 +1,6 @@
 package com.hotel.backend.exception;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -114,6 +115,31 @@ public class GlobalExceptionHandler {
                         .status(HttpStatus.BAD_REQUEST.value())
                         .error("Validation Failed")
                         .message("Dữ liệu đầu vào không hợp lệ")
+                        .errors(errors)
+                        .path(request.getRequestURI())
+                        .build());
+    }
+
+    // ── 400 Bad Request — validation trên path/query parameter ──────────────
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(
+            ConstraintViolationException ex, HttpServletRequest request) {
+
+        List<String> errors = ex.getConstraintViolations()
+                .stream()
+                .map(violation -> violation.getPropertyPath() + ": " + violation.getMessage())
+                .sorted()
+                .collect(Collectors.toList());
+
+        log.warn("Request parameter validation failed: {}", errors);
+
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.builder()
+                        .status(HttpStatus.BAD_REQUEST.value())
+                        .error("Validation Failed")
+                        .message("Tham số yêu cầu không hợp lệ")
                         .errors(errors)
                         .path(request.getRequestURI())
                         .build());

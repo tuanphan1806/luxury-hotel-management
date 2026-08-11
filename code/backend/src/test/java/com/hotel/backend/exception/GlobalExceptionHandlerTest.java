@@ -1,10 +1,13 @@
 package com.hotel.backend.exception;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
@@ -12,6 +15,11 @@ import org.springframework.web.bind.annotation.RestController;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.util.Set;
 
 class GlobalExceptionHandlerTest {
 
@@ -59,6 +67,24 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.message").value("Tên đăng nhập đã được sử dụng"));
+    }
+
+    @Test
+    void constrainedQueryParameterReturnsBadRequestInsteadOfInternalServerError() {
+        @SuppressWarnings("unchecked")
+        ConstraintViolation<Object> violation = mock(ConstraintViolation.class);
+        when(violation.getPropertyPath()).thenReturn(null);
+        when(violation.getMessage()).thenReturn("phải nhỏ hơn hoặc bằng 12");
+
+        ConstraintViolationException exception = new ConstraintViolationException(Set.of(violation));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/reviews/room-type/1/page");
+
+        var response = new GlobalExceptionHandler().handleConstraintViolation(exception, request);
+
+        assertEquals(400, response.getStatusCode().value());
+        assertEquals("Validation Failed", response.getBody().getError());
+        assertEquals("Tham số yêu cầu không hợp lệ", response.getBody().getMessage());
+        assertEquals("/api/reviews/room-type/1/page", response.getBody().getPath());
     }
 
     @RestController
