@@ -240,6 +240,20 @@ html.hotel-dark-mode .hotel-time-input {
   color-scheme: dark;
 }
 
+html.hotel-dark-mode .hotel-native-time-menu {
+  border-color: rgba(223, 229, 232, 0.22);
+  background: #102737;
+}
+
+html.hotel-dark-mode .hotel-native-time-option:not([aria-selected="true"]) {
+  color: #D7E0E5;
+}
+
+html.hotel-dark-mode .hotel-native-time-option:not([aria-selected="true"]):hover {
+  background: rgba(184, 148, 79, 0.18);
+  color: #E3C88F;
+}
+
 html.hotel-dark-mode.hotel-high-contrast [class*="text-[#66727C]"] {
   color: #E1E7EA !important;
 }
