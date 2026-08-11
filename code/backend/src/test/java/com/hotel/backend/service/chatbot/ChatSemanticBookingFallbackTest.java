@@ -84,4 +84,35 @@ class ChatSemanticBookingFallbackTest {
 
         assertTrue(fallback.extract("Tôi cần chỗ ở cho 2 khách ngày mai", List.of(), "vi").isEmpty());
     }
+
+    @Test
+    void recognizesAnExplicitStaySearchWhenProviderIsNotConfigured() {
+        when(geminiChatClient.generate(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(GeminiChatResult.failure(GeminiChatResult.Status.NOT_CONFIGURED));
+
+        ChatSemanticBookingFallback.Result result = fallback.extract(
+                "Tôi cần chỗ ở cho 2 người ngày mai lúc 14h",
+                List.of(),
+                "vi"
+        ).orElseThrow();
+
+        assertEquals(ChatSemanticBookingFallback.Kind.BOOKING, result.kind());
+        assertTrue(result.clarification().isBlank());
+    }
+
+    @Test
+    void asksForIntentWhenAStayTimeQuestionIsAmbiguousAndProviderIsUnavailable() {
+        when(geminiChatClient.generate(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(GeminiChatResult.failure(GeminiChatResult.Status.UNAVAILABLE));
+
+        ChatSemanticBookingFallback.Result result = fallback.extract(
+                "Check-in lúc 14h có được không?",
+                List.of(),
+                "vi"
+        ).orElseThrow();
+
+        assertEquals(ChatSemanticBookingFallback.Kind.CLARIFY, result.kind());
+        assertTrue(result.clarification().contains("kiểm tra phòng trống"));
+        assertTrue(result.clarification().contains("chính sách"));
+    }
 }
