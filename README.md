@@ -96,7 +96,8 @@ Set `APP_SEED_DEMO_SCENARIOS_ENABLED=true` in `code/backend/.env` to create an
 idempotent local reservation/accounting dataset after master data and demo
 users. The dataset includes completed stays across several weeks and months,
 payments, refunds, immutable invoices, balanced journal entries and cash-shift
-movements. Production configuration and `render.yaml` keep this flag disabled.
+movements, plus 60 verified guest reviews: 10 reviews for each of the six
+canonical room types. Production configuration and `render.yaml` keep this flag disabled.
 See [the business-reporting demo data notes](docs/business-reporting/README.md#10-local-demo-accounting-data).
 
 ## Verification

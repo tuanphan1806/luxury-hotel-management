@@ -18,12 +18,13 @@ class DemoDataSeederTest {
     void delegatesScenarioCreationToTransactionalService() {
         when(scenarioSeedService.seed()).thenReturn(
                 new DemoScenarioSeedService.DemoSeedSummary(
-                        18,
+                        28,
                         0,
                         16,
                         3,
                         10,
                         29,
+                        60,
                         true,
                         true));
 

@@ -3,6 +3,8 @@ package com.hotel.backend.service;
 import com.hotel.backend.dto.request.CreateReviewRequest;
 import com.hotel.backend.dto.request.UpdateReviewRequest;
 import com.hotel.backend.dto.response.ReviewResponse;
+import com.hotel.backend.dto.response.PublicReviewPageResponse;
+import com.hotel.backend.dto.response.PublicReviewResponse;
 import com.hotel.backend.dto.response.RoomTypeRatingResponse;
  
 import java.util.List;
@@ -13,7 +15,9 @@ public interface ReviewService {
     ReviewResponse createReview(Long userId, CreateReviewRequest request);
  
     // Lấy review theo room type (public)
-    List<ReviewResponse> getReviewsByRoomType(Long roomTypeId);
+    List<PublicReviewResponse> getReviewsByRoomType(Long roomTypeId);
+
+    PublicReviewPageResponse getReviewPageByRoomType(Long roomTypeId, int page, int size, String sort);
  
     // Lấy review của 1 user
     List<ReviewResponse> getReviewsByUser(Long userId);

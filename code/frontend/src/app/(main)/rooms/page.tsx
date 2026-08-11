@@ -36,7 +36,7 @@ function RoomsPageContent() {
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [minimumGuests, setMinimumGuests] = useState("0");
+  const [guestCountFilter, setGuestCountFilter] = useState("0");
   const [sortBy, setSortBy] = useState<"recommended" | "price-asc" | "price-desc" | "rating">("recommended");
   const favoritesOnly = searchParams.get("favorites") === "1";
 
@@ -55,7 +55,7 @@ function RoomsPageContent() {
 
   const filteredRoomTypes = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
-    const guestRequirement = Number(minimumGuests || 0);
+    const guestRequirement = Number(guestCountFilter || 0);
     const filtered = roomTypes.filter((room) => {
       const searchableText = [
         room.typeName,
@@ -76,11 +76,19 @@ function RoomsPageContent() {
       if (sortBy === "rating") return Number(right.averageRating || 0) - Number(left.averageRating || 0);
       return 0;
     });
-  }, [favoriteRoomIds, favoritesOnly, minimumGuests, roomTypes, searchTerm, sortBy]);
+  }, [favoriteRoomIds, favoritesOnly, guestCountFilter, roomTypes, searchTerm, sortBy]);
+
+  const guestCountOptions = useMemo(() => {
+    const largestCapacity = roomTypes.reduce(
+      (maximum, room) => Math.max(maximum, Number(room.maxGuests || 0)),
+      0,
+    );
+    return Array.from({ length: largestCapacity }, (_, index) => index + 1);
+  }, [roomTypes]);
 
   const resetDiscovery = () => {
     setSearchTerm("");
-    setMinimumGuests("0");
+    setGuestCountFilter("0");
     setSortBy("recommended");
   };
 
@@ -124,10 +132,14 @@ function RoomsPageContent() {
             />
           </label>
           <label className="grid gap-2 text-xs font-bold text-[#66727C]">
-            {localize("Sức chứa tối thiểu", "Minimum capacity")}
-            <select value={minimumGuests} onChange={(event) => setMinimumGuests(event.target.value)} className="min-h-12 rounded-lg border border-[#0F2A43]/14 bg-white px-4 text-sm font-semibold text-[#0F2A43] outline-none transition focus:border-[#B8944F]">
-              <option value="0">{localize("Tất cả", "Any")}</option>
-              {[1, 2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count}+ {localize("khách", count === 1 ? "guest" : "guests")}</option>)}
+            {localize("Số khách lưu trú", "Guests staying")}
+            <select value={guestCountFilter} onChange={(event) => setGuestCountFilter(event.target.value)} className="min-h-12 rounded-lg border border-[#0F2A43]/14 bg-white px-4 text-sm font-semibold text-[#0F2A43] outline-none transition focus:border-[#B8944F]">
+              <option value="0">{localize("Tất cả số khách", "Any guest count")}</option>
+              {guestCountOptions.map((count) => (
+                <option key={count} value={count}>
+                  {localize(`Phù hợp cho ${count} khách`, `Suitable for ${count} ${count === 1 ? "guest" : "guests"}`)}
+                </option>
+              ))}
             </select>
           </label>
           <label className="grid gap-2 text-xs font-bold text-[#66727C]">
@@ -179,7 +191,7 @@ function RoomsPageContent() {
           <div className="border-y border-[#0F2A43]/12 bg-[#FBFAF6] px-6 py-16 text-center">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#80632F]">{favoritesOnly ? localize("Danh sách yêu thích", "Favorite rooms") : localize("Không có kết quả", "No matches")}</p>
             <h3 className="mt-3 font-serif text-3xl font-bold text-primary-navy">{favoritesOnly ? localize("Bạn chưa lưu hạng phòng nào", "You have not saved a room yet") : localize("Thử nới điều kiện tìm kiếm", "Try broadening your search")}</h3>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-text-light">{favoritesOnly ? localize("Chạm biểu tượng trái tim trên một hạng phòng để lưu lại và xem nhanh tại đây.", "Select the heart on a room type to save it and find it here.") : localize("Xóa từ khóa hoặc chọn sức chứa thấp hơn để xem thêm hạng phòng.", "Clear the search term or lower the minimum capacity to see more room types.")}</p>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-text-light">{favoritesOnly ? localize("Chạm biểu tượng trái tim trên một hạng phòng để lưu lại và xem nhanh tại đây.", "Select the heart on a room type to save it and find it here.") : localize("Xóa từ khóa hoặc giảm số khách để xem thêm hạng phòng.", "Clear the search term or reduce the guest count to see more room types.")}</p>
             {favoritesOnly ? (
               <Link href="/rooms" className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30]">{localize("Khám phá các hạng phòng", "Explore room types")}</Link>
             ) : (
