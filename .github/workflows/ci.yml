@@ -90,3 +90,15 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run test:unit
       - run: pnpm run build
+      - name: Test chatbot customer journey on desktop and mobile
+        run: pnpm run test:e2e:chatbot
+      - name: Upload chatbot browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatbot-playwright-diagnostics
+          path: |
+            code/frontend/playwright-report
+            code/frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7

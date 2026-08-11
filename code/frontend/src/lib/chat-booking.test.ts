@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChatBookingUrl } from "./chat-booking";
+import { buildChatBookingUrl, isCompleteChatBookingState } from "./chat-booking";
 
 describe("buildChatBookingUrl", () => {
   it("routes every chatbot selection through the canonical booking page", () => {
@@ -32,6 +32,35 @@ describe("buildChatBookingUrl", () => {
     }), "https://luxury-hotel.example");
 
     expect(parsed.searchParams.get("adults")).toBe("3");
+  });
+
+  it("preserves adults and children separately", () => {
+    const parsed = new URL(buildChatBookingUrl({
+      checkIn: "2026-08-01T14:00:00",
+      checkOut: "2026-08-01T18:00:00",
+      adults: 2,
+      children: 1,
+      guestCount: 3,
+      roomTypes: [{ roomTypeId: 2, quantity: 1 }],
+    }), "https://luxury-hotel.example");
+
+    expect(parsed.searchParams.get("adults")).toBe("2");
+    expect(parsed.searchParams.get("children")).toBe("1");
+  });
+
+  it("only treats a state with dates, selected rooms and guests as ready", () => {
+    expect(isCompleteChatBookingState({ context: "Đặt Deluxe" })).toBe(false);
+    expect(isCompleteChatBookingState({
+      checkIn: "2026-08-01T14:00:00",
+      checkOut: "2026-08-01T18:00:00",
+      roomTypes: [{ roomTypeId: 2, quantity: 1 }],
+    })).toBe(false);
+    expect(isCompleteChatBookingState({
+      checkIn: "2026-08-01T14:00:00",
+      checkOut: "2026-08-01T18:00:00",
+      adults: 2,
+      roomTypes: [{ roomTypeId: 2, quantity: 1 }],
+    })).toBe(true);
   });
 
   it("rejects duplicate room types and impossible guest totals", () => {

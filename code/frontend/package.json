@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm run test:unit",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:chatbot": "playwright test tests/e2e/chatbot-runtime.spec.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.68.0",

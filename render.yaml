@@ -32,6 +32,10 @@ services:
         value: "120"
       - key: GEMINI_API_TIMEOUT_SECONDS
         value: "10"
+      - key: GEMINI_API_MAX_CONCURRENT_REQUESTS
+        value: "4"
+      - key: CHATBOT_SEMANTIC_BOOKING_FALLBACK_ENABLED
+        value: "true"
       - key: APP_UPLOAD_STORAGE
         value: cloudinary
       - key: APP_STATIC_MEDIA_MIGRATION_ENABLED
@@ -88,6 +92,8 @@ services:
       - key: FACEBOOK_OAUTH_CLIENT_ID
         sync: false
       - key: FACEBOOK_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
         sync: false
       - key: REFUND_DATA_ENCRYPTION_KEY
         sync: false

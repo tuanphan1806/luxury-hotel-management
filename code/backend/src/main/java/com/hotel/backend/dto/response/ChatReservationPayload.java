@@ -11,7 +11,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ChatReservationPayload {
+public final class ChatReservationPayload implements ChatActionPayload {
 
     private LocalDateTime checkIn;
 
@@ -19,8 +19,17 @@ public class ChatReservationPayload {
 
     private Integer guestCount;
 
+    private Integer adults;
+
+    private Integer children;
+
     private String note;
 
-    private List<RoomTypeItemRequest> roomTypes;
-}
+    /** Bounded, sanitized booking conversation used only to refine the pending request. */
+    private String context;
 
+    private List<RoomTypeItemRequest> roomTypes;
+
+    /** Room types selected in chat but still waiting for an explicit quantity. */
+    private List<Long> pendingRoomTypeIds;
+}
