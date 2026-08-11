@@ -9,6 +9,7 @@ import com.hotel.backend.service.AuthRateLimitService;
 import com.hotel.backend.service.AuthCookieService;
 import com.hotel.backend.service.AuthenticationService;
 import com.hotel.backend.service.ChatBotService;
+import com.hotel.backend.service.BusinessMetricService;
 import com.hotel.backend.service.ContactMessageService;
 import com.hotel.backend.service.PasswordResetService;
 import com.hotel.backend.service.UserService;
@@ -24,6 +25,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Duration;
 
 import static com.hotel.backend.util.SecurityTokenHasher.sha256;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +39,8 @@ class PublicEndpointRateLimitTest {
     private ClientIpResolver clientIpResolver;
     @Mock
     private ChatBotService chatBotService;
+    @Mock
+    private BusinessMetricService businessMetricService;
     @Mock
     private ContactMessageService contactMessageService;
     @Mock
@@ -55,22 +60,39 @@ class PublicEndpointRateLimitTest {
 
     @Test
     void chatHasAnIpWideLimitAndAnIpBoundConversationKey() {
-        ChatController controller = new ChatController(chatBotService, rateLimitService, clientIpResolver);
+        ChatController controller = new ChatController(
+                chatBotService,
+                rateLimitService,
+                clientIpResolver,
+                businessMetricService
+        );
         ChatRequest request = new ChatRequest();
         request.setQuestion("Khách sạn có hồ bơi không?");
         request.setConversationId("browser-conversation");
         when(clientIpResolver.resolve(httpRequest)).thenReturn("203.0.113.10");
         when(chatBotService.askWithAction(
-                request.getQuestion(),
-                "chat:203.0.113.10:" + sha256("browser-conversation")))
+                request,
+                "chat:" + sha256("203.0.113.10") + ":" + sha256("browser-conversation")))
                 .thenReturn(ChatResponse.builder().answer("Có").build());
 
         controller.chat(request, httpRequest);
 
         verify(rateLimitService).check("chat-ip:203.0.113.10", 30, Duration.ofMinutes(1));
+        verify(rateLimitService).check(
+                "chat-conversation:203.0.113.10:" + sha256("browser-conversation"),
+                10,
+                Duration.ofMinutes(1));
         verify(chatBotService).askWithAction(
-                request.getQuestion(),
-                "chat:203.0.113.10:" + sha256("browser-conversation"));
+                request,
+                "chat:" + sha256("203.0.113.10") + ":" + sha256("browser-conversation"));
+        verify(businessMetricService).increment("hotel.chat.requests", "locale", "vi");
+        verify(businessMetricService).increment("hotel.chat.responses", "action", "answer_only");
+        verify(businessMetricService).recordDuration(
+                eq("hotel.chat.request.duration"),
+                anyLong(),
+                eq("locale"), eq("vi"),
+                eq("outcome"), eq("success")
+        );
     }
 
     @Test

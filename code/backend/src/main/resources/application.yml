@@ -109,7 +109,7 @@ app:
     seed-media:
         base-url: ${SEED_MEDIA_BASE_URL:http://localhost:${server.port:8080}}
     cors:
-        allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001}
+        allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001}
     security:
         # Chỉ bật khi backend đứng sau reverse proxy được liệt kê chính xác bên dưới.
         trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:false}
@@ -214,6 +214,11 @@ gemini:
     # Optional: deterministic FAQ/database answers still work without Gemini.
     key: ${GEMINI_API_KEY:}
     timeout-seconds: ${GEMINI_API_TIMEOUT_SECONDS:10}
+    max-concurrent-requests: ${GEMINI_API_MAX_CONCURRENT_REQUESTS:4}
+chatbot:
+    # Used only after deterministic intent detection misses a likely booking
+    # request. Its output is parsed and revalidated; it never writes a booking.
+    semantic-booking-fallback-enabled: ${CHATBOT_SEMANTIC_BOOKING_FALLBACK_ENABLED:true}
 hotel:
   check-in-time: "${HOTEL_CHECK_IN_TIME:14:00}"
   check-out-time: "${HOTEL_CHECK_OUT_TIME:12:00}"

@@ -612,7 +612,7 @@ export default function HomePage() {
               ["/my-bookings", localize("Đơn của tôi", "My bookings"), localize("Lịch sử và hành động tiếp theo", "History and next actions")],
               ["/contact", localize("Nhờ lễ tân hỗ trợ", "Ask the front desk"), localize("Ngày lưu trú và yêu cầu cụ thể", "Dates and specific requests")],
             ].map(([href, title, detail]) => (
-              <Link key={href} href={href} className="home-section-surface group min-h-36 rounded-2xl border border-[#0F2A43]/12 p-5 transition hover:-translate-y-1 hover:border-[#B8944F] hover:bg-[#FBFAF6]">
+              <Link key={`${href}-${title}`} href={href} className="home-section-surface group min-h-36 rounded-2xl border border-[#0F2A43]/12 p-5 transition hover:-translate-y-1 hover:border-[#B8944F] hover:bg-[#FBFAF6]">
                 <span className="text-sm font-bold text-[#0F2A43]">{title}</span>
                 <span className="mt-3 block text-xs leading-6 text-[#66727C]">{detail}</span>
                 <span aria-hidden="true" className="mt-5 block text-lg text-[#80632F] transition group-hover:translate-x-1">→</span>

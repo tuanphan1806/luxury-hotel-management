@@ -64,6 +64,9 @@ const remotePatterns = Array.from(new Map(imageOrigins.flatMap((origin) => {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Keep local QA identical whether the browser uses localhost or the numeric
+  // loopback address. Production hosts remain governed by the deployed URL.
+  allowedDevOrigins: ['localhost', '127.0.0.1'],
   // Linux/Docker produces a minimal self-contained server. Native Windows
   // defaults to the regular build because trace copying relies on symlinks
   // that are unavailable on many developer machines. It can still be opted

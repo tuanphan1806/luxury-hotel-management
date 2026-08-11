@@ -30,4 +30,19 @@ class CorsConfigTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("explicit origins");
     }
+
+    @Test
+    void localDefaultAllowsBothHostnameAndNumericLoopback() {
+        CorsConfig config = new CorsConfig(CorsConfig.DEFAULT_ALLOWED_ORIGINS);
+        CorsConfiguration cors = config.corsConfigurationSource()
+                .getCorsConfiguration(new MockHttpServletRequest("OPTIONS", "/api/chat"));
+
+        assertThat(cors).isNotNull();
+        assertThat(cors.getAllowedOrigins()).contains(
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:3001",
+                "http://127.0.0.1:3001"
+        );
+    }
 }

@@ -60,7 +60,7 @@ export default function SupportCenter() {
             ["/my-bookings", localize("Lịch sử đặt phòng", "Booking history"), localize("Xem các kỳ lưu trú và hành động tiếp theo trong tài khoản.", "Review stays and next actions from your account.")],
             ["/contact", localize("Gửi yêu cầu", "Send a request"), localize("Chuyển đúng thông tin đến bộ phận vận hành khách sạn.", "Send the right details to hotel operations.")],
           ].map(([href, title, detail]) => (
-            <Link key={href} href={href} className="group rounded-[1.25rem] border border-[#0F2A43]/12 bg-[#FBFAF6] p-5 transition hover:-translate-y-1 hover:border-[#B8944F] hover:shadow-[0_16px_40px_rgba(15,42,67,0.08)]">
+            <Link key={`${href}-${title}`} href={href} className="group rounded-[1.25rem] border border-[#0F2A43]/12 bg-[#FBFAF6] p-5 transition hover:-translate-y-1 hover:border-[#B8944F] hover:shadow-[0_16px_40px_rgba(15,42,67,0.08)]">
               <span className="text-sm font-bold text-[#0F2A43]">{title}</span>
               <span className="mt-3 block text-xs font-medium leading-6 text-[#66727C]">{detail}</span>
               <span aria-hidden="true" className="mt-5 block text-lg text-[#80632F] transition group-hover:translate-x-1">→</span>
