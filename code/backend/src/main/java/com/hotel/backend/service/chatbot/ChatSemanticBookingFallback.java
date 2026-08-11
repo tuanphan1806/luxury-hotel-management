@@ -114,7 +114,7 @@ public class ChatSemanticBookingFallback {
         GeminiChatResult generated = geminiChatClient.generate(prompt);
         if (generated == null || generated.status() != GeminiChatResult.Status.SUCCESS
                 || generated.answer() == null || generated.answer().isBlank()) {
-            return deterministicProviderFallback(safeQuestion, locale);
+            return deterministicProviderFallback(safeQuestion, history, locale);
         }
 
         try {
@@ -155,7 +155,11 @@ public class ChatSemanticBookingFallback {
      * already passed {@link #shouldAttempt(String, ChatIntent)}; it never
      * extracts or invents reservation facts.
      */
-    private Optional<Result> deterministicProviderFallback(String question, String locale) {
+    private Optional<Result> deterministicProviderFallback(
+            String question,
+            List<ChatTurnRequest> history,
+            String locale
+    ) {
         String normalized = inputPolicy.normalizeForMatching(question);
         boolean explicitStaySearch = containsAny(
                 normalized,
@@ -165,7 +169,7 @@ public class ChatSemanticBookingFallback {
         ) || (containsAny(normalized, "tim", "find", "looking")
                 && containsAny(normalized, "cho o", "phong", "room", "stay"));
 
-        if (explicitStaySearch) {
+        if (explicitStaySearch || recentAssistantRequestedBookingDetails(history)) {
             return Optional.of(new Result(Kind.BOOKING, ""));
         }
 
@@ -173,6 +177,32 @@ public class ChatSemanticBookingFallback {
                 ? "Would you like to check availability and start a booking for that time, or are you asking about the hotel's check-in/check-out policy?"
                 : "Bạn muốn kiểm tra phòng trống và bắt đầu đặt phòng cho thời gian đó, hay đang hỏi về chính sách nhận/trả phòng của khách sạn?";
         return Optional.of(new Result(Kind.CLARIFY, clarification));
+    }
+
+    private boolean recentAssistantRequestedBookingDetails(List<ChatTurnRequest> history) {
+        if (history == null || history.isEmpty()) {
+            return false;
+        }
+        for (int index = history.size() - 1; index >= 0; index--) {
+            ChatTurnRequest turn = history.get(index);
+            if (turn == null || !"assistant".equals(turn.getRole())
+                    || turn.getContent() == null || turn.getContent().isBlank()) {
+                continue;
+            }
+            String message = inputPolicy.normalizeForMatching(turn.getContent());
+            boolean asksGuestCount = containsAny(
+                    message,
+                    "so khach", "bao nhieu nguoi", "number of guests", "how many guests"
+            );
+            boolean asksStayWindow = containsAny(
+                    message,
+                    "ngay/gio nhan va tra phong", "ngay gio nhan va tra phong",
+                    "ngay/gio nhan, tra phong", "check-in and check-out",
+                    "check in and check out"
+            );
+            return asksGuestCount && asksStayWindow;
+        }
+        return false;
     }
 
     private boolean containsAny(String normalized, String... phrases) {
