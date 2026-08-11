@@ -31,6 +31,7 @@ import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.ReservationRoom;
 import com.hotel.backend.entity.ReservationRoomType;
 import com.hotel.backend.entity.ReservationServiceOrder;
+import com.hotel.backend.entity.Review;
 import com.hotel.backend.entity.Room;
 import com.hotel.backend.entity.RoomHold;
 import com.hotel.backend.entity.RoomType;
@@ -44,6 +45,7 @@ import com.hotel.backend.repository.ReservationRepository;
 import com.hotel.backend.repository.ReservationRoomRepository;
 import com.hotel.backend.repository.ReservationRoomTypeRepository;
 import com.hotel.backend.repository.ReservationServiceOrderRepository;
+import com.hotel.backend.repository.ReviewRepository;
 import com.hotel.backend.repository.RoomHoldRepository;
 import com.hotel.backend.repository.RoomRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
@@ -108,6 +110,7 @@ public class DemoScenarioSeedService {
     private final PaymentTransactionRepository paymentRepository;
     private final PaymentRefundRepository refundRepository;
     private final ReservationServiceOrderRepository serviceOrderRepository;
+    private final ReviewRepository reviewRepository;
     private final AddOnServiceRepository addOnServiceRepository;
     private final WalkInPricingService walkInPricingService;
     private final ReservationRateSnapshotService rateSnapshotService;
@@ -144,6 +147,8 @@ public class DemoScenarioSeedService {
                 cancelledBankRefundScenario(today),
                 cancelledCashRefundScenario(today, now)));
         scenarios.addAll(completedAccountingScenarios(today));
+        List<ScenarioSpec> reviewScenarios = reviewShowcaseScenarios(today);
+        scenarios.addAll(reviewScenarios);
 
         List<ScenarioSpec> pendingScenarios = scenarios.stream()
                 .filter(scenario -> !reservationRepository
@@ -157,6 +162,7 @@ public class DemoScenarioSeedService {
             createScenario(context, scenario, summary);
             summary.createdReservations++;
         }
+        seedReviews(context, reviewScenarios, summary);
         closeSeedCashierShift(context.staff(), summary);
         entityManager.flush();
         return summary.snapshot();
@@ -1223,6 +1229,94 @@ public class DemoScenarioSeedService {
                         "Đơn ngày đêm cuối tháng trước có bữa sáng"));
     }
 
+    /**
+     * Ten canonical, completed multi-room stays provide exactly ten review
+     * opportunities for every seeded room type. They are created through the
+     * same pricing, payment, invoice and journal path as the other demo
+     * scenarios instead of inserting orphan review rows.
+     */
+    private List<ScenarioSpec> reviewShowcaseScenarios(LocalDate today) {
+        List<LineSpec> allRoomTypes = DemoReviewSeedCatalog.roomTypeCodes()
+                .stream()
+                .map(code -> line(code, 1, 1))
+                .toList();
+
+        return DemoReviewSeedCatalog.entries().stream()
+                .map(entry -> {
+                    int dayOffset = -150 + ((entry.sequence() - 1) * 7);
+                    LocalDateTime checkIn = at(today, dayOffset, 20, 0);
+                    LocalDateTime checkOut = checkIn.plusHours(12);
+                    return completedScenario(
+                            entry.reservationCode(),
+                            entry.username(),
+                            checkIn.minusDays(2),
+                            checkIn,
+                            checkOut,
+                            allRoomTypes,
+                            null,
+                            "Kỳ nghỉ nhiều hạng phòng dùng cho dữ liệu đánh giá mẫu");
+                })
+                .toList();
+    }
+
+    private void seedReviews(
+            SeedContext context,
+            List<ScenarioSpec> reviewScenarios,
+            MutableSummary summary) {
+        Map<String, DemoReviewSeedCatalog.Entry> entriesByCode =
+                DemoReviewSeedCatalog.entries().stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                DemoReviewSeedCatalog.Entry::reservationCode,
+                                entry -> entry));
+
+        for (ScenarioSpec scenario : reviewScenarios) {
+            Reservation reservation = reservationRepository
+                    .findByReservationCode(scenario.code())
+                    .orElseThrow(() -> missingMaster(
+                            "review reservation " + scenario.code()));
+            User reviewer = context.customers().get(
+                    scenario.customerUsername());
+            if (reviewer == null) {
+                throw missingMaster(
+                        "reviewer " + scenario.customerUsername());
+            }
+            DemoReviewSeedCatalog.Entry entry = Objects.requireNonNull(
+                    entriesByCode.get(scenario.code()));
+
+            for (LineSpec line : scenario.lines()) {
+                RoomType roomType = requireRoomType(
+                        context, line.roomTypeCode());
+                if (reviewRepository
+                        .existsByUserIdAndReservationIdAndRoomTypeId(
+                                reviewer.getId(),
+                                reservation.getId(),
+                                roomType.getId())) {
+                    continue;
+                }
+                Review review = reviewRepository.saveAndFlush(
+                        Review.builder()
+                                .user(reviewer)
+                                .reservation(reservation)
+                                .roomType(roomType)
+                                .rating(entry.rating())
+                                .comment(entry.commentFor(
+                                        roomType.getTypeName()))
+                                .build());
+                LocalDateTime reviewedAt = scenario.actualCheckOut()
+                        .plusHours(2)
+                        .plusMinutes(entry.sequence());
+                Timestamp timestamp = Timestamp.valueOf(reviewedAt);
+                jdbcTemplate.update(
+                        "UPDATE reviews SET created_at = ?, updated_at = ? "
+                                + "WHERE id = ?",
+                        timestamp,
+                        timestamp,
+                        review.getId());
+                summary.createdReviews++;
+            }
+        }
+    }
+
     private ScenarioSpec completedScenario(
             String code,
             String customerUsername,
@@ -1457,6 +1551,7 @@ public class DemoScenarioSeedService {
             int createdRefunds,
             int createdInvoices,
             int createdJournalEntries,
+            int createdReviews,
             boolean cashShiftOpened,
             boolean cashShiftClosed) {
     }
@@ -1468,6 +1563,7 @@ public class DemoScenarioSeedService {
         private int createdRefunds;
         private int createdInvoices;
         private int createdJournalEntries;
+        private int createdReviews;
         private boolean cashShiftOpened;
         private boolean cashShiftClosed;
         private Long managedCashShiftId;
@@ -1480,6 +1576,7 @@ public class DemoScenarioSeedService {
                     createdRefunds,
                     createdInvoices,
                     createdJournalEntries,
+                    createdReviews,
                     cashShiftOpened,
                     cashShiftClosed);
         }

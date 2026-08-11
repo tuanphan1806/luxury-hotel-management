@@ -5,6 +5,8 @@ import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.request.CreateReviewRequest;
 import com.hotel.backend.dto.request.UpdateReviewRequest;
 import com.hotel.backend.dto.response.ReviewResponse;
+import com.hotel.backend.dto.response.PublicReviewPageResponse;
+import com.hotel.backend.dto.response.PublicReviewResponse;
 import com.hotel.backend.dto.response.RoomTypeRatingResponse;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.Review;
@@ -16,6 +18,7 @@ import com.hotel.backend.repository.ReservationRepository;
 import com.hotel.backend.repository.ReviewRepository;
 import com.hotel.backend.repository.UserRepository;
 import com.hotel.backend.service.ReviewService;
+import com.hotel.backend.service.ReviewPageableFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -86,11 +89,29 @@ public class ReviewServiceImpl implements ReviewService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<ReviewResponse> getReviewsByRoomType(Long roomTypeId) {
-        return reviewRepository.findByRoomTypeIdWithDetails(roomTypeId)
+    public List<PublicReviewResponse> getReviewsByRoomType(Long roomTypeId) {
+        // Compatibility endpoint: preserve the historical list envelope while
+        // bounding the payload. New clients should use the paged endpoint.
+        return reviewRepository.findByRoomTypeId(
+                        roomTypeId,
+                        ReviewPageableFactory.create("newest", 0, 12))
+                .getContent()
                 .stream()
-                .map(ReviewResponse::from)
+                .map(PublicReviewResponse::from)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PublicReviewPageResponse getReviewPageByRoomType(
+            Long roomTypeId,
+            int page,
+            int size,
+            String sort) {
+        var pageable = ReviewPageableFactory.create(sort, page, size);
+        var reviews = reviewRepository.findByRoomTypeId(roomTypeId, pageable)
+                .map(PublicReviewResponse::from);
+        return PublicReviewPageResponse.from(reviews);
     }
 
     @Override

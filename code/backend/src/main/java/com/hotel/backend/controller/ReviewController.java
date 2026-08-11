@@ -4,17 +4,22 @@ import com.hotel.backend.dto.request.CreateReviewRequest;
 import com.hotel.backend.dto.request.UpdateReviewRequest;
 import com.hotel.backend.dto.response.ApiResponse;
 import com.hotel.backend.dto.response.ReviewResponse;
+import com.hotel.backend.dto.response.PublicReviewPageResponse;
+import com.hotel.backend.dto.response.PublicReviewResponse;
 import com.hotel.backend.dto.response.RoomTypeRatingResponse;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.service.ReviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
  
 import java.util.List;
  
@@ -22,15 +27,26 @@ import java.util.List;
 @RequestMapping("/api/reviews")
 @RequiredArgsConstructor
 @Slf4j(topic = "REVIEW-CONTROLLER")
+@Validated
 public class ReviewController {
  
     private final ReviewService reviewService;
  
     // ── Public: xem review theo room type ────────────────────────────────────
-    @Operation(summary = "Get Room Type reviews", description = "API retrieve reviews by room type id")
+    @Operation(summary = "Get Room Type reviews", description = "Compatibility endpoint returning the latest public reviews; use the paged endpoint for full browsing")
     @GetMapping("/room-type/{roomTypeId}")
-    public ApiResponse<List<ReviewResponse>> getReviewsByRoomType(@PathVariable Long roomTypeId) {
+    public ApiResponse<List<PublicReviewResponse>> getReviewsByRoomType(@PathVariable Long roomTypeId) {
         return ApiResponse.success(reviewService.getReviewsByRoomType(roomTypeId));
+    }
+
+    @Operation(summary = "Get paged Room Type reviews", description = "API retrieve a safe, paginated public review list")
+    @GetMapping("/room-type/{roomTypeId}/page")
+    public ApiResponse<PublicReviewPageResponse> getReviewPageByRoomType(
+            @PathVariable Long roomTypeId,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "6") @Min(1) @Max(12) int size,
+            @RequestParam(defaultValue = "newest") String sort) {
+        return ApiResponse.success(reviewService.getReviewPageByRoomType(roomTypeId, page, size, sort));
     }
  
     // ── Public: điểm trung bình + tổng số review ─────────────────────────────

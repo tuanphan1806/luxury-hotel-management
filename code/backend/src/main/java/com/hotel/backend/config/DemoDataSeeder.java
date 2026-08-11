@@ -31,7 +31,7 @@ public class DemoDataSeeder implements CommandLineRunner {
                 scenarioSeedService.seed();
         log.info(
                 "Demo scenarios ready: created={}, skipped={}, payments={}, "
-                        + "refunds={}, invoices={}, journals={}, "
+                        + "refunds={}, invoices={}, journals={}, reviews={}, "
                         + "cashShiftOpened={}, cashShiftClosed={}",
                 summary.createdReservations(),
                 summary.skippedReservations(),
@@ -39,6 +39,7 @@ public class DemoDataSeeder implements CommandLineRunner {
                 summary.createdRefunds(),
                 summary.createdInvoices(),
                 summary.createdJournalEntries(),
+                summary.createdReviews(),
                 summary.cashShiftOpened(),
                 summary.cashShiftClosed());
     }
