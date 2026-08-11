@@ -89,6 +89,9 @@ app:
         # Coherent reservation/payment/refund/invoice fixtures for local QA.
         # Keep false in production.
         demo-scenarios-enabled: ${APP_SEED_DEMO_SCENARIOS_ENABLED:false}
+        # One-shot review dataset backed by complete CHECKED_OUT stays and their
+        # normal payment/invoice/journal records. Disable after the seed run.
+        demo-reviews-enabled: ${APP_SEED_DEMO_REVIEWS_ENABLED:false}
     bootstrap-admin:
         # One-time production bootstrap. Disable and remove the password after first login.
         enabled: ${APP_BOOTSTRAP_ADMIN_ENABLED:false}

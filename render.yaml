@@ -48,6 +48,8 @@ services:
         value: "false"
       - key: APP_SEED_DEMO_SCENARIOS_ENABLED
         value: "false"
+      - key: APP_SEED_DEMO_REVIEWS_ENABLED
+        value: "false"
       - key: APP_BOOTSTRAP_ADMIN_ENABLED
         value: "false"
       - key: APP_ACCOUNTING_GO_LIVE_DATE
