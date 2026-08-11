@@ -168,6 +168,33 @@ public class DemoScenarioSeedService {
         return summary.snapshot();
     }
 
+    /**
+     * Seeds only the completed stays required by the public review showcase.
+     * Each fixture still passes through the same pricing, payment, invoice,
+     * journal, room assignment and audit path as a normal completed stay.
+     */
+    @Transactional
+    public DemoSeedSummary seedReviewShowcase() {
+        SeedContext context = loadContext();
+        LocalDate today = LocalDate.now(HOTEL_ZONE);
+        MutableSummary summary = new MutableSummary();
+        List<ScenarioSpec> reviewScenarios = reviewShowcaseScenarios(today);
+        List<ScenarioSpec> pendingScenarios = reviewScenarios.stream()
+                .filter(scenario -> !reservationRepository
+                        .existsByReservationCode(scenario.code()))
+                .toList();
+        summary.skippedReservations =
+                reviewScenarios.size() - pendingScenarios.size();
+
+        for (ScenarioSpec scenario : pendingScenarios) {
+            createScenario(context, scenario, summary);
+            summary.createdReservations++;
+        }
+        seedReviews(context, reviewScenarios, summary);
+        entityManager.flush();
+        return summary.snapshot();
+    }
+
     private SeedContext loadContext() {
         User staff = requireUser("staff1");
         Map<String, User> customers = new LinkedHashMap<>();
