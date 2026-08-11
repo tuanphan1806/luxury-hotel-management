@@ -114,7 +114,7 @@ public class ChatSemanticBookingFallback {
         GeminiChatResult generated = geminiChatClient.generate(prompt);
         if (generated == null || generated.status() != GeminiChatResult.Status.SUCCESS
                 || generated.answer() == null || generated.answer().isBlank()) {
-            return Optional.empty();
+            return deterministicProviderFallback(safeQuestion, locale);
         }
 
         try {
@@ -148,6 +148,40 @@ public class ChatSemanticBookingFallback {
                         + privacyRedactor.redact(inputPolicy.sanitizeQuestion(turn.getContent())))
                 .reduce((left, right) -> left + "\n" + right)
                 .orElse("(none)");
+    }
+
+    /**
+     * Provider-independent safety net. It only classifies a message that has
+     * already passed {@link #shouldAttempt(String, ChatIntent)}; it never
+     * extracts or invents reservation facts.
+     */
+    private Optional<Result> deterministicProviderFallback(String question, String locale) {
+        String normalized = inputPolicy.normalizeForMatching(question);
+        boolean explicitStaySearch = containsAny(
+                normalized,
+                "can cho o", "can phong", "tim phong", "muon o", "kiem phong",
+                "need somewhere to stay", "looking for a room", "find a room",
+                "need a room", "want a room", "check availability"
+        ) || (containsAny(normalized, "tim", "find", "looking")
+                && containsAny(normalized, "cho o", "phong", "room", "stay"));
+
+        if (explicitStaySearch) {
+            return Optional.of(new Result(Kind.BOOKING, ""));
+        }
+
+        String clarification = "en".equalsIgnoreCase(locale)
+                ? "Would you like to check availability and start a booking for that time, or are you asking about the hotel's check-in/check-out policy?"
+                : "Bạn muốn kiểm tra phòng trống và bắt đầu đặt phòng cho thời gian đó, hay đang hỏi về chính sách nhận/trả phòng của khách sạn?";
+        return Optional.of(new Result(Kind.CLARIFY, clarification));
+    }
+
+    private boolean containsAny(String normalized, String... phrases) {
+        for (String phrase : phrases) {
+            if (normalized.contains(phrase)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String stripCodeFence(String value) {

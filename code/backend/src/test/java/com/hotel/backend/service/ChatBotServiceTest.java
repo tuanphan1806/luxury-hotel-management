@@ -750,6 +750,42 @@ class ChatBotServiceTest {
     }
 
     @Test
+    void missingLanguageProviderAsksNaturalRoomPreferenceQuestions() {
+        when(publicDataGateway.getRoomTypes()).thenReturn(List.of());
+        when(publicDataGateway.getFacilities()).thenReturn(List.of());
+        when(publicDataGateway.getGalleries()).thenReturn(List.of());
+        when(geminiChatClient.generate(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(GeminiChatResult.failure(GeminiChatResult.Status.NOT_CONFIGURED));
+
+        ChatResponse response = service.askWithAction("Tôi muốn một phòng đẹp", "chat-natural-fallback");
+
+        assertTrue(response.getAnswer().contains("số khách"));
+        assertTrue(response.getAnswer().contains("ngày/giờ nhận và trả phòng"));
+        assertFalse(response.getAnswer().contains("AI"));
+        assertFalse(response.getAnswer().contains("cấu hình"));
+        assertFalse(response.getAnswer().contains("Gemini"));
+    }
+
+    @Test
+    void unavailableLanguageProviderKeepsEnglishConversationActionable() {
+        when(publicDataGateway.getRoomTypes()).thenReturn(List.of());
+        when(publicDataGateway.getFacilities()).thenReturn(List.of());
+        when(publicDataGateway.getGalleries()).thenReturn(List.of());
+        when(geminiChatClient.generate(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(GeminiChatResult.failure(GeminiChatResult.Status.UNAVAILABLE));
+        ChatRequest request = new ChatRequest();
+        request.setLocale("en");
+        request.setQuestion("Could you suggest a memorable hotel experience?");
+
+        ChatResponse response = service.askWithAction(request, "chat-natural-fallback-en");
+
+        assertTrue(response.getAnswer().contains("number of guests"));
+        assertTrue(response.getAnswer().contains("check-in and check-out"));
+        assertFalse(response.getAnswer().contains("AI"));
+        assertFalse(response.getAnswer().contains("provider"));
+    }
+
+    @Test
     void unrelatedQuestionIsRejectedEvenWhenEarlierHistoryMentionedAHotelRoom() {
         ChatTurnRequest previous = new ChatTurnRequest();
         previous.setRole("user");

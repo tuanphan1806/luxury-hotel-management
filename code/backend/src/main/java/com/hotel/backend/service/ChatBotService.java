@@ -289,7 +289,11 @@ public class ChatBotService {
                         "en".equals(locale) ? "English" : "Vietnamese"
                 );
 
-        return answerOnly(resolveGeminiAnswer(geminiChatClient.generate(prompt), locale));
+        return answerOnly(resolveGeminiAnswer(
+                geminiChatClient.generate(prompt),
+                locale,
+                contextualQuestion
+        ));
     }
 
     private ChatResponse answerOnly(String answer) {
@@ -527,7 +531,7 @@ public class ChatBotService {
                 .orElse(-1);
     }
 
-    private String resolveGeminiAnswer(GeminiChatResult result, String locale) {
+    private String resolveGeminiAnswer(GeminiChatResult result, String locale, String question) {
         if (result != null && result.status() == GeminiChatResult.Status.SUCCESS
                 && result.answer() != null && !result.answer().isBlank()) {
             Optional<String> safeAnswer = responsePolicy.sanitize(result.answer());
@@ -535,20 +539,33 @@ public class ChatBotService {
                 return safeAnswer.get();
             }
         }
-        GeminiChatResult.Status status = result == null
-                ? GeminiChatResult.Status.UNAVAILABLE
-                : result.status();
-        return switch (status) {
-            case NOT_CONFIGURED -> localize(locale,
-                    "Phần tư vấn AI chưa được cấu hình. Tôi vẫn có thể kiểm tra phòng trống, giá, tiện nghi và hướng dẫn đặt phòng bằng dữ liệu hệ thống.",
-                    "AI guidance is not configured. I can still check availability, rates, facilities, and guide you through booking using hotel data.");
-            case RATE_LIMITED, BUSY -> localize(locale,
-                    "Trợ lý đang có nhiều yêu cầu. Bạn vui lòng thử lại sau ít phút hoặc dùng các chức năng đặt phòng/tra cứu đơn trên website.",
-                    "The assistant is handling many requests. Please retry shortly or use the booking and My bookings pages.");
-            default -> localize(locale,
-                    "Trợ lý AI đang tạm gián đoạn. Bạn vẫn có thể hỏi tôi về phòng trống, giá, tiện nghi hoặc mở trang Hỗ trợ.",
-                    "AI guidance is temporarily unavailable. You can still ask about availability, rates, facilities, or open Support.");
-        };
+        return deterministicClarification(question, locale);
+    }
+
+    /**
+     * Keeps the public assistant useful when the optional language provider is
+     * unavailable. The response deliberately avoids exposing provider/config
+     * details and asks only for facts that the deterministic hotel flows can
+     * safely use on the next turn.
+     */
+    private String deterministicClarification(String question, String locale) {
+        String normalized = normalizeForMatching(question);
+        boolean roomPreferenceQuestion = containsAnyWholePhrase(
+                normalized,
+                "goi y", "tu van", "phu hop", "dep", "yen tinh", "sang trong",
+                "view", "vua tui tien", "recommend", "suggest", "suitable",
+                "quiet", "luxury", "beautiful", "nice room", "best room"
+        );
+
+        if (roomPreferenceQuestion) {
+            return localize(locale,
+                    "Mình có thể gợi ý hạng phòng phù hợp. Bạn cho mình biết số khách, ngày/giờ nhận và trả phòng, cùng ưu tiên chính như ngân sách, không gian yên tĩnh, view hoặc tiện nghi nhé.",
+                    "I can recommend a suitable room type. Please tell me the number of guests, check-in and check-out date/time, and your main preference such as budget, a quiet space, a view, or facilities.");
+        }
+
+        return localize(locale,
+                "Bạn muốn tìm hiểu về hạng phòng, giá, tiện nghi, chính sách nhận/trả phòng hay kiểm tra phòng trống? Nếu muốn đặt phòng, bạn cho mình biết số khách và ngày/giờ nhận, trả phòng nhé.",
+                "Would you like help with room types, rates, facilities, check-in/check-out policies, or availability? To start a booking, please share the number of guests and check-in/check-out date and time.");
     }
 
     /**
