@@ -2,7 +2,10 @@ package com.hotel.backend.service.chatbot;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChatPrivacyRedactorTest {
@@ -30,5 +33,22 @@ class ChatPrivacyRedactorTest {
         assertTrue(redacted.contains("[payment-number]"));
         assertTrue(redacted.contains("[name]"));
         assertTrue(redacted.contains("[address]"));
+    }
+
+    @Test
+    void redactsMultipleEmailsAndIdentityDocumentsWithoutRegexBacktrackingRisk() {
+        String redacted = assertTimeout(Duration.ofSeconds(2), () -> redactor.redact(
+                "a".repeat(100_000)
+                        + " first.person+stay@example-hotel.com; "
+                        + "CCCD: 012345678901; passport AB123456; "
+                        + "second@example.vn"
+        ));
+
+        assertFalse(redacted.contains("first.person+stay@example-hotel.com"));
+        assertFalse(redacted.contains("012345678901"));
+        assertFalse(redacted.contains("AB123456"));
+        assertFalse(redacted.contains("second@example.vn"));
+        assertTrue(redacted.contains("[email]"));
+        assertTrue(redacted.contains("[identity-document]"));
     }
 }

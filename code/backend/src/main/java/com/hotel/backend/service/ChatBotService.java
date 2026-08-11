@@ -364,15 +364,21 @@ public class ChatBotService {
                 || extractGuestBreakdown(normalized).hasAnyValue()) {
             return true;
         }
-        if (normalized.matches(".*\\b(doi|thay|sua|them|bo|xoa|change|replace|add|remove|check-in|check-out|checkin|checkout)\\b.*")) {
+        if (containsAnyWholePhrase(
+                normalized,
+                "doi", "thay", "sua", "them", "bo", "xoa",
+                "change", "replace", "add", "remove",
+                "check-in", "check-out", "checkin", "checkout"
+        )) {
             return true;
         }
         boolean roomStillMissing = state == null
                 || state.getRoomTypes() == null
                 || state.getRoomTypes().isEmpty();
-        boolean looksInformational = normalized.matches(
-                ".*\\b(gia|tien nghi|co gi|suc chua|may nguoi|danh gia|hinh|anh|"
-                        + "price|rate|facility|amenity|capacity|review|photo|why|tai sao)\\b.*"
+        boolean looksInformational = containsAnyWholePhrase(
+                normalized,
+                "gia", "tien nghi", "co gi", "suc chua", "may nguoi", "danh gia", "hinh", "anh",
+                "price", "rate", "facility", "amenity", "capacity", "review", "photo", "why", "tai sao"
         );
         if (!roomStillMissing || looksInformational || normalized.length() > 80) {
             return false;
@@ -445,10 +451,11 @@ public class ChatBotService {
             return true;
         }
         String normalized = normalizeForMatching(currentQuestion);
-        return normalized.length() <= 80 && normalized.matches(
-                "^(?:con\\s+(?:loai|phong|cai|gia|tien ich|dich vu)|"
-                        + "cai nao|loai nao|phong nao|no\\s+co|"
-                        + "what about|how about|which one|and the|does it|is it|can it)\\b.*"
+        return normalized.length() <= 80 && startsWithAnyWholePhrase(
+                normalized,
+                "con loai", "con phong", "con cai", "con gia", "con tien ich", "con dich vu",
+                "cai nao", "loai nao", "phong nao", "no co",
+                "what about", "how about", "which one", "and the", "does it", "is it", "can it"
         );
     }
 
@@ -461,19 +468,19 @@ public class ChatBotService {
     }
 
     private Integer requestedRoomOrdinal(String normalized) {
-        if (normalized.matches(".*\\b(loai|phong|hang|cai)\\s+(dau tien|thu nhat|dau)\\b.*")
+        if (containsRoomOrdinalPhrase(normalized, "dau tien", "thu nhat", "dau")
                 || normalized.contains("first one") || normalized.contains("first room")) {
             return 0;
         }
-        if (normalized.matches(".*\\b(loai|phong|hang|cai)\\s+thu hai\\b.*")
+        if (containsRoomOrdinalPhrase(normalized, "thu hai")
                 || normalized.contains("second one") || normalized.contains("second room")) {
             return 1;
         }
-        if (normalized.matches(".*\\b(loai|phong|hang|cai)\\s+thu ba\\b.*")
+        if (containsRoomOrdinalPhrase(normalized, "thu ba")
                 || normalized.contains("third one") || normalized.contains("third room")) {
             return 2;
         }
-        if (normalized.matches(".*\\b(loai|phong|hang|cai)\\s+cuoi(?: cung)?\\b.*")
+        if (containsRoomOrdinalPhrase(normalized, "cuoi", "cuoi cung")
                 || normalized.contains("last one") || normalized.contains("last room")) {
             return -1;
         }
@@ -2342,19 +2349,113 @@ public class ChatBotService {
     }
 
     private boolean containsAdditiveRoomLanguage(String normalized) {
-        return normalized.matches(".*\\b(them|bo sung|add|include)\\b.*");
+        return containsAnyWholePhrase(normalized, "them", "bo sung", "add", "include");
     }
 
     private boolean containsReplacementRoomLanguage(String normalized) {
-        return normalized.matches(".*\\b(doi|doi sang|thay|thay bang|replace|instead|change to)\\b.*");
+        return containsAnyWholePhrase(
+                normalized,
+                "doi", "doi sang", "thay", "thay bang", "replace", "instead", "change to"
+        );
     }
 
     private boolean containsRoomRemovalLanguage(String normalized) {
-        return normalized.matches(".*(?:\\bbo\\b(?!\\s+sung)|\\b(?:xoa|remove|drop)\\b).*");
+        return containsAnyWholePhrase(normalized, "xoa", "remove", "drop")
+                || containsWholePhraseNotFollowedBy(normalized, "bo", "sung");
     }
 
     private boolean containsExclusiveRoomLanguage(String normalized) {
-        return normalized.matches(".*\\b(chi|chi lay|giu lai|only|keep only)\\b.*");
+        return containsAnyWholePhrase(normalized, "chi", "chi lay", "giu lai", "only", "keep only");
+    }
+
+    private boolean containsRoomOrdinalPhrase(String normalized, String... ordinalPhrases) {
+        for (String roomPrefix : List.of("loai", "phong", "hang", "cai")) {
+            for (String ordinalPhrase : ordinalPhrases) {
+                if (containsWholePhrase(normalized, roomPrefix + " " + ordinalPhrase)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean containsAnyWholePhrase(String text, String... phrases) {
+        for (String phrase : phrases) {
+            if (containsWholePhrase(text, phrase)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean startsWithAnyWholePhrase(String text, String... phrases) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        for (String phrase : phrases) {
+            if (text.startsWith(phrase)
+                    && (text.length() == phrase.length()
+                    || !isWordCharacter(text.charAt(phrase.length())))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsWholePhrase(String text, String phrase) {
+        if (text == null || text.isBlank() || phrase == null || phrase.isBlank()) {
+            return false;
+        }
+        int fromIndex = 0;
+        while (fromIndex <= text.length() - phrase.length()) {
+            int index = text.indexOf(phrase, fromIndex);
+            if (index < 0) {
+                return false;
+            }
+            int end = index + phrase.length();
+            boolean leftBoundary = index == 0 || !isWordCharacter(text.charAt(index - 1));
+            boolean rightBoundary = end == text.length() || !isWordCharacter(text.charAt(end));
+            if (leftBoundary && rightBoundary) {
+                return true;
+            }
+            fromIndex = index + 1;
+        }
+        return false;
+    }
+
+    private boolean containsWholePhraseNotFollowedBy(String text, String phrase, String excludedNextWord) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        int fromIndex = 0;
+        while (fromIndex <= text.length() - phrase.length()) {
+            int index = text.indexOf(phrase, fromIndex);
+            if (index < 0) {
+                return false;
+            }
+            int end = index + phrase.length();
+            boolean leftBoundary = index == 0 || !isWordCharacter(text.charAt(index - 1));
+            boolean rightBoundary = end == text.length() || !isWordCharacter(text.charAt(end));
+            if (leftBoundary && rightBoundary) {
+                int nextStart = end;
+                while (nextStart < text.length() && Character.isWhitespace(text.charAt(nextStart))) {
+                    nextStart++;
+                }
+                boolean followedByExcludedWord = nextStart < text.length()
+                        && text.startsWith(excludedNextWord, nextStart)
+                        && (nextStart + excludedNextWord.length() == text.length()
+                        || !isWordCharacter(text.charAt(nextStart + excludedNextWord.length())));
+                if (!followedByExcludedWord) {
+                    return true;
+                }
+            }
+            fromIndex = index + 1;
+        }
+        return false;
+    }
+
+    private boolean isWordCharacter(char value) {
+        return Character.isLetterOrDigit(value) || value == '_';
     }
 
     private Optional<Integer> existingRoomQuantity(
