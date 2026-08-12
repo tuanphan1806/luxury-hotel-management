@@ -33,6 +33,7 @@ import {
   type ReservationServiceItem,
   chargeableNights,
   getAddOnCatalog,
+  isOperationalServiceQueueReservation,
 } from "@/lib/add-on-services";
 import {
   DashboardTimeGrouping,
@@ -547,6 +548,7 @@ export default function ReservationsManagement() {
   const [checkInDrafts, setCheckInDrafts] = useState<CheckInRoomDraft[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [linkedReservationCode, setLinkedReservationCode] = useState("");
+  const [serviceQueueOnly, setServiceQueueOnly] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<"ALL" | ReservationStatus>("ALL");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("ALL");
   const [stayDate, setStayDate] = useState("");
@@ -1053,6 +1055,7 @@ export default function ReservationsManagement() {
     } else if (legacyReservationId) {
       setSearchQuery(legacyReservationId);
     }
+    setServiceQueueOnly(params.get("serviceQueue") === "1");
     const walkInRoomId = Number(params.get("walkInRoomId"));
     if (Number.isFinite(walkInRoomId) && walkInRoomId > 0) {
       void openWalkInModal(walkInRoomId);
@@ -1112,7 +1115,12 @@ export default function ReservationsManagement() {
         String(reservation.id).includes(keyword);
       const matchesLinkedReservation = !linkedReservationCode
         || reservation.reservationCode?.toLowerCase() === linkedReservationCode.toLowerCase();
-      return matchesStatus && matchesPayment && matchesStayDate && matchesTimeScope && matchesSearch && matchesLinkedReservation;
+      const hasPendingOperationalService = isOperationalServiceQueueReservation(
+        reservation.status,
+        reservation.services,
+      );
+      const matchesServiceQueue = !serviceQueueOnly || hasPendingOperationalService;
+      return matchesStatus && matchesPayment && matchesStayDate && matchesTimeScope && matchesSearch && matchesLinkedReservation && matchesServiceQueue;
     });
     return [...matched].sort((left, right) => {
       const refundPriority = Number(pendingRefundsByReservation.has(right.id)) - Number(pendingRefundsByReservation.has(left.id));
@@ -1144,7 +1152,7 @@ export default function ReservationsManagement() {
       }
       return leftTime - rightTime;
     });
-  }, [linkedReservationCode, paymentFilter, pendingRefundsByReservation, reservations, searchQuery, selectedStatus, stayDate, timeScope]);
+  }, [linkedReservationCode, paymentFilter, pendingRefundsByReservation, reservations, searchQuery, selectedStatus, serviceQueueOnly, stayDate, timeScope]);
 
   const timeGroupedReservations = useMemo(
     () => groupByCalendarTime(filteredReservations, (reservation) => reservation.checkIn, timeGrouping),
@@ -2588,8 +2596,8 @@ export default function ReservationsManagement() {
         resultCount={filteredReservations.length}
         resultLabel={localize("đơn phù hợp", "matching reservations")}
         resultNote={localize("nhóm theo kỳ lưu trú, ưu tiên việc cần xử lý trong từng nhóm", "grouped by stay period and prioritized within each group")}
-        hasActiveFilters={Boolean(searchQuery || selectedStatus !== "ALL" || paymentFilter !== "ALL" || stayDate || timeScope !== "ALL")}
-        activeFilterCount={Number(Boolean(searchQuery)) + Number(selectedStatus !== "ALL") + Number(paymentFilter !== "ALL") + Number(Boolean(stayDate)) + Number(timeScope !== "ALL")}
+        hasActiveFilters={Boolean(searchQuery || selectedStatus !== "ALL" || paymentFilter !== "ALL" || stayDate || timeScope !== "ALL" || serviceQueueOnly)}
+        activeFilterCount={Number(Boolean(searchQuery)) + Number(selectedStatus !== "ALL") + Number(paymentFilter !== "ALL") + Number(Boolean(stayDate)) + Number(timeScope !== "ALL") + Number(serviceQueueOnly)}
         activeFilterLabel={localize("bộ lọc đang dùng", "active filters")}
         onReset={() => {
           setSearchQuery("");
@@ -2598,10 +2606,14 @@ export default function ReservationsManagement() {
           setPaymentFilter("ALL");
           setStayDate("");
           setTimeScope("ALL");
+          setServiceQueueOnly(false);
         }}
         resetLabel={localize("Xóa toàn bộ bộ lọc", "Clear all filters")}
         actions={(
           <>
+            <FilterQuickButton active={serviceQueueOnly} onClick={() => setServiceQueueOnly((current) => !current)}>
+              {localize("Dịch vụ chờ phục vụ", "Services awaiting fulfilment")}
+            </FilterQuickButton>
             <FilterQuickButton active={stayDate === todayDate().slice(0, 10)} onClick={() => {
               setTimeScope("ALL");
               setStayDate((current) => current === todayDate().slice(0, 10) ? "" : todayDate().slice(0, 10));
