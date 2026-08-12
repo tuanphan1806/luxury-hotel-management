@@ -58,6 +58,18 @@ export interface AddOnSelection {
   notes: string;
 }
 
+const OPERATIONAL_RESERVATION_STATUSES = new Set(["CONFIRMED", "CHECKED_IN"]);
+const PENDING_OPERATIONAL_SERVICE_STATUSES = new Set<ReservationServiceStatus>([
+  "REQUESTED",
+  "CONFIRMED",
+]);
+
+export const isOperationalServiceQueueReservation = (
+  reservationStatus: string,
+  services?: ReadonlyArray<Pick<ReservationServiceItem, "status">>,
+) => OPERATIONAL_RESERVATION_STATUSES.has(reservationStatus)
+  && Boolean(services?.some((service) => PENDING_OPERATIONAL_SERVICE_STATUSES.has(service.status)));
+
 export const getAddOnCatalog = async (flow: AddOnServiceFlow): Promise<AddOnServiceItem[]> => {
   const response = await publicApiClient.get("/api/add-on-services", { params: { flow } });
   const payload = response.data?.data ?? response.data;

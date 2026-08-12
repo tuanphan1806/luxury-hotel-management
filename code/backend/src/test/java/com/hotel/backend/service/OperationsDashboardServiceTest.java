@@ -62,9 +62,13 @@ class OperationsDashboardServiceTest {
         when(reservationRepository.countByStatus(ReservationStatus.DRAFT)).thenReturn(2L);
         when(reservationRepository.countByStatus(ReservationStatus.CANCELLATION_PENDING)).thenReturn(1L);
 
-        when(reservationServiceOrderRepository.countByStatusIn(List.of(
-                ReservationServiceStatus.REQUESTED,
-                ReservationServiceStatus.CONFIRMED))).thenReturn(3L);
+        when(reservationServiceOrderRepository.countOperationallyPending(
+                List.of(
+                        ReservationServiceStatus.REQUESTED,
+                        ReservationServiceStatus.CONFIRMED),
+                List.of(
+                        ReservationStatus.CONFIRMED,
+                        ReservationStatus.CHECKED_IN))).thenReturn(3L);
         when(contactMessageRepository.countByStatusIn(List.of(
                 ContactMessageStatus.NEW,
                 ContactMessageStatus.READ))).thenReturn(4L);
