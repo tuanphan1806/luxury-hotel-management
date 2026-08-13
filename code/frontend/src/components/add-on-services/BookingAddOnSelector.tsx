@@ -101,7 +101,7 @@ export default function BookingAddOnSelector({
               disabled={disabled}
               aria-pressed={Boolean(selected)}
               onClick={() => toggle(service)}
-              className="grid min-h-[8.5rem] w-full cursor-pointer grid-cols-[7rem_1fr] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-60"
+              className="grid min-h-[8.5rem] w-full cursor-pointer grid-cols-[5.5rem_1fr] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-60 sm:grid-cols-[7rem_1fr]"
             >
               <div className="relative h-full min-h-[8.5rem] bg-[#E5E9ED]">
                 {image ? (

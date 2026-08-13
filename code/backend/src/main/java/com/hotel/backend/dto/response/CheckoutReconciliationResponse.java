@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
@@ -16,6 +17,7 @@ import java.util.List;
 public class CheckoutReconciliationResponse {
     private Long reservationId;
     private String reservationCode;
+    private LocalDateTime calculatedAt;
     private Long requiredAmount;
     private Long acceptedAmount;
     private Long reservedRefundAmount;
@@ -25,6 +27,7 @@ public class CheckoutReconciliationResponse {
     private PricingAlgorithmVersion pricingVersion;
     private Long plannedRoomCharge;
     private Long actualRoomCharge;
+    private List<CheckoutRoomChargeLineResponse> roomChargeLines;
     private Long extraGuestCharge;
     private List<CheckoutExtraGuestChargeLineResponse> extraGuestLines;
     private Long postCommitmentRoomIncrease;

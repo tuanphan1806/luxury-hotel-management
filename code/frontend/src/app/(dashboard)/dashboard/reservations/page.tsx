@@ -161,10 +161,12 @@ interface WalkInPriceOverrideDraft {
 
 interface FinalPayment {
   reservationId: number;
+  calculatedAt?: string;
   pricingVersion?: "LEGACY_V1" | "MOTEL_PACKAGE_V2";
   totalAmount: number;
   roomCharge: number;
   plannedRoomCharge: number;
+  roomChargeLines?: CheckoutRoomChargeLine[];
   extraGuestCharge?: number;
   extraGuestLines?: CheckoutExtraGuestChargeLine[];
   postCommitmentRoomIncrease?: number;
@@ -182,6 +184,43 @@ interface FinalPayment {
   uncoveredRefundAmount: number;
   paymentPending: boolean;
   refundPending: boolean;
+}
+
+interface CheckoutRoomChargeCycle {
+  sequence: number;
+  appliedPackage: "HOURLY" | "OVERNIGHT" | "DAILY";
+  transitionReason?: string;
+  billableStart: string;
+  billableEnd: string;
+  includedCheckout?: string;
+  billableMinutes: number;
+  chargedExtraUnits: number;
+  unitPrice: number;
+  roomQuantity: number;
+  amount: number;
+}
+
+interface CheckoutRoomChargeLine {
+  reservationRoomTypeId: number;
+  roomTypeId: number;
+  roomTypeName: string;
+  roomTypeNameEn?: string;
+  roomQuantity: number;
+  actualGuestCount: number;
+  appliedPackage: "HOURLY" | "OVERNIGHT" | "DAILY";
+  transitionReason?: string;
+  billableMinutes: number;
+  firstBlockMinutes: number;
+  firstBlockPrice: number;
+  extraUnitMinutes: number;
+  extraUnitPrice: number;
+  graceMinutes: number;
+  overnightPrice: number;
+  dailyPrice: number;
+  cycleSubtotal: number;
+  pricingAdjustment: number;
+  amount: number;
+  cycles: CheckoutRoomChargeCycle[];
 }
 
 interface CheckoutExtraGuestChargeLine {
@@ -202,6 +241,7 @@ interface CheckoutExtraGuestChargeLine {
 
 interface CheckoutReconciliationApi {
   reservationId: number;
+  calculatedAt?: string;
   requiredAmount: number;
   acceptedAmount: number;
   reservedRefundAmount: number;
@@ -211,6 +251,7 @@ interface CheckoutReconciliationApi {
   pricingVersion?: "LEGACY_V1" | "MOTEL_PACKAGE_V2";
   plannedRoomCharge?: number;
   actualRoomCharge?: number;
+  roomChargeLines?: CheckoutRoomChargeLine[];
   extraGuestCharge?: number;
   extraGuestLines?: CheckoutExtraGuestChargeLine[];
   postCommitmentRoomIncrease?: number;
@@ -440,6 +481,102 @@ const formatDate = (value?: string) => {
   });
 };
 
+const stayPackageLabel = (
+  value: "HOURLY" | "OVERNIGHT" | "DAILY",
+  localize: (vi: string, en: string) => string,
+) => ({
+  HOURLY: localize("Nghỉ giờ", "Hourly"),
+  OVERNIGHT: localize("Qua đêm", "Overnight"),
+  DAILY: localize("Ngày đêm", "Daily"),
+}[value]);
+
+const pricingReasonLabel = (
+  reason: string | undefined,
+  localize: (vi: string, en: string) => string,
+) => ({
+  HOURLY_WINDOW: localize("Thời lượng nằm trong khung nghỉ giờ", "Duration fits the hourly window"),
+  OVERNIGHT_WINDOW: localize("Thời gian lưu trú đi qua khung qua đêm", "Stay crosses the overnight window"),
+  DAILY_DURATION: localize("Thời lượng đạt ngưỡng ngày đêm", "Duration reaches the daily threshold"),
+  PRICE_CAP: localize("Tổng giá giờ chạm trần giá ngày đêm", "Hourly total reached the daily price cap"),
+  EXTENSION: localize("Có thời gian lưu trú phát sinh", "Stay extension was added"),
+  ACTUAL_CHECKOUT: localize("Tính lại theo thời điểm trả phòng thực tế", "Recalculated at actual checkout"),
+  INITIAL_QUOTE: localize("Áp dụng báo giá đã khóa khi tạo đơn", "Applied the quote snapshotted at booking"),
+  ADMIN_APPROVED_ADJUSTMENT: localize("Điều chỉnh đã được quản trị viên phê duyệt", "Administrator-approved adjustment"),
+}[reason || ""] || localize("Theo chính sách giá đã khóa của đơn", "Based on the reservation's snapshotted pricing policy"));
+
+const cycleFormula = (
+  line: CheckoutRoomChargeLine,
+  cycle: CheckoutRoomChargeCycle,
+  localize: (vi: string, en: string) => string,
+) => {
+  const duration = `${Math.floor(cycle.billableMinutes / 60)}h ${cycle.billableMinutes % 60}m`;
+  const extraUnitLabel = line.extraUnitMinutes === 60
+    ? localize("giờ thêm", "extra hours")
+    : localize(`đơn vị ${line.extraUnitMinutes} phút`, `${line.extraUnitMinutes}-minute units`);
+  if (cycle.appliedPackage === "HOURLY") {
+    const baseDuration = line.firstBlockMinutes % 60 === 0
+      ? localize(`${line.firstBlockMinutes / 60} giờ đầu`, `First ${line.firstBlockMinutes / 60} hours`)
+      : localize(`${line.firstBlockMinutes} phút đầu`, `First ${line.firstBlockMinutes} minutes`);
+    const extraAmount = cycle.chargedExtraUnits * line.extraUnitPrice;
+    if (cycle.chargedExtraUnits === 0) {
+      return localize(
+        `${baseDuration}: ${formatVND(line.firstBlockPrice)} → tổng ${formatVND(cycle.unitPrice)}/phòng`,
+        `${baseDuration}: ${formatVND(line.firstBlockPrice)} → total ${formatVND(cycle.unitPrice)}/room`,
+      );
+    }
+    return localize(
+      `${baseDuration}: ${formatVND(line.firstBlockPrice)} + ${cycle.chargedExtraUnits} ${extraUnitLabel} × ${formatVND(line.extraUnitPrice)} = ${formatVND(extraAmount)} → tổng ${formatVND(cycle.unitPrice)}/phòng`,
+      `${baseDuration}: ${formatVND(line.firstBlockPrice)} + ${cycle.chargedExtraUnits} ${extraUnitLabel} × ${formatVND(line.extraUnitPrice)} = ${formatVND(extraAmount)} → total ${formatVND(cycle.unitPrice)}/room`,
+    );
+  }
+  if (cycle.appliedPackage === "OVERNIGHT") {
+    const extraAmount = cycle.chargedExtraUnits * line.extraUnitPrice;
+    if (cycle.chargedExtraUnits === 0) {
+      return localize(
+        `Gói qua đêm: ${formatVND(line.overnightPrice)} → tổng ${formatVND(cycle.unitPrice)}/phòng`,
+        `Overnight package: ${formatVND(line.overnightPrice)} → total ${formatVND(cycle.unitPrice)}/room`,
+      );
+    }
+    return localize(
+      `Gói qua đêm: ${formatVND(line.overnightPrice)} + ${cycle.chargedExtraUnits} ${extraUnitLabel} ngoài gói × ${formatVND(line.extraUnitPrice)} = ${formatVND(extraAmount)} → tổng ${formatVND(cycle.unitPrice)}/phòng`,
+      `Overnight package: ${formatVND(line.overnightPrice)} + ${cycle.chargedExtraUnits} out-of-package ${extraUnitLabel} × ${formatVND(line.extraUnitPrice)} = ${formatVND(extraAmount)} → total ${formatVND(cycle.unitPrice)}/room`,
+    );
+  }
+  if (cycle.transitionReason === "PRICE_CAP") {
+    const hourlyRaw = line.firstBlockPrice + cycle.chargedExtraUnits * line.extraUnitPrice;
+    return localize(
+      `Giá giờ dự kiến ${formatVND(line.firstBlockPrice)} + ${cycle.chargedExtraUnits} ${extraUnitLabel} × ${formatVND(line.extraUnitPrice)} = ${formatVND(hourlyRaw)}, chạm trần nên áp giá ngày đêm ${formatVND(line.dailyPrice)}/phòng`,
+      `Hourly calculation ${formatVND(line.firstBlockPrice)} + ${cycle.chargedExtraUnits} ${extraUnitLabel} × ${formatVND(line.extraUnitPrice)} = ${formatVND(hourlyRaw)}; the daily cap applies at ${formatVND(line.dailyPrice)}/room`,
+    );
+  }
+  return localize(
+    `1 chu kỳ ngày đêm (${duration}): ${formatVND(line.dailyPrice)} → tổng ${formatVND(cycle.unitPrice)}/phòng`,
+    `1 daily cycle (${duration}): ${formatVND(line.dailyPrice)} → total ${formatVND(cycle.unitPrice)}/room`,
+  );
+};
+
+const cycleSignature = (cycle: CheckoutRoomChargeCycle) => [
+  cycle.appliedPackage,
+  cycle.transitionReason || "",
+  cycle.billableMinutes,
+  cycle.chargedExtraUnits,
+  cycle.unitPrice,
+  cycle.roomQuantity,
+  cycle.amount,
+].join("|");
+
+const groupConsecutiveChargeCycles = (cycles: CheckoutRoomChargeCycle[]) => cycles.reduce<
+  Array<{ cycles: CheckoutRoomChargeCycle[] }>
+>((groups, cycle) => {
+  const previous = groups.at(-1);
+  if (previous && cycleSignature(previous.cycles[0]) === cycleSignature(cycle)) {
+    previous.cycles.push(cycle);
+  } else {
+    groups.push({ cycles: [cycle] });
+  }
+  return groups;
+}, []);
+
 const formatAuditValue = (value: unknown): string => {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Có" : "Không";
@@ -569,6 +706,7 @@ export default function ReservationsManagement() {
   const [availableRooms, setAvailableRooms] = useState<RoomItem[]>([]);
   const [selectedReservation, setSelectedReservation] = useState<ReservationItem | null>(null);
   const [finalPayment, setFinalPayment] = useState<FinalPayment | null>(null);
+  const [isChargeBreakdownOpen, setIsChargeBreakdownOpen] = useState(false);
   const [cashierShiftRequired, setCashierShiftRequired] = useState(false);
   const [checkInDrafts, setCheckInDrafts] = useState<CheckInRoomDraft[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -902,6 +1040,7 @@ export default function ReservationsManagement() {
   }));
 
   const closeReservationModal = () => {
+    setIsChargeBreakdownOpen(false);
     setSelectedReservation(null);
     setFinalPayment(null);
     setCashierShiftRequired(false);
@@ -1575,11 +1714,13 @@ export default function ReservationsManagement() {
       setSelectedReservation(toData<ReservationItem>(detailRes));
       setFinalPayment({
         reservationId: reconciliation.reservationId,
+        calculatedAt: reconciliation.calculatedAt,
         pricingVersion: reconciliation.pricingVersion,
         totalAmount: reconciliation.requiredAmount,
         roomCharge,
         plannedRoomCharge:
           reconciliation.plannedRoomCharge ?? roomCharge + earlyAdjustment,
+        roomChargeLines: reconciliation.roomChargeLines || [],
         extraGuestCharge: reconciliation.extraGuestCharge || 0,
         extraGuestLines: reconciliation.extraGuestLines || [],
         postCommitmentRoomIncrease:
@@ -2467,7 +2608,7 @@ export default function ReservationsManagement() {
           onClick={() => setServiceReservationTarget(reservation)}
           className="min-h-10 rounded-lg border border-[#B8944F]/60 bg-[#F0EADF] px-3 text-xs font-bold text-[#0F2A43] hover:border-[#B8944F] hover:bg-[#EAE2D2]"
         >
-          {localize("Dịch vụ", "Services")}
+          {localize("Chọn dịch vụ", "Select services")}
           {(reservation.services?.filter((service) => service.status !== "CANCELLED").length || 0) > 0
             ? ` (${reservation.services?.filter((service) => service.status !== "CANCELLED").length})`
             : ""}
@@ -3238,7 +3379,15 @@ export default function ReservationsManagement() {
             </div>
             <div className="grid gap-5 p-6 md:grid-cols-[1.15fr_0.85fr]">
               <div className="rounded-xl border border-[#0F2A43]/10 bg-[#F1F0EA] p-5">
-                <h3 className="text-sm font-bold text-[#0F2A43]">{localize("Chi tiết chi phí", "Charge details")}</h3>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-[#0F2A43]">{localize("Tóm tắt chi phí", "Charge summary")}</h3>
+                    <p className="mt-1 text-xs text-[#66727C]">{localize("Mở cách tính để giải thích từng gói giờ, qua đêm hoặc ngày đêm cho khách.", "Open the calculation to explain every hourly, overnight, or daily package.")}</p>
+                  </div>
+                  <button type="button" onClick={() => setIsChargeBreakdownOpen(true)} className="min-h-10 rounded-lg border border-[#B8944F]/70 bg-white px-3 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F0EADF]">
+                    {localize("Xem cách tính", "View calculation")}
+                  </button>
+                </div>
                 <div className="mt-4 space-y-3 text-sm tabular-nums">
                   <div className="flex justify-between gap-4"><span className="text-[#66727C]">{localize("Tiền phòng dự kiến", "Planned room charge")}</span><span className="font-semibold">{formatVND(finalPayment.plannedRoomCharge)}</span></div>
                   {(finalPayment.earlyCheckoutAdjustment || 0) > 0 && <div className="flex justify-between gap-4 text-blue-700"><span>{localize("Giảm do trả phòng sớm", "Early checkout adjustment")}</span><span className="font-semibold">− {formatVND(finalPayment.earlyCheckoutAdjustment)}</span></div>}
@@ -3338,6 +3487,102 @@ export default function ReservationsManagement() {
               {finalPayment.reconciliationStatus === "MATCHED" && <><button disabled={isActionLoading} onClick={openCheckoutAdditionalFee} className="min-h-11 rounded-lg border border-orange-300 bg-orange-50 px-5 py-3 text-xs font-bold uppercase tracking-wider text-orange-800 hover:bg-orange-100 disabled:opacity-50">{localize("Thêm / sửa phụ phí", "Add / edit fee")}</button><button disabled={isActionLoading} onClick={handleCheckOut} className="rounded-xl bg-rose-700 px-5 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm hover:bg-rose-800 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">{localize("Hoàn tất trả phòng", "Complete checkout")}</button></>}
               {finalPayment.reconciliationStatus === "MISMATCH" && <button type="button" disabled={isActionLoading} onClick={() => void openFinalPayment(selectedReservation)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-xs font-bold uppercase tracking-wider text-[#0F2A43] hover:bg-[#F1F0EA] disabled:opacity-50">{localize("Đối soát lại", "Recheck")}</button>}
             </div>
+          </section>
+        </ViewportModal>
+      )}
+
+      {selectedReservation && finalPayment && isChargeBreakdownOpen && (
+        <ViewportModal
+          open
+          onClose={() => setIsChargeBreakdownOpen(false)}
+          labelledBy="checkout-charge-breakdown-title"
+          panelClassName="max-w-4xl"
+          zIndexClassName="z-[92]"
+          testId="checkout-charge-breakdown-modal"
+        >
+          <section className="flex min-h-0 flex-1 flex-col bg-[#FBFAF6]">
+            <header className="flex items-start justify-between gap-4 border-b border-[#0F2A43]/10 px-5 py-5 sm:px-6">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F]">{localize("Giải thích chi phí lưu trú", "Stay charge explanation")}</p>
+                <h2 id="checkout-charge-breakdown-title" className="mt-1 font-serif text-2xl font-bold text-[#0F2A43]">{localize("Cách tính tiền phòng", "Room charge calculation")}</h2>
+                <p className="mt-1 text-sm leading-6 text-[#66727C]">{selectedReservation.reservationCode} · {localize("tính đến thời điểm đối soát hiện tại", "calculated through the current reconciliation time")}</p>
+              </div>
+              <button type="button" onClick={() => setIsChargeBreakdownOpen(false)} aria-label={localize("Đóng chi tiết chi phí", "Close charge details")} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#0F2A43]/15 bg-white text-xl text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F0EADF]">×</button>
+            </header>
+            <div className="lux-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+              <div className="grid gap-3 rounded-xl border border-[#B8944F]/30 bg-[#F0EADF]/70 p-4 text-sm sm:grid-cols-3">
+                <div><p className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Nhận phòng thực tế", "Actual check-in")}</p><p className="mt-1 font-bold text-[#0F2A43]">{selectedReservation.actualCheckIn ? new Date(selectedReservation.actualCheckIn).toLocaleString(localeTag) : localize("Chưa ghi nhận", "Not recorded")}</p></div>
+                <div><p className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Thời điểm đang tính", "Calculated through")}</p><p className="mt-1 font-bold text-[#0F2A43]">{finalPayment.calculatedAt ? new Date(finalPayment.calculatedAt).toLocaleString(localeTag) : formatDate(selectedReservation.actualCheckOut || selectedReservation.checkOut)}</p></div>
+                <div><p className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Tiền phòng thực tế", "Actual room charge")}</p><p className="mt-1 text-lg font-black tabular-nums text-[#80632F]">{formatVND(finalPayment.roomCharge)}</p></div>
+              </div>
+
+              {(finalPayment.roomChargeLines || []).length > 0 ? (
+                <div className="space-y-4">
+                  {(finalPayment.roomChargeLines || []).map((line) => (
+                    <article key={line.reservationRoomTypeId} className="overflow-hidden rounded-xl border border-[#0F2A43]/12 bg-white">
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#0F2A43]/10 bg-[#F1F0EA] px-4 py-3">
+                        <div><h3 className="font-bold text-[#0F2A43]">{localize(line.roomTypeName, line.roomTypeNameEn)} × {line.roomQuantity}</h3><p className="mt-1 text-xs text-[#66727C]">{line.actualGuestCount} {localize("khách thực tế", "actual guests")} · {Math.floor(line.billableMinutes / 60)}h {line.billableMinutes % 60}m</p></div>
+                        <div className="text-right"><span className="inline-flex rounded-full border border-[#B8944F]/50 bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[#80632F]">{stayPackageLabel(line.appliedPackage, localize)}</span><p className="mt-1 font-black tabular-nums text-[#0F2A43]">{formatVND(line.amount)}</p></div>
+                      </div>
+                      <p className="border-b border-[#0F2A43]/8 bg-[#FBFAF6] px-4 py-2 text-xs leading-5 text-[#66727C]">{pricingReasonLabel(line.transitionReason, localize)}</p>
+                      <div className="divide-y divide-[#0F2A43]/8">
+                        {groupConsecutiveChargeCycles(line.cycles).map(({ cycles }) => {
+                          const cycle = cycles[0];
+                          const lastCycle = cycles.at(-1) || cycle;
+                          const grouped = cycles.length > 1;
+                          const groupAmount = cycles.reduce((sum, item) => sum + item.amount, 0);
+                          return (
+                            <div key={`${line.reservationRoomTypeId}-${cycle.sequence}`} className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[1fr_auto]">
+                              <div>
+                                <p className="font-bold text-[#0F2A43]">
+                                  {grouped
+                                    ? localize(`Chu kỳ ${cycle.sequence}–${lastCycle.sequence} · ${cycles.length} lần ${stayPackageLabel(cycle.appliedPackage, localize).toLowerCase()}`, `Cycles ${cycle.sequence}–${lastCycle.sequence} · ${cycles.length} ${stayPackageLabel(cycle.appliedPackage, localize).toLowerCase()} cycles`)
+                                    : `${localize("Chu kỳ", "Cycle")} ${cycle.sequence} · ${stayPackageLabel(cycle.appliedPackage, localize)}`}
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-[#66727C]">{new Date(cycle.billableStart).toLocaleString(localeTag)} → {new Date(lastCycle.billableEnd).toLocaleString(localeTag)} · {grouped ? `${cycles.length} × ` : ""}{Math.floor(cycle.billableMinutes / 60)}h {cycle.billableMinutes % 60}m</p>
+                                <p className="mt-1 text-xs font-semibold leading-5 text-[#5F5547]">{cycleFormula(line, cycle, localize)}{grouped ? ` × ${cycles.length}` : ""}</p>
+                                <p className="mt-1 text-[11px] leading-5 text-[#66727C]">{pricingReasonLabel(cycle.transitionReason, localize)}</p>
+                                {line.graceMinutes > 0 && cycle.chargedExtraUnits > 0 && <p className="mt-1 text-[11px] leading-5 text-emerald-700">{localize(`Đã áp dụng ${line.graceMinutes} phút ân hạn trước khi làm tròn phần thời gian phát sinh.`, `${line.graceMinutes} grace minutes were applied before rounding the extra stay.`)}</p>}
+                                {cycle.includedCheckout && <p className="mt-1 text-xs text-[#66727C]">{localize(grouped ? "Toàn bộ khoảng được tính đến" : "Gói bao gồm đến", grouped ? "Grouped period calculated through" : "Package includes through")}: {new Date(lastCycle.includedCheckout || lastCycle.billableEnd).toLocaleString(localeTag)}{cycle.chargedExtraUnits > 0 ? ` · ${localize("phát sinh", "extra units")}: ${cycle.chargedExtraUnits}` : ""}</p>}
+                                {grouped && (
+                                  <details className="mt-2 rounded-lg border border-[#0F2A43]/10 bg-[#FBFAF6] px-3 py-2 text-xs text-[#66727C]">
+                                    <summary className="cursor-pointer font-bold text-[#0F2A43]">{localize("Xem mốc từng chu kỳ", "Show every cycle boundary")}</summary>
+                                    <ol className="mt-2 space-y-1">
+                                      {cycles.map((item) => <li key={item.sequence}>{localize("Chu kỳ", "Cycle")} {item.sequence}: {new Date(item.billableStart).toLocaleString(localeTag)} → {new Date(item.billableEnd).toLocaleString(localeTag)}</li>)}
+                                    </ol>
+                                  </details>
+                                )}
+                              </div>
+                              <div className="text-right text-xs text-[#66727C]"><p>{formatVND(cycle.unitPrice)} × {cycle.roomQuantity} {localize("phòng", "rooms")}{grouped ? ` × ${cycles.length}` : ""}</p><p className="mt-1 text-sm font-bold tabular-nums text-[#0F2A43]">{formatVND(groupAmount)}</p></div>
+                            </div>
+                          );
+                        })}
+                        <div className="space-y-2 bg-[#FBFAF6] px-4 py-3 text-sm tabular-nums">
+                          <p className="flex justify-between gap-3"><span className="text-[#66727C]">{localize("Cộng các chu kỳ", "Cycle subtotal")}</span><b>{formatVND(line.cycleSubtotal)}</b></p>
+                          {line.pricingAdjustment !== 0 && <p className="flex justify-between gap-3 text-[#80632F]"><span>{line.pricingAdjustment > 0 ? localize("Bảo lưu mức giá đã cam kết", "Committed-price floor") : localize("Điều chỉnh giảm theo sử dụng thực tế", "Actual-usage reduction")}</span><b>{line.pricingAdjustment > 0 ? "+ " : "− "}{formatVND(Math.abs(line.pricingAdjustment))}</b></p>}
+                          <p className="flex justify-between gap-3 border-t border-[#0F2A43]/10 pt-2 font-bold text-[#0F2A43]"><span>{localize("Tiền phòng của hạng", "Room-type total")}</span><span>{formatVND(line.amount)}</span></p>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-xl border border-[#0F2A43]/10 bg-white p-4 text-sm leading-6 text-[#66727C]">{localize("Đơn tương thích cũ chỉ lưu tổng tiền phòng, không có dữ liệu chu kỳ chi tiết để hiển thị. Tổng đã ghi nhận vẫn được giữ nguyên.", "This legacy-compatible reservation stores only the room total, so cycle-level details are unavailable. The recorded total remains unchanged.")}</p>
+              )}
+
+              <section className="rounded-xl border border-[#0F2A43]/10 bg-white p-4">
+                <h3 className="font-bold text-[#0F2A43]">{localize("Cộng thành tổng nghĩa vụ", "How the total is formed")}</h3>
+                <div className="mt-3 grid gap-2 text-sm tabular-nums sm:grid-cols-2">
+                  <p className="flex justify-between gap-3"><span className="text-[#66727C]">{localize("Tiền phòng thực tế", "Actual room charge")}</span><b>{formatVND(finalPayment.roomCharge)}</b></p>
+                  <p className="flex justify-between gap-3"><span className="text-[#66727C]">{localize("Phụ thu khách thêm", "Extra guest charge")}</span><b>{formatVND(finalPayment.extraGuestCharge || 0)}</b></p>
+                  <p className="flex justify-between gap-3"><span className="text-[#66727C]">{localize("Dịch vụ đã xác nhận", "Confirmed services")}</span><b>{formatVND(finalPayment.addOnServiceAmount || 0)}</b></p>
+                  <p className="flex justify-between gap-3"><span className="text-[#66727C]">{localize("Phụ phí khác", "Other charges")}</span><b>{formatVND(finalPayment.checkoutAdditionalFee || 0)}</b></p>
+                  <p className="flex justify-between gap-3 border-t border-[#0F2A43]/10 pt-3 font-bold text-[#0F2A43] sm:col-span-2"><span>{localize("Tổng phải trả", "Total due")}</span><span className="text-lg">{formatVND(finalPayment.totalAmount)}</span></p>
+                </div>
+              </section>
+              <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-900">{localize("Đây là bản giải thích chỉ đọc. Khi bấm Hoàn tất trả phòng, backend vẫn tính lại trong transaction để tránh sai lệch nếu vừa có thanh toán, dịch vụ hoặc phụ phí mới.", "This is a read-only explanation. Checkout recalculates transactionally to prevent stale totals after new payments, services, or charges.")}</p>
+            </div>
+            <footer className="flex justify-end border-t border-[#0F2A43]/10 px-5 py-4 sm:px-6"><button type="button" onClick={() => setIsChargeBreakdownOpen(false)} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white hover:bg-[#091E30]">{localize("Đã hiểu", "Done")}</button></footer>
           </section>
         </ViewportModal>
       )}
@@ -3665,7 +3910,7 @@ export default function ReservationsManagement() {
         open={Boolean(serviceReservationTarget)}
         onClose={() => setServiceReservationTarget(null)}
         labelledBy="reservation-services-title"
-        panelClassName="max-w-4xl"
+        panelClassName="max-w-5xl"
         testId="reservation-services-modal"
       >
         {serviceReservationTarget && (
@@ -3693,6 +3938,9 @@ export default function ReservationsManagement() {
               reservationCode={serviceReservationTarget.reservationCode}
               reservationStatus={serviceReservationTarget.status}
               guestCount={serviceReservationTarget.guestCount}
+              checkIn={serviceReservationTarget.checkIn}
+              checkOut={serviceReservationTarget.checkOut}
+              actualCheckIn={serviceReservationTarget.actualCheckIn}
               initialServices={serviceReservationTarget.services || []}
               operator
               onChanged={() => loadReservations()}
