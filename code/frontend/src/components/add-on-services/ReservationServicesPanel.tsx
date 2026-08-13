@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
+import BookingAddOnSelector from "@/components/add-on-services/BookingAddOnSelector";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { apiClient, getApiErrorMessage } from "@/lib/api";
 import {
+  type AddOnSelection,
   type AddOnServiceItem,
   type ReservationServiceItem,
+  calculateAddOnLineTotal,
+  chargeableNights,
   getAddOnCatalog,
   pricingUnitLabel,
   serviceStatusLabel,
@@ -19,6 +23,9 @@ interface Props {
   reservationCode?: string;
   reservationStatus: string;
   guestCount?: number;
+  checkIn?: string;
+  checkOut?: string;
+  actualCheckIn?: string;
   initialServices?: ReservationServiceItem[];
   operator?: boolean;
   onChanged?: () => void | Promise<void>;
@@ -36,6 +43,9 @@ export default function ReservationServicesPanel({
   reservationCode,
   reservationStatus,
   guestCount = 1,
+  checkIn,
+  checkOut,
+  actualCheckIn,
   initialServices = [],
   operator = false,
   onChanged,
@@ -43,9 +53,10 @@ export default function ReservationServicesPanel({
   const { localeTag, localize } = useLanguage();
   const [orders, setOrders] = useState<ReservationServiceItem[]>(initialServices);
   const [catalog, setCatalog] = useState<AddOnServiceItem[]>([]);
-  const [selectedServiceId, setSelectedServiceId] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [notes, setNotes] = useState("");
+  const [selections, setSelections] = useState<Record<number, AddOnSelection>>({});
+  const [batchDraftKey, setBatchDraftKey] = useState(
+    () => `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   const [cancelTarget, setCancelTarget] = useState<number | null>(null);
   const [cancellationReason, setCancellationReason] = useState("");
   const [loading, setLoading] = useState(true);
@@ -67,10 +78,12 @@ export default function ReservationServicesPanel({
     setLoading(true);
     setError("");
     try {
-      const [ordersResponse, catalogItems] = await Promise.all([
+      const [ordersResult, catalogResult] = await Promise.allSettled([
         apiClient.get(`/api/reservations/${reservationId}/services`),
         canRequest ? getAddOnCatalog("IN_STAY") : Promise.resolve([]),
       ]);
+      if (ordersResult.status === "rejected") throw ordersResult.reason;
+      const ordersResponse = ordersResult.value;
       const orderPayload = ordersResponse.data?.data ?? ordersResponse.data;
       setOrders(Array.isArray(orderPayload)
         ? orderPayload.map((item) => ({
@@ -82,8 +95,12 @@ export default function ReservationServicesPanel({
             totalPrice: Number(item.totalPrice || 0),
           }))
         : []);
-      setCatalog(catalogItems);
-      setSelectedServiceId((current) => current || String(catalogItems[0]?.id || ""));
+      if (catalogResult.status === "fulfilled") {
+        setCatalog(catalogResult.value);
+      } else {
+        setCatalog([]);
+        setError(getApiErrorMessage(catalogResult.reason, localize("Đã tải lịch sử dịch vụ nhưng chưa thể tải danh mục để thêm mới.", "Service history loaded, but the catalog is temporarily unavailable.")));
+      }
     } catch (loadError: unknown) {
       setError(getApiErrorMessage(loadError, localize("Không thể tải dịch vụ của đơn.", "Could not load reservation services.")));
     } finally {
@@ -95,53 +112,59 @@ export default function ReservationServicesPanel({
     void load();
   }, [load]);
 
-  const selectedService = catalog.find((item) => item.id === Number(selectedServiceId));
-  const selectedQuantityLimit = selectedService?.pricingUnit === "PER_GUEST"
-    ? Math.max(1, guestCount)
-    : 99;
+  const selectedCount = Object.keys(selections).length;
+  const estimatedPackageCycles = chargeableNights(actualCheckIn || checkIn, checkOut);
+  const selectedEstimate = useMemo(() => Object.entries(selections)
+    .reduce((sum, [serviceId, selection]) => {
+      const service = catalog.find((item) => item.id === Number(serviceId));
+      return service
+        ? sum + calculateAddOnLineTotal(
+            service, selection, guestCount, estimatedPackageCycles,
+          )
+        : sum;
+    }, 0), [catalog, estimatedPackageCycles, guestCount, selections]);
   const committedTotal = useMemo(() => orders
     .filter((item) => item.status === "CONFIRMED" || item.status === "FULFILLED")
     .reduce((sum, item) => sum + item.totalPrice, 0), [orders]);
 
-  const requestService = async () => {
-    if (!selectedService) {
-      setError(localize("Vui lòng chọn dịch vụ.", "Select a service."));
+  const requestServices = async () => {
+    const selectedRequests = Object.entries(selections)
+      .map(([serviceId, selection]) => ({
+        serviceId: Number(serviceId),
+        quantity: selection.quantity,
+        notes: selection.notes.trim() || undefined,
+      }))
+      .sort((left, right) => left.serviceId - right.serviceId);
+    if (selectedRequests.length === 0) {
+      setError(localize("Vui lòng chọn ít nhất một dịch vụ.", "Select at least one service."));
       return;
     }
-    const normalizedQuantity = selectedService.pricingUnit === "PER_ORDER" ? 1 : Number(quantity);
-    if (!Number.isInteger(normalizedQuantity)
-        || normalizedQuantity < 1
-        || normalizedQuantity > selectedQuantityLimit) {
-      setError(selectedService.pricingUnit === "PER_GUEST"
-        ? localize(
-            `Số suất phải từ 1 đến tổng số ${selectedQuantityLimit} khách của đơn.`,
-            `Quantity must be between 1 and the reservation's ${selectedQuantityLimit} guests.`,
-          )
-        : localize("Số lượng dịch vụ phải từ 1 đến 99.", "Quantity must be from 1 to 99."));
-      return;
-    }
-    const scope = `reservation-service:${reservationId}:request:${selectedService.id}`;
+    const scope = `reservation-service:${reservationId}:batch:${batchDraftKey}`;
     setBusyKey(scope);
     setError("");
     setSuccess("");
     try {
-      await apiClient.post(`/api/reservations/${reservationId}/services`, {
-        serviceId: selectedService.id,
-        quantity: normalizedQuantity,
-        notes: notes.trim() || undefined,
+      await apiClient.post(`/api/reservations/${reservationId}/services/batch`, {
+        services: selectedRequests,
       }, {
         headers: { "Idempotency-Key": getOrCreateIdempotencyKey(scope) },
       });
       clearIdempotencyKey(scope);
-      setNotes("");
-      setQuantity("1");
+      setSelections({});
+      setBatchDraftKey(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
       setSuccess(operator
-        ? localize("Đã tạo yêu cầu; hãy xác nhận trước khi khoản phí được cộng.", "Request created; confirm it before the charge is added.")
-        : localize("Đã gửi yêu cầu tới lễ tân.", "The request was sent to the front desk."));
+        ? localize(
+            `Đã tạo ${selectedRequests.length} yêu cầu; hãy xác nhận từng dịch vụ trước khi khoản phí được cộng.`,
+            `${selectedRequests.length} requests created; confirm each service before charges are added.`,
+          )
+        : localize(
+            `Đã gửi ${selectedRequests.length} yêu cầu tới lễ tân.`,
+            `${selectedRequests.length} requests were sent to the front desk.`,
+          ));
       await load();
       await onChanged?.();
     } catch (requestError: unknown) {
-      setError(getApiErrorMessage(requestError, localize("Không thể gửi yêu cầu dịch vụ.", "Could not request the service.")));
+      setError(getApiErrorMessage(requestError, localize("Không thể gửi các yêu cầu dịch vụ.", "Could not request the services.")));
     } finally {
       setBusyKey("");
     }
@@ -184,7 +207,7 @@ export default function ReservationServicesPanel({
   };
 
   return (
-    <section className="space-y-4 rounded-xl border border-[#0F2A43]/12 bg-white p-4 sm:p-5">
+    <section className="flex flex-col gap-4 rounded-xl border border-[#0F2A43]/12 bg-white p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#0F2A43]/10 pb-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#80632F]">{localize("Dịch vụ thêm", "Add-on services")}</p>
@@ -196,12 +219,17 @@ export default function ReservationServicesPanel({
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</p>}
       {success && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">{success}</p>}
 
-      {loading ? (
-        <div className="space-y-2" role="status">{[1, 2].map((item) => <div key={item} className="h-20 animate-pulse rounded-lg bg-[#F1F0EA]" />)}</div>
-      ) : orders.length === 0 ? (
-        <p className="rounded-lg bg-[#F1F0EA] p-4 text-sm text-[#66727C]">{localize("Đơn chưa có dịch vụ thêm.", "No add-on services have been requested.")}</p>
-      ) : (
-        <div className="space-y-2">
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm font-bold text-[#0F2A43]">{localize("Dịch vụ của đơn", "Reservation services")}</p>
+          <p className="mt-1 text-xs leading-5 text-[#66727C]">{localize("Theo dõi yêu cầu, phí đã xác nhận và trạng thái phục vụ tại đây.", "Track requests, confirmed charges, and fulfilment here.")}</p>
+        </div>
+        {loading ? (
+          <div className="space-y-2" role="status">{[1, 2].map((item) => <div key={item} className="h-20 animate-pulse rounded-lg bg-[#F1F0EA]" />)}</div>
+        ) : orders.length === 0 ? (
+          <p className="rounded-lg bg-[#F1F0EA] p-4 text-sm text-[#66727C]">{localize("Đơn chưa có dịch vụ thêm.", "No add-on services have been requested.")}</p>
+        ) : (
+          <div className="space-y-2">
           {orders.map((order) => {
             const image = order.imageUrl ? resolveMediaSource(order.imageUrl) : "";
             const cancelling = cancelTarget === order.id;
@@ -236,19 +264,38 @@ export default function ReservationServicesPanel({
               </article>
             );
           })}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       {canRequest && catalog.length > 0 && (
         <div className="space-y-3 rounded-xl border border-[#B8944F]/35 bg-[#F0EADF]/55 p-4">
-          <div><p className="text-sm font-bold text-[#0F2A43]">{operator ? localize("Thêm yêu cầu cho khách", "Add a request for the guest") : localize("Yêu cầu dịch vụ trong kỳ lưu trú", "Request a service during your stay")}</p><p className="mt-1 text-xs leading-5 text-[#66727C]">{localize("Yêu cầu chưa làm tăng công nợ; phí chỉ được cộng khi lễ tân xác nhận.", "A request does not increase the balance until staff confirms it.")}</p></div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Dịch vụ", "Service")}<select value={selectedServiceId} onChange={(event) => { setSelectedServiceId(event.target.value); setQuantity("1"); setError(""); }} className="mt-1 min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3 text-sm font-semibold normal-case text-[#0F2A43] outline-none focus:border-[#B8944F]">{catalog.map((item) => <option key={item.id} value={item.id}>{localize(item.name, item.nameEn)} · {money(item.price)} {pricingUnitLabel(item.pricingUnit, localize)}</option>)}</select></label>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Số lượng", "Quantity")}<input type="number" min={1} max={selectedQuantityLimit} disabled={selectedService?.pricingUnit === "PER_ORDER"} value={selectedService?.pricingUnit === "PER_ORDER" ? 1 : quantity} onChange={(event) => { setQuantity(event.target.value); setError(""); }} className="mt-1 min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3 text-sm font-bold normal-case text-[#0F2A43] outline-none focus:border-[#B8944F] disabled:bg-[#E5E9ED]" /></label>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-[#0F2A43]">{operator ? localize("Chọn dịch vụ cho khách", "Select services for the guest") : localize("Chọn dịch vụ trong kỳ lưu trú", "Select services during your stay")}</p>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-[#66727C]">{localize("Có thể chọn nhiều dịch vụ, điều chỉnh số lượng và ghi chú riêng cho từng mục. Yêu cầu chưa làm tăng công nợ; phí chỉ được cộng khi lễ tân xác nhận.", "Select multiple services, quantities, and notes. Requests do not increase the balance until staff confirms them.")}</p>
+            </div>
+            {selectedCount > 0 && <span className="rounded-full bg-[#0F2A43] px-3 py-1 text-xs font-bold tabular-nums text-white">{localize(`Đã chọn ${selectedCount} · Tạm tính ${money(selectedEstimate)}`, `${selectedCount} selected · Estimate ${money(selectedEstimate)}`)}</span>}
           </div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Ghi chú chuẩn bị", "Preparation note")}<textarea rows={2} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} className="mt-1 w-full resize-none rounded-lg border border-[#0F2A43]/15 bg-white px-3 py-2 text-sm font-medium normal-case text-[#0F2A43] outline-none focus:border-[#B8944F]" /></label>
-          <button type="button" disabled={Boolean(busyKey)} onClick={() => void requestService()} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white hover:bg-[#091E30] disabled:cursor-wait disabled:opacity-50">{busyKey.includes(":request:") && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-r-white" />}{operator ? localize("Tạo yêu cầu", "Create request") : localize("Gửi yêu cầu", "Send request")}</button>
+          <BookingAddOnSelector
+            services={catalog}
+            selections={selections}
+            guestCount={guestCount}
+            nights={estimatedPackageCycles}
+            disabled={Boolean(busyKey)}
+            onChange={(next) => {
+              setSelections(next);
+              setBatchDraftKey(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+              setError("");
+              setSuccess("");
+            }}
+          />
+          <p className="rounded-lg border border-[#B8944F]/25 bg-white/70 px-3 py-2 text-xs leading-5 text-[#66727C]">{localize("Đơn giá hiển thị theo từng dịch vụ. Dịch vụ theo chu kỳ lưu trú sẽ được backend tính và chốt theo thời gian của đơn khi gửi yêu cầu.", "Unit prices are shown per service. Package-cycle services are calculated and snapshotted by the backend for this stay when submitted.")}</p>
+          <button type="button" disabled={Boolean(busyKey) || selectedCount === 0} onClick={() => void requestServices()} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white hover:bg-[#091E30] disabled:cursor-not-allowed disabled:opacity-50">{busyKey.includes(":batch:") && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-r-white" />}{operator ? localize(`Tạo ${selectedCount} yêu cầu`, `Create ${selectedCount} requests`) : localize(`Gửi ${selectedCount} yêu cầu`, `Send ${selectedCount} requests`)}</button>
         </div>
+      )}
+      {canRequest && !loading && catalog.length === 0 && (
+        <p className="rounded-xl border border-[#B8944F]/25 bg-[#F0EADF]/55 p-4 text-sm leading-6 text-[#66727C]">{localize("Hiện chưa có dịch vụ đang hoạt động để thêm vào đơn. Lịch sử dịch vụ bên trên vẫn có thể được theo dõi và xử lý.", "No active services are currently available to add. Existing service history remains available above.")}</p>
       )}
     </section>
   );

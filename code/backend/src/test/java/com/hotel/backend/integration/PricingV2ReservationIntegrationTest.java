@@ -375,6 +375,17 @@ class PricingV2ReservationIntegrationTest {
         assertEquals(1, deluxeExtra.getExtraGuestCount());
         assertEquals(1, deluxeExtra.getPackageCycles());
         assertEquals(50_000L, deluxeExtra.getAmount());
+        assertEquals(2, reconciliation.getRoomChargeLines().size());
+        assertEquals(reconciliation.getActualRoomCharge(),
+                reconciliation.getRoomChargeLines().stream()
+                        .mapToLong(line -> line.getAmount()).sum());
+        reconciliation.getRoomChargeLines().forEach(line -> {
+            assertFalse(line.getCycles().isEmpty());
+            assertEquals(line.getCycleSubtotal(), line.getCycles().stream()
+                    .mapToLong(cycle -> cycle.getAmount()).sum());
+            assertEquals(line.getAmount(),
+                    line.getCycleSubtotal() + line.getPricingAdjustment());
+        });
 
         List<ReservationRoomType> persistedLines =
                 reservationRoomTypeRepository.findDetailsByReservationId(

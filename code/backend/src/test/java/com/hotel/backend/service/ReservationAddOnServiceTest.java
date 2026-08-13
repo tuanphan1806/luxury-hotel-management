@@ -199,7 +199,7 @@ class ReservationAddOnServiceTest {
         AddOnService projector = catalog(
                 4L, "MINI_PROJECTOR", AddOnPricingUnit.PER_ITEM, "100000.00");
         when(reservationRepository.findByIdForUpdate(41L)).thenReturn(Optional.of(reservation));
-        when(catalogRepository.findById(4L)).thenReturn(Optional.of(projector));
+        when(catalogRepository.findByIdForUpdate(4L)).thenReturn(Optional.of(projector));
         when(orderRepository.save(any(ReservationServiceOrder.class)))
                 .thenAnswer(invocation -> {
                     ReservationServiceOrder order = invocation.getArgument(0);
@@ -219,6 +219,70 @@ class ReservationAddOnServiceTest {
     }
 
     @Test
+    void batchRequestCreatesMultipleIndependentLinesWithoutIncreasingDebt() {
+        AddOnService breakfast = catalog(
+                1L, "IN_ROOM_BREAKFAST", AddOnPricingUnit.PER_GUEST, "50000.00");
+        AddOnService projector = catalog(
+                4L, "MINI_PROJECTOR", AddOnPricingUnit.PER_ITEM, "100000.00");
+        when(reservationRepository.findByIdForUpdate(41L))
+                .thenReturn(Optional.of(reservation));
+        when(catalogRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(breakfast));
+        when(catalogRepository.findByIdForUpdate(4L)).thenReturn(Optional.of(projector));
+        when(orderRepository.save(any(ReservationServiceOrder.class)))
+                .thenAnswer(invocation -> {
+                    ReservationServiceOrder order = invocation.getArgument(0);
+                    order.setId(order.getService().getId() + 100L);
+                    return order;
+                });
+
+        var response = service.requestInStayBatch(
+                41L,
+                List.of(
+                        ServiceOrderRequest.builder()
+                                .serviceId(4L)
+                                .quantity(2)
+                                .notes("Chuẩn bị trước 20 phút")
+                                .build(),
+                        ServiceOrderRequest.builder()
+                                .serviceId(1L)
+                                .quantity(2)
+                                .notes("Không đường")
+                                .build()),
+                staff,
+                null);
+
+        assertThat(response.getServices()).hasSize(2);
+        assertThat(response.getServices())
+                .allMatch(item -> item.getStatus() == ReservationServiceStatus.REQUESTED);
+        assertThat(response.getServices())
+                .extracting(item -> item.getServiceId())
+                .containsExactly(1L, 4L);
+        assertThat(response.getServices())
+                .extracting(item -> item.getNotes())
+                .containsExactly("Không đường", "Chuẩn bị trước 20 phút");
+        assertThat(reservation.getTotalAmount()).isEqualByComparingTo("1000000.00");
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void batchRequestRejectsDuplicateCatalogItemsBeforeWritingAnything() {
+        when(reservationRepository.findByIdForUpdate(41L))
+                .thenReturn(Optional.of(reservation));
+
+        assertThatThrownBy(() -> service.requestInStayBatch(
+                41L,
+                List.of(
+                        ServiceOrderRequest.builder().serviceId(4L).quantity(1).build(),
+                        ServiceOrderRequest.builder().serviceId(4L).quantity(2).build()),
+                staff,
+                null))
+                .isInstanceOf(AppException.class)
+                .hasMessageContaining("trùng");
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
     void inStayPackageCycleUsesPricingV2AuthoritativeCycleCount() {
         reservation.setPricingVersion(PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
         AddOnService rollaway = catalog(
@@ -228,7 +292,7 @@ class ReservationAddOnServiceTest {
                 "200000.00");
         when(reservationRepository.findByIdForUpdate(41L))
                 .thenReturn(Optional.of(reservation));
-        when(catalogRepository.findById(3L)).thenReturn(Optional.of(rollaway));
+        when(catalogRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(rollaway));
         when(pricingV2LifecycleService.supports(reservation)).thenReturn(true);
         when(pricingV2LifecycleService.packageCycles(
                 reservation, reservation.getCheckOut())).thenReturn(1);

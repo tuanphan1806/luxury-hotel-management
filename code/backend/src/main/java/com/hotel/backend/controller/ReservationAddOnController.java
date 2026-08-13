@@ -1,8 +1,10 @@
 package com.hotel.backend.controller;
 
 import com.hotel.backend.dto.request.ReservationServiceStatusRequest;
+import com.hotel.backend.dto.request.BatchServiceOrderRequest;
 import com.hotel.backend.dto.request.ServiceOrderRequest;
 import com.hotel.backend.dto.response.ApiResponse;
+import com.hotel.backend.dto.response.BatchReservationServiceResponse;
 import com.hotel.backend.dto.response.ReservationServiceResponse;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.service.IdempotencyService;
@@ -66,6 +68,28 @@ public class ReservationAddOnController {
                         .findFirst()
                         .orElseThrow());
         return ApiResponse.success("Đã gửi yêu cầu dịch vụ", response);
+    }
+
+    @PostMapping("/batch")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<List<ReservationServiceResponse>> requestBatch(
+            @PathVariable Long reservationId,
+            @AuthenticationPrincipal User currentUser,
+            @RequestHeader(value = "X-Guest-Token", required = false) String guestToken,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody BatchServiceOrderRequest request) {
+        String actorScope = idempotencyService.actorScope(currentUser, guestToken);
+        BatchReservationServiceResponse response = idempotencyService.executeSnapshot(
+                idempotencyKey,
+                "RESERVATION_SERVICE_BATCH_REQUEST",
+                actorScope,
+                request,
+                "RESERVATION_SERVICE_BATCH",
+                String.valueOf(reservationId),
+                () -> service.requestInStayBatch(
+                        reservationId, request.getServices(), currentUser, guestToken),
+                BatchReservationServiceResponse.class);
+        return ApiResponse.success("Đã gửi các yêu cầu dịch vụ", response.getServices());
     }
 
     @PatchMapping("/{orderId}/status")

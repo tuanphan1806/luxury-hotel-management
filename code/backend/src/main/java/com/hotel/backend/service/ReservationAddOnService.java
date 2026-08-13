@@ -9,6 +9,7 @@ import com.hotel.backend.constant.UserType;
 import com.hotel.backend.dto.request.ReservationServiceStatusRequest;
 import com.hotel.backend.dto.request.ServiceOrderRequest;
 import com.hotel.backend.dto.response.ReservationResponse;
+import com.hotel.backend.dto.response.BatchReservationServiceResponse;
 import com.hotel.backend.dto.response.ReservationServiceResponse;
 import com.hotel.backend.entity.AddOnService;
 import com.hotel.backend.entity.Reservation;
@@ -202,7 +203,7 @@ public class ReservationAddOnService {
                 effectiveInStayStart(reservation),
                 reservation.getCheckOut(),
                 ReservationServiceOrigin.IN_STAY,
-                false,
+                true,
                 packageCycles);
         PricedService line = quote.lines().get(0);
         Instant now = Instant.now();
@@ -216,6 +217,47 @@ public class ReservationAddOnService {
         auditOrder(saved, ReservationAuditAction.RESERVATION_SERVICE_ADDED,
                 "Gửi yêu cầu dịch vụ trong kỳ lưu trú");
         return ReservationServiceResponse.from(saved);
+    }
+
+    @Transactional
+    public BatchReservationServiceResponse requestInStayBatch(
+            Long reservationId,
+            List<ServiceOrderRequest> requests,
+            User currentUser,
+            String guestToken) {
+        Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
+        accessPolicy.ensureCanAccessReservation(currentUser, reservation, guestToken);
+        validateCanRequestInStay(reservation, currentUser);
+        Integer packageCycles = pricingV2LifecycleService.supports(reservation)
+                ? pricingV2LifecycleService.packageCycles(
+                        reservation, reservation.getCheckOut())
+                : null;
+        BookingQuote quote = quote(
+                requests,
+                requireGuestCount(reservation),
+                effectiveInStayStart(reservation),
+                reservation.getCheckOut(),
+                ReservationServiceOrigin.IN_STAY,
+                true,
+                packageCycles);
+        Instant now = Instant.now();
+        List<ReservationServiceResponse> responses = new ArrayList<>();
+        for (PricedService line : quote.lines()) {
+            ReservationServiceOrder saved = orderRepository.save(toEntity(
+                    reservation,
+                    line,
+                    ReservationServiceOrigin.IN_STAY,
+                    ReservationServiceStatus.REQUESTED,
+                    currentUser,
+                    now));
+            responses.add(ReservationServiceResponse.from(saved));
+            auditOrder(saved, ReservationAuditAction.RESERVATION_SERVICE_ADDED,
+                    "Gửi yêu cầu dịch vụ trong kỳ lưu trú");
+        }
+        return BatchReservationServiceResponse.builder()
+                .services(List.copyOf(responses))
+                .build();
     }
 
     @Transactional
@@ -430,7 +472,9 @@ public class ReservationAddOnService {
         }
         Set<Long> uniqueIds = new HashSet<>();
         for (ServiceOrderRequest request : requests) {
-            if (request == null || request.getServiceId() == null) {
+            if (request == null
+                    || request.getServiceId() == null
+                    || !uniqueIds.add(request.getServiceId())) {
                 throw new AppException(
                         ErrorCode.INVALID_REQUEST,
                         "Danh sách dịch vụ có mục trùng hoặc thiếu mã");
@@ -445,11 +489,6 @@ public class ReservationAddOnService {
                 ? packageCyclesOverride
                 : chargeableNights(checkIn, checkOut);
         for (ServiceOrderRequest request : sorted) {
-            if (request == null || request.getServiceId() == null
-                    || !uniqueIds.add(request.getServiceId())) {
-                throw new AppException(
-                        ErrorCode.INVALID_REQUEST, "Danh sách dịch vụ có mục trùng hoặc thiếu mã");
-            }
             AddOnService service = lockCatalog
                     ? catalogRepository.findByIdForUpdate(request.getServiceId())
                             .orElseThrow(() -> serviceNotFound())
