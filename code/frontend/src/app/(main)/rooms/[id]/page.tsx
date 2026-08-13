@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, use } from "react";
+import React, { useEffect, useRef, useState, use } from "react";
 import axios from "axios";
 import Image from "next/image";
 import Link from "next/link";
@@ -110,6 +110,11 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
   const selectedGalleryImage = selectedImage === null ? undefined : galleryImages[selectedImage];
 
   const [recommendations, setRecommendations] = useState<RoomRecommendation[]>([]);
+  const recommendationTrackRef = useRef<HTMLDivElement>(null);
+  const [recommendationScrollState, setRecommendationScrollState] = useState({
+    canScrollPrevious: false,
+    canScrollNext: false,
+  });
 
   // Booking widget states
   const [checkIn, setCheckIn] = useState("");
@@ -228,6 +233,44 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
     });
   };
 
+  const scrollRecommendations = (direction: "previous" | "next") => {
+    const track = recommendationTrackRef.current;
+    if (!track) return;
+    track.scrollBy({
+      left: (direction === "next" ? 1 : -1) * Math.max(track.clientWidth * 0.82, 280),
+      behavior: "smooth",
+    });
+  };
+
+  useEffect(() => {
+    const track = recommendationTrackRef.current;
+    if (!track) return;
+
+    const syncScrollState = () => {
+      const maxScrollLeft = Math.max(0, track.scrollWidth - track.clientWidth);
+      setRecommendationScrollState({
+        canScrollPrevious: track.scrollLeft > 4,
+        canScrollNext: track.scrollLeft < maxScrollLeft - 4,
+      });
+    };
+
+    track.scrollLeft = 0;
+    const animationFrame = window.requestAnimationFrame(syncScrollState);
+    track.addEventListener("scroll", syncScrollState, { passive: true });
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(syncScrollState);
+    resizeObserver?.observe(track);
+    if (!resizeObserver) window.addEventListener("resize", syncScrollState);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      track.removeEventListener("scroll", syncScrollState);
+      resizeObserver?.disconnect();
+      if (!resizeObserver) window.removeEventListener("resize", syncScrollState);
+    };
+  }, [recommendations.length, roomId]);
+
   useEffect(() => {
 
     // Dùng catalog dùng chung để không gọi lại RoomType cho phần chi tiết và gợi ý.
@@ -298,7 +341,6 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
           });
           const recs: RoomRecommendation[] = roomTypes
             .filter((roomType) => String(roomType.id) !== String(roomId))
-            .slice(0, 2)
             .map((roomType) => ({
               id: String(roomType.id),
               title: localize(roomType.typeName, roomType.typeNameEn),
@@ -341,6 +383,8 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
 
   const favoriteRoomId = Number(room.id || roomId);
   const favorite = isFavorite(favoriteRoomId);
+  const includedGuests = Math.max(1, Number(room.includedGuests || room.maxGuests || 1));
+  const maxGuests = Math.max(includedGuests, Number(room.maxGuests || includedGuests));
   const requestedGuestCount = Math.max(0, Number(adults || 0) + Number(childrenCount || 0));
   const selectedRoomCapacity = Math.max(0, Number(quantity || 0))
     * normalizeGuestCapacity(room.maxGuests);
@@ -357,8 +401,8 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
         eyebrow={localize("Phòng & hạng phòng", "Rooms & suites")}
         title={room.typeName}
         description={rating?.totalReviews
-          ? localize(`${Number(rating.averageRating || 0).toFixed(1)} / 5 từ ${rating.totalReviews} lượt đánh giá · Tối đa ${room.maxGuests} khách / phòng`, `${Number(rating.averageRating || 0).toFixed(1)} / 5 from ${rating.totalReviews} reviews · Up to ${room.maxGuests} guests per room`)
-          : localize(`Tối đa ${room.maxGuests} khách / phòng`, `Up to ${room.maxGuests} guests per room`)}
+          ? localize(`${Number(rating.averageRating || 0).toFixed(1)} / 5 · Phù hợp ${includedGuests} khách / phòng`, `${Number(rating.averageRating || 0).toFixed(1)} / 5 · Suitable for ${includedGuests} guests per room`)
+          : localize(`Phù hợp ${includedGuests} khách / phòng`, `Suitable for ${includedGuests} guests per room`)}
         actions={(
           <button
             type="button"
@@ -395,7 +439,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
               </div>
               <div className="flex items-center gap-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EAE2D2] text-[#80632F]"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg></span>
-                <span>{localize(`Tối đa ${room.maxGuests} khách / phòng`, `Up to ${room.maxGuests} guests / room`)}</span>
+                <span>{localize(`Phù hợp ${includedGuests} khách / phòng`, `Suitable for ${includedGuests} guests / room`)}</span>
               </div>
             </div>
 
@@ -407,6 +451,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
               <p className="text-text-light leading-relaxed text-sm md:text-base font-light">
                 {room.description}
               </p>
+              <RoomRatePanel rate={room} className="mt-6" />
             </div>
 
             {/* Room-specific editorial gallery */}
@@ -543,15 +588,14 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
                 <dd className="mt-1 font-bold text-[#0F2A43]">{room.typeName}</dd>
               </div>
               <div className="rounded-xl bg-[#F1F0EA] p-3">
-                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#66727C]">{localize("Sức chứa", "Capacity")}</dt>
-                <dd className="mt-1 font-bold text-[#0F2A43]">{localize(`${room.maxGuests} khách / phòng`, `${room.maxGuests} guests / room`)}</dd>
+                <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#66727C]">{localize("Số khách", "Guests")}</dt>
+                <dd className="mt-1 font-bold text-[#0F2A43]">{localize(`Phù hợp ${includedGuests} · tối đa ${maxGuests}`, `Suitable for ${includedGuests} · max ${maxGuests}`)}</dd>
               </div>
             </dl>
-            <RoomRatePanel rate={room} />
             <form onSubmit={handleBookingCheck} className="space-y-4">
               <DateTimeField label={`${localize("Thời gian nhận phòng", "Check-in time")} *`} value={checkIn} onValueChange={setCheckIn} />
               <DateTimeField label={`${localize("Thời gian trả phòng", "Check-out time")} *`} value={checkOut} min={checkIn || undefined} onValueChange={setCheckOut} />
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label><span className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Người lớn", "Adults")}</span><input type="number" min="1" value={adults} onChange={(event) => setAdults(event.target.value)} className="w-full rounded-xl border border-[#0F2A43]/15 px-3 py-3 text-sm" /></label>
                 <label><span className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Trẻ em", "Children")}</span><input type="number" min="0" value={childrenCount} onChange={(event) => setChildrenCount(event.target.value)} className="w-full rounded-xl border border-[#0F2A43]/15 px-3 py-3 text-sm" /></label>
                 <label><span className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Số phòng", "Rooms")}</span><input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="w-full rounded-xl border border-[#0F2A43]/15 px-3 py-3 text-sm" /></label>
@@ -571,7 +615,7 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
       {/* Bottom Recommendation Slider */}
       <section className="deferred-section bg-[#E5E9ED]/40 border-t border-gray-100 py-20">
         <div className="max-w-6xl mx-auto px-6">
-          <div className="flex items-center justify-between mb-12">
+          <div className="mb-10 flex flex-col gap-4 sm:mb-12 sm:flex-row sm:items-end sm:justify-between">
             <h2 className="font-serif text-3xl md:text-4xl font-bold text-primary-navy">
               {localize("Thêm lựa chọn phòng", "More room choices")}
             </h2>
@@ -580,21 +624,56 @@ export default function RoomDetailPage({ params }: { params: Promise<{ id: strin
             </Link>
           </div>
 
-          <div className="motion-stagger grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="relative">
+            {recommendations.length > 1 && (recommendationScrollState.canScrollPrevious || recommendationScrollState.canScrollNext) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => scrollRecommendations("previous")}
+                  disabled={!recommendationScrollState.canScrollPrevious}
+                  aria-label={localize("Xem hạng phòng trước", "View previous room type")}
+                  className="absolute -left-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-[#0F2A43]/12 bg-[#FBFAF6]/95 text-2xl text-[#0F2A43] shadow-[0_10px_26px_rgba(15,42,67,0.16)] backdrop-blur transition duration-200 hover:scale-105 hover:border-[#B8944F] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:pointer-events-none disabled:scale-95 disabled:opacity-0 sm:-left-5"
+                >
+                  <span aria-hidden="true">‹</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollRecommendations("next")}
+                  disabled={!recommendationScrollState.canScrollNext}
+                  aria-label={localize("Xem hạng phòng tiếp theo", "View next room type")}
+                  className="absolute -right-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-[#0F2A43]/12 bg-[#FBFAF6]/95 text-2xl text-[#0F2A43] shadow-[0_10px_26px_rgba(15,42,67,0.16)] backdrop-blur transition duration-200 hover:scale-105 hover:border-[#B8944F] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:pointer-events-none disabled:scale-95 disabled:opacity-0 sm:-right-5"
+                >
+                  <span aria-hidden="true">›</span>
+                </button>
+              </>
+            )}
+
+          <div
+            ref={recommendationTrackRef}
+            role="region"
+            tabIndex={0}
+            aria-label={localize("Các hạng phòng khác", "Other room types")}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") scrollRecommendations("previous");
+              if (event.key === "ArrowRight") scrollRecommendations("next");
+            }}
+            className="motion-stagger flex snap-x snap-mandatory gap-5 overflow-x-auto overscroll-x-contain scroll-smooth px-1 pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
             {recommendations.map((rec) => (
-              <article key={rec.id} className="bg-white p-6 rounded-sm shadow-sm">
+              <article key={rec.id} className="w-[86%] shrink-0 snap-start rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg sm:w-[calc(50%_-_0.625rem)] lg:w-[calc(33.333%_-_0.85rem)]">
                 {rec.image ? (
-                  <div className="relative mb-4 h-[200px] w-full overflow-hidden bg-[#E5E9ED]">
-                    <ProgressiveImage src={rec.image} alt={rec.title} fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
+                  <div className="relative mb-4 aspect-[4/3] w-full overflow-hidden rounded-lg bg-[#E5E9ED]">
+                    <ProgressiveImage src={rec.image} alt={rec.title} fill sizes="(min-width: 1024px) 22rem, (min-width: 640px) 46vw, 86vw" className="object-cover transition duration-500 hover:scale-[1.03]" />
                   </div>
                 ) : (
-                  <div className="mb-4 flex h-[200px] w-full items-center justify-center bg-[#E5E9ED] text-sm font-semibold text-[#66727C]">{localize("Chưa có ảnh", "No image")}</div>
+                  <div className="mb-4 flex aspect-[4/3] w-full items-center justify-center rounded-lg bg-[#E5E9ED] text-sm font-semibold text-[#66727C]">{localize("Chưa có ảnh", "No image")}</div>
                 )}
                 <h3 className="font-serif text-2xl font-bold">{rec.title}</h3>
-                <p className="text-sm text-text-light py-2">{rec.desc}</p>
-                <Link href={`/rooms/${rec.id}`} className="text-accent-gold font-bold uppercase text-xs">{localize("Xem chi tiết", "View details")} &rarr;</Link>
+                <p className="line-clamp-2 py-2 text-sm leading-6 text-text-light">{rec.desc}</p>
+                <Link href={`/rooms/${rec.id}`} className="inline-flex min-h-11 cursor-pointer items-center text-xs font-bold uppercase tracking-wider text-accent-gold transition hover:text-[#735630]">{localize("Xem chi tiết", "View details")} &rarr;</Link>
               </article>
             ))}
+          </div>
           </div>
         </div>
       </section>

@@ -156,6 +156,34 @@ class RoomTypeServiceImplTest {
     }
 
     @Test
+    void updateRejectsCapacityReductionThatWouldBreakActiveReservations() {
+        RoomType roomType = roomType(11L, "STANDARD");
+        roomType.setMaxGuests(3);
+        RoomTypeRequest request = rateRequest();
+        request.setMaxGuests(2);
+        request.setIncludedGuests(2);
+        when(roomTypeRepository.findByIdForUpdate(11L))
+                .thenReturn(java.util.Optional.of(roomType));
+        when(roomRateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(11L)), any(Instant.class)))
+                .thenReturn(List.of(rate(
+                        roomType, "70000", "20000", "170000", "300000")));
+        when(reservationRoomTypeRepository
+                .findActiveReservationCodesExceedingCapacity(11L, 2))
+                .thenReturn(List.of("RES-ACTIVE-001", "RES-ACTIVE-002"));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> service.update(11L, request));
+
+        assertTrue(exception.getMessage().contains("RES-ACTIVE-001"));
+        assertTrue(exception.getMessage().contains("RES-ACTIVE-002"));
+        verify(roomRateProfileManagementService, never())
+                .applyImmediate(any(RoomType.class), any(RoomTypeRequest.class));
+        verify(roomTypeRepository, never()).saveAndFlush(any(RoomType.class));
+    }
+
+    @Test
     void priceRangeUsesThePublishedOvernightRateWhenPricingV2IsEnabled() {
         RoomType standard = roomType(11L, "STANDARD");
         RoomType deluxe = roomType(12L, "DELUXE");

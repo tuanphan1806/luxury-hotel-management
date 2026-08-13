@@ -32,6 +32,83 @@ describe("guest capacity helpers", () => {
     ], 5)).toEqual({ 1: 4, 2: 1 });
   });
 
+  it("uses every included guest slot before suggesting a paid overflow slot", () => {
+    expect(allocateGuestsToRoomTypes([
+      {
+        roomTypeId: 1,
+        quantity: 1,
+        includedGuestsPerRoom: 2,
+        maxGuestsPerRoom: 3,
+      },
+      {
+        roomTypeId: 2,
+        quantity: 1,
+        includedGuestsPerRoom: 3,
+        maxGuestsPerRoom: 4,
+      },
+    ], 4)).toEqual({ 1: 2, 2: 2 });
+  });
+
+  it("uses overflow capacity only after all included capacity is exhausted", () => {
+    expect(allocateGuestsToRoomTypes([
+      {
+        roomTypeId: 1,
+        quantity: 1,
+        includedGuestsPerRoom: 2,
+        maxGuestsPerRoom: 3,
+      },
+      {
+        roomTypeId: 2,
+        quantity: 1,
+        includedGuestsPerRoom: 3,
+        maxGuestsPerRoom: 4,
+      },
+    ], 6)).toEqual({ 1: 3, 2: 3 });
+  });
+
+  it("uses the least expensive overflow slot when surcharges differ", () => {
+    expect(allocateGuestsToRoomTypes([
+      {
+        roomTypeId: 1,
+        quantity: 1,
+        includedGuestsPerRoom: 2,
+        maxGuestsPerRoom: 3,
+        extraGuestPrice: 80000,
+      },
+      {
+        roomTypeId: 2,
+        quantity: 1,
+        includedGuestsPerRoom: 2,
+        maxGuestsPerRoom: 3,
+        extraGuestPrice: 50000,
+      },
+    ], 5)).toEqual({ 1: 2, 2: 3 });
+  });
+
+  it("keeps every selected room type while optimizing only the guest distribution", () => {
+    const rooms = [
+      {
+        roomTypeId: 1,
+        quantity: 2,
+        includedGuestsPerRoom: 2,
+        maxGuestsPerRoom: 3,
+        extraGuestPrice: 80000,
+      },
+      {
+        roomTypeId: 2,
+        quantity: 1,
+        includedGuestsPerRoom: 2,
+        maxGuestsPerRoom: 4,
+        extraGuestPrice: 50000,
+      },
+    ];
+
+    const allocation = allocateGuestsToRoomTypes(rooms, 8);
+
+    expect(Object.keys(allocation).map(Number).sort()).toEqual([1, 2]);
+    expect(allocation).toEqual({ 1: 4, 2: 4 });
+  });
+
   it("rejects allocations that would leave a selected room without a guest", () => {
     expect(allocateGuestsToRoomTypes([
       { roomTypeId: 1, quantity: 2, maxGuestsPerRoom: 2 },

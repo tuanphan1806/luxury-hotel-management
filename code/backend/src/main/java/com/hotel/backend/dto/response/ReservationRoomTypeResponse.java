@@ -17,7 +17,9 @@ public class ReservationRoomTypeResponse {
     private String roomTypeName;
     private String roomTypeNameEn;
     private Integer quantity;
+    private Integer includedGuestsPerRoom;
     private Integer maxGuestsPerRoom;
+    private BigDecimal extraGuestPricePerCycle;
     private BigDecimal roomPrice;
     private BigDecimal subtotal;
     private BigDecimal plannedRoomCharge;

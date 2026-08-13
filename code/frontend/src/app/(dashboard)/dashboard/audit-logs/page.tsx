@@ -46,6 +46,9 @@ interface PageResult<T> {
 const ACTION_LABELS: Record<string, string> = {
   CONFIRM: "Xác nhận đặt phòng",
   CHECK_IN: "Làm thủ tục nhận phòng",
+  GUEST_ADDED_DURING_STAY: "Thêm khách trong kỳ lưu trú",
+  GUEST_MOVED_DURING_STAY: "Chuyển khách giữa các phòng",
+  GUEST_PROFILE_UPDATED: "Cập nhật hồ sơ khách lưu trú",
   CHECK_OUT: "Hoàn tất trả phòng",
   CANCEL: "Hủy đặt phòng",
   MARK_NO_SHOW: "Ghi nhận khách không đến",

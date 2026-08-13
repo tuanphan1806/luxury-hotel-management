@@ -24,6 +24,8 @@ public interface ReservationRateSnapshotRepository
         SELECT snapshot
         FROM ReservationRateSnapshot snapshot
         JOIN FETCH snapshot.reservationRoomType reservationLine
+        JOIN FETCH snapshot.stayPolicyVersion
+        JOIN FETCH snapshot.rateProfile
         WHERE reservationLine.reservation.id = :reservationId
         ORDER BY reservationLine.id, snapshot.snapshotSequence
     """)

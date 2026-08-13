@@ -26,6 +26,7 @@ public class CheckoutReconciliationResponse {
     private Long plannedRoomCharge;
     private Long actualRoomCharge;
     private Long extraGuestCharge;
+    private List<CheckoutExtraGuestChargeLineResponse> extraGuestLines;
     private Long postCommitmentRoomIncrease;
     private Long lateCheckoutFee;
     private Long earlyCheckoutAdjustment;

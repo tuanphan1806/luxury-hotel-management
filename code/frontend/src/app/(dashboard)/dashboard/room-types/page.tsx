@@ -77,8 +77,8 @@ const emptyRoomTypeForm = (): RoomTypeFormData => ({
   id: 0,
   typeName: "",
   typeNameEn: "",
-  maxGuests: "2",
-  includedGuests: "1",
+  maxGuests: "3",
+  includedGuests: "2",
   firstBlockPrice: "",
   extraUnitPrice: "",
   overnightPrice: "",
@@ -421,7 +421,7 @@ export default function RoomTypesManagement() {
       { key: "extraUnitPrice", labelVi: "Mỗi giờ thêm *", labelEn: "Each extra hour *", hintVi: "Tính sau 2 giờ đầu", hintEn: "Applied after the first 2 hours" },
       { key: "overnightPrice", labelVi: "Giá qua đêm *", labelEn: "Overnight rate *", hintVi: "Mức giá công bố trên thẻ phòng", hintEn: "Published on room cards" },
       { key: "dailyPrice", labelVi: "Giá ngày đêm *", labelEn: "24-hour rate *", hintVi: "Một chu kỳ lưu trú 24 giờ", hintEn: "One 24-hour stay cycle" },
-      { key: "extraGuestPrice", labelVi: "Phụ thu khách thêm *", labelEn: "Extra guest surcharge *", hintVi: "Theo khách và chu kỳ gói", hintEn: "Per guest and package cycle", allowZero: true },
+      { key: "extraGuestPrice", labelVi: "Phụ thu khách thêm *", labelEn: "Extra guest surcharge *", hintVi: "Bắt buộc lớn hơn 0 khi sức chứa tối đa cao hơn số khách phù hợp", hintEn: "Must be greater than zero when maximum occupancy exceeds suitable occupancy", allowZero: Number(formData.maxGuests) <= Number(formData.includedGuests) },
     ];
 
     return (
@@ -442,7 +442,7 @@ export default function RoomTypesManagement() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label htmlFor="room-type-included-guests" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-[#66727C]">
-              {localize("Số khách đã gồm trong giá *", "Guests included in rate *")}
+              {localize("Số khách phù hợp, đã gồm trong giá *", "Suitable guests included in rate *")}
             </label>
             <input
               id="room-type-included-guests"
@@ -454,7 +454,7 @@ export default function RoomTypesManagement() {
               onChange={(event) => setFormData((current) => ({ ...current, includedGuests: event.target.value }))}
               className="min-h-11 w-full rounded-lg border border-[#0F2A43]/15 bg-white px-3.5 text-sm font-semibold outline-none focus:border-[#B8944F] focus:ring-2 focus:ring-[#B8944F]/25"
             />
-            <p className="mt-1 text-[11px] text-[#66727C]">{localize("Không vượt sức chứa loại phòng", "Cannot exceed room capacity")}</p>
+            <p className="mt-1 text-[11px] text-[#66727C]">{localize("Đây là số khách public hiển thị; khách vượt mức này sẽ phụ thu đến giới hạn tối đa.", "This is the public suitable occupancy; extra guests are charged up to the maximum.")}</p>
           </div>
 
           {fields.map((field) => (
@@ -600,6 +600,7 @@ export default function RoomTypesManagement() {
                   </span>
 
                   {type.pricingAvailable ? (
+                    <div className="space-y-2">
                     <dl className="grid grid-cols-3 gap-2 rounded-xl border border-[#0F2A43]/10 bg-[#F8F6F0] p-3 text-center">
                       <div>
                         <dt className="text-[9px] font-bold uppercase tracking-wider text-[#66727C]">{localize("2 giờ đầu", "First 2h")}</dt>
@@ -614,6 +615,13 @@ export default function RoomTypesManagement() {
                         <dd className="mt-1 text-xs font-extrabold tabular-nums text-[#0F2A43]">{Number(type.dailyPrice || 0).toLocaleString(localeTag)} đ</dd>
                       </div>
                     </dl>
+                    <p className="rounded-lg bg-[#E8EFEA] px-3 py-2 text-[11px] font-semibold leading-5 text-[#315746]">
+                      {localize(
+                        `Phù hợp ${type.includedGuests ?? type.maxGuests} khách · tối đa ${type.maxGuests} khách/phòng${type.maxGuests > Number(type.includedGuests ?? type.maxGuests) ? ` · phụ thu ${Number(type.extraGuestPrice || 0).toLocaleString(localeTag)} đ/khách/mỗi chu kỳ lưu trú` : ""}`,
+                        `Suitable for ${type.includedGuests ?? type.maxGuests} guests · max ${type.maxGuests} per room${type.maxGuests > Number(type.includedGuests ?? type.maxGuests) ? ` · ${Number(type.extraGuestPrice || 0).toLocaleString(localeTag)} VND/extra guest/cycle` : ""}`,
+                      )}
+                    </p>
+                    </div>
                   ) : (
                     <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
                       {localize("Chưa có bảng giá đang hiệu lực", "No effective rate plan")}
@@ -690,7 +698,7 @@ export default function RoomTypesManagement() {
 
               <div className="max-w-sm">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Sức chứa *", "Capacity *")}</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Sức chứa tối đa *", "Maximum occupancy *")}</label>
                   <input
                     type="number"
                     min="1"
@@ -701,6 +709,7 @@ export default function RoomTypesManagement() {
                     className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
                     aria-label="Sức chứa tối đa mỗi phòng"
                   />
+                  <p className="mt-1 text-[11px] text-[#66727C]">{localize("Giới hạn cứng sau khi tính cả khách phụ thu; cấu hình riêng cho từng loại phòng.", "Hard limit including extra guests; configured per room type.")}</p>
                 </div>
               </div>
 
@@ -821,7 +830,7 @@ export default function RoomTypesManagement() {
 
               <div className="max-w-sm">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Sức chứa *", "Capacity *")}</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-[#66727C] mb-1.5">{localize("Sức chứa tối đa *", "Maximum occupancy *")}</label>
                   <input
                     type="number"
                     min="1"
@@ -832,6 +841,7 @@ export default function RoomTypesManagement() {
                     className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-gold/45 text-sm"
                     aria-label="Sức chứa tối đa mỗi phòng"
                   />
+                  <p className="mt-1 text-[11px] text-[#66727C]">{localize("Giới hạn cứng sau khi tính cả khách phụ thu; cấu hình riêng cho từng loại phòng.", "Hard limit including extra guests; configured per room type.")}</p>
                 </div>
               </div>
 

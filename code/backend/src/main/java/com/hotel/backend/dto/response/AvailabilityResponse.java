@@ -22,7 +22,9 @@ public class AvailabilityResponse {
     private BigDecimal firstBlockPrice;
     private BigDecimal estimatedPricePerRoom;
     private StayPackage estimatedPackage;
+    private int includedGuestsPerRoom;
     private int maxGuestsPerRoom;
+    private BigDecimal extraGuestPrice;
     private String imageUrl;
     private List<String> imageUrls;
     private LocalDateTime checkIn;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import ViewportModal from "@/components/UI/ViewportModal";
+import { TimePickerInput } from "@/components/forms/DateTimeField";
 import { apiClient, getApiErrorMessage } from "@/lib/api";
 import {
   clearIdempotencyKey,
@@ -693,32 +694,32 @@ export default function WorkDailyShiftModals({
                   className={inputClass}
                 />
               </label>
-              <label>
+              <div>
                 <span className={labelClass}>Bắt đầu *</span>
-                <input
-                  type="time"
+                <TimePickerInput
+                  label="Giờ bắt đầu ca"
                   value={form.startTime}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     setForm({
                       ...form,
-                      startTime: event.target.value,
-                      color: workShiftColorForStartTime(event.target.value),
+                      startTime: value,
+                      color: workShiftColorForStartTime(value),
                     })
                   }
                   className={inputClass}
                 />
-              </label>
-              <label>
+              </div>
+              <div>
                 <span className={labelClass}>Kết thúc *</span>
-                <input
-                  type="time"
+                <TimePickerInput
+                  label="Giờ kết thúc ca"
                   value={form.endTime}
-                  onChange={(event) =>
-                    setForm({ ...form, endTime: event.target.value })
+                  onValueChange={(value) =>
+                    setForm({ ...form, endTime: value })
                   }
                   className={inputClass}
                 />
-              </label>
+              </div>
               <label>
                 <span className={labelClass}>Số nhân viên cần *</span>
                 <input

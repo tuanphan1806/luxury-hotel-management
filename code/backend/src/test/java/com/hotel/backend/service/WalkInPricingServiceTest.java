@@ -150,6 +150,70 @@ class WalkInPricingServiceTest {
     }
 
     @Test
+    void allocatesUndetailedOverflowToTheLeastExpensiveSurcharge() {
+        RoomRateProfile standardRate = rate(
+                21L, standard, 1, "70000", "20000", "170000", "300000");
+        standardRate.setExtraGuestPrice(new BigDecimal("80000"));
+        RoomRateProfile deluxeRate = rate(
+                22L, deluxe, 2, "100000", "25000", "220000", "400000");
+        deluxeRate.setExtraGuestPrice(new BigDecimal("50000"));
+        when(rateProfileRepository.findEffectiveByRoomTypeCodeForUpdate(
+                eq("STANDARD"), any(Instant.class)))
+                .thenReturn(List.of(standardRate));
+        when(rateProfileRepository.findEffectiveByRoomTypeCodeForUpdate(
+                eq("DELUXE"), any(Instant.class)))
+                .thenReturn(List.of(deluxeRate));
+
+        WalkInPricingService.Calculation calculation =
+                service.calculateIfEligible(
+                                LocalDateTime.of(2026, 8, 1, 10, 0),
+                                LocalDateTime.of(2026, 8, 1, 12, 0),
+                                4,
+                                List.of(
+                                        new WalkInPricingService.LineInput(
+                                                standard, 1, null, 1),
+                                        new WalkInPricingService.LineInput(
+                                                deluxe, 1, null, 1)))
+                        .orElseThrow();
+
+        assertEquals(1, line(calculation, "STANDARD").lineGuestCount());
+        assertEquals(3, line(calculation, "DELUXE").lineGuestCount());
+        assertMoney("50000", calculation.extraGuestCharge());
+    }
+
+    @Test
+    void preservesExplicitGuestAllocationEvenWhenItsSurchargeIsHigher() {
+        RoomRateProfile standardRate = rate(
+                21L, standard, 1, "70000", "20000", "170000", "300000");
+        standardRate.setExtraGuestPrice(new BigDecimal("80000"));
+        RoomRateProfile deluxeRate = rate(
+                22L, deluxe, 2, "100000", "25000", "220000", "400000");
+        deluxeRate.setExtraGuestPrice(new BigDecimal("50000"));
+        when(rateProfileRepository.findEffectiveByRoomTypeCodeForUpdate(
+                eq("STANDARD"), any(Instant.class)))
+                .thenReturn(List.of(standardRate));
+        when(rateProfileRepository.findEffectiveByRoomTypeCodeForUpdate(
+                eq("DELUXE"), any(Instant.class)))
+                .thenReturn(List.of(deluxeRate));
+
+        WalkInPricingService.Calculation calculation =
+                service.calculateIfEligible(
+                                LocalDateTime.of(2026, 8, 1, 10, 0),
+                                LocalDateTime.of(2026, 8, 1, 12, 0),
+                                4,
+                                List.of(
+                                        new WalkInPricingService.LineInput(
+                                                standard, 1, 2, 1),
+                                        new WalkInPricingService.LineInput(
+                                                deluxe, 1, 2, 1)))
+                        .orElseThrow();
+
+        assertEquals(2, line(calculation, "STANDARD").lineGuestCount());
+        assertEquals(2, line(calculation, "DELUXE").lineGuestCount());
+        assertMoney("80000", calculation.extraGuestCharge());
+    }
+
+    @Test
     void allCanonicalRatesAndMaximumGuestsProduceTheExactWalkInTotal() {
         RoomType executive = roomType(3L, "EXECUTIVE", "Phòng Executive", 3);
         RoomType suite = roomType(4L, "SUITE", "Phòng Suite", 4);

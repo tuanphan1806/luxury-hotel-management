@@ -137,6 +137,24 @@ class RoomRateProfileManagementServiceTest {
         assertThrows(AppException.class, () -> service.validate(invalid));
     }
 
+    @Test
+    void requiresPositiveSurchargeWhenRoomAllowsExtraGuests() {
+        RoomTypeRequest invalid = request();
+        invalid.setExtraGuestPrice(BigDecimal.ZERO);
+
+        assertThrows(AppException.class, () -> service.validate(invalid));
+    }
+
+    @Test
+    void allowsZeroSurchargeWhenMaximumEqualsIncludedOccupancy() {
+        RoomTypeRequest valid = request();
+        valid.setMaxGuests(2);
+        valid.setIncludedGuests(2);
+        valid.setExtraGuestPrice(BigDecimal.ZERO);
+
+        service.validate(valid);
+    }
+
     private RoomTypeRequest request() {
         return RoomTypeRequest.builder()
                 .typeName("Phòng thử")

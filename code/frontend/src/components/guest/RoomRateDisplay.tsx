@@ -6,6 +6,7 @@ export interface PublicRoomRate {
   packagePricingEnabled?: boolean;
   pricingAvailable?: boolean;
   includedGuests?: number;
+  maxGuests?: number;
   firstBlockMinutes?: number;
   firstBlockPrice?: number | null;
   extraUnitMinutes?: number;
@@ -109,6 +110,18 @@ export function RoomRateCompact({ rate, className = "", display = "published" }:
 
 export function RoomRatePanel({ rate, className = "" }: RoomRatePanelProps) {
   const { localize } = useLanguage();
+  const includedGuests = Math.max(1, Number(rate.includedGuests || rate.maxGuests || 1));
+  const maxGuests = Math.max(includedGuests, Number(rate.maxGuests || includedGuests));
+  const extraGuestPrice = publicRateAmount(rate.extraGuestPrice);
+  const guestSurchargeLabel = maxGuests === includedGuests + 1
+    ? localize(
+        `Khách thứ ${maxGuests}: phụ thu ${formatVND(extraGuestPrice)}/người/mỗi chu kỳ lưu trú.`,
+        `Guest ${maxGuests}: ${formatVND(extraGuestPrice)} per extra guest per stay cycle.`,
+      )
+    : localize(
+        `Từ khách thứ ${includedGuests + 1} đến khách thứ ${maxGuests}: phụ thu ${formatVND(extraGuestPrice)}/người/mỗi chu kỳ lưu trú.`,
+        `Guests ${includedGuests + 1} to ${maxGuests}: ${formatVND(extraGuestPrice)} per extra guest per stay cycle.`,
+      );
   const packageRateReady = Boolean(
     publicRateAmount(rate.overnightPrice) != null
       && publicRateAmount(rate.dailyPrice) != null,
@@ -118,10 +131,10 @@ export function RoomRatePanel({ rate, className = "" }: RoomRatePanelProps) {
     return (
       <section className={`rounded-2xl border border-[#0F2A43]/10 bg-[#F7F4EC] p-4 ${className}`}>
         <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#80632F]">
-          {localize("Bảng giá lưu trú", "Stay rates")}
+          {localize("Mức giá của hạng phòng", "Room type rates")}
         </p>
         <p className="mt-2 text-xs font-medium leading-5 text-[#66727C]">
-          {localize("Chọn thời gian nhận và trả phòng để kiểm tra bảng giá đang áp dụng.", "Choose check-in and check-out times to check the applicable rate.")}
+          {localize("Mức giá qua đêm và ngày đêm của hạng phòng này đang được cập nhật.", "The overnight and daily rates for this room type are being updated.")}
         </p>
       </section>
     );
@@ -148,8 +161,8 @@ export function RoomRatePanel({ rate, className = "" }: RoomRatePanelProps) {
     <section className={`overflow-hidden rounded-2xl border border-[#0F2A43]/12 bg-[#FBFAF6] ${className}`}>
       <div className="flex items-start justify-between gap-4 border-b border-[#0F2A43]/10 bg-[#F1F0EA] px-4 py-3.5">
         <div>
-          <p className="text-[9px] font-extrabold uppercase tracking-[0.18em] text-[#80632F]">{localize("Bảng giá lưu trú", "Stay rates")}</p>
-          <h4 className="mt-1 font-serif text-lg font-bold text-[#0F2A43]">{localize("Giá qua đêm và ngày đêm", "Overnight and daily rates")}</h4>
+          <p className="text-[9px] font-extrabold uppercase tracking-[0.18em] text-[#80632F]">{localize("Mức giá của hạng phòng", "Room type rates")}</p>
+          <h4 className="mt-1 font-serif text-lg font-bold text-[#0F2A43]">{localize("Qua đêm và ngày đêm", "Overnight and daily stays")}</h4>
         </div>
         <span className="shrink-0 rounded-full border border-[#B8944F]/35 bg-white px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#80632F]">
           {localize("Giá niêm yết", "Published")}
@@ -172,10 +185,23 @@ export function RoomRatePanel({ rate, className = "" }: RoomRatePanelProps) {
       </div>
 
       <div className="border-t border-[#0F2A43]/10 bg-[#E8EFEA] px-4 py-3 text-xs font-semibold leading-5 text-[#315746]">
-        {localize(
-          `Khách thêm: ${formatVND(rate.extraGuestPrice)}/người/chu kỳ. Giá chính xác được tính sau khi chọn thời gian, số phòng và phân bổ khách.`,
-          `Extra guest: ${formatVND(rate.extraGuestPrice)}/person/rate cycle. The exact price is calculated after dates, rooms and guests are selected.`,
+        <p>
+          {localize(
+            `Mức giá trên đã gồm ${includedGuests} khách/phòng. Sức chứa tối đa ${maxGuests} khách/phòng.`,
+            `Published rates include ${includedGuests} guests per room. Maximum occupancy is ${maxGuests} guests per room.`,
+          )}
+        </p>
+        {maxGuests > includedGuests && extraGuestPrice != null && (
+          <p className="mt-1 text-[#80632F]">
+            {guestSurchargeLabel}
+          </p>
         )}
+        <p className="mt-1 text-[11px] font-medium text-[#527060]">
+          {localize(
+            "Giá chính xác được tính sau khi chọn thời gian, số phòng và phân bổ khách.",
+            "The exact amount is calculated after dates, rooms and guest allocation are selected.",
+          )}
+        </p>
       </div>
     </section>
   );

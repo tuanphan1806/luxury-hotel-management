@@ -228,7 +228,18 @@ public class WalkInPricingService {
             Map<Long, Integer> allocated,
             Set<Long> fixedLines,
             boolean includedCapacityOnly) {
-        for (PreparedLine prepared : preparedLines) {
+        List<PreparedLine> allocationOrder = includedCapacityOnly
+                ? preparedLines
+                : preparedLines.stream()
+                        // After every included slot is used, place an
+                        // unspecified extra guest into the cheapest eligible
+                        // surcharge slot. Explicit staff allocations remain
+                        // fixed and are never reordered or overwritten.
+                        .sorted(Comparator.comparing(
+                                prepared -> prepared.rateProfile()
+                                        .getExtraGuestPrice()))
+                        .toList();
+        for (PreparedLine prepared : allocationOrder) {
             if (remaining == 0) {
                 return 0;
             }

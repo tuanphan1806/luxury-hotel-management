@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -296,7 +297,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Standard: tiện nghi cơ bản + không gian chung để ảnh facility phong phú hơn
         result.put("Standard", seedRoomType(
-                "STANDARD", 2,
+                "STANDARD", 3,
                 "Phòng tiêu chuẩn", "Standard",
                 "Phòng Standard tiện nghi đầy đủ, phù hợp cho cặp đôi hoặc du khách đơn lẻ.",
                 "A well-equipped standard room, ideal for couples or solo travellers.",
@@ -314,7 +315,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Deluxe: mở rộng thêm bếp, hồ bơi và cafe
         result.put("Deluxe", seedRoomType(
-                "DELUXE", 3,
+                "DELUXE", 4,
                 "Phòng Deluxe", "Deluxe",
                 "Phòng Deluxe rộng rãi với ban công view thành phố, nội thất sang trọng.",
                 "A spacious deluxe room with a city-view balcony and refined interiors.",
@@ -333,7 +334,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Executive: nằm giữa Deluxe và Suite, ưu tiên khách công tác/lưu trú ngắn ngày
         result.put("Executive", seedRoomType(
-                "EXECUTIVE", 3,
+                "EXECUTIVE", 4,
                 "Phòng Executive", "Executive Room",
                 "Phòng Executive dành cho khách công tác, có khu vực làm việc riêng, cửa sổ lớn và không gian thư giãn chỉn chu.",
                 "An executive room for business travellers with a dedicated workspace, large windows and a refined relaxation area.",
@@ -352,7 +353,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Suite: gần như đầy đủ tiện nghi nghỉ dưỡng
         result.put("Suite", seedRoomType(
-                "SUITE", 4,
+                "SUITE", 5,
                 "Phòng Suite", "Suite",
                 "Phòng Suite cao cấp với phòng khách riêng, bồn tắm jacuzzi và dịch vụ butler.",
                 "A premium suite with a separate living room, jacuzzi and butler service.",
@@ -373,7 +374,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Family: ưu tiên các tiện nghi dùng chung và mua sắm thuận tiện
         result.put("Family", seedRoomType(
-                "FAMILY", 6,
+                "FAMILY", 7,
                 "Phòng gia đình", "Family Room",
                 "Phòng Family rộng lớn thiết kế cho gia đình, có 2 phòng ngủ và bếp nhỏ.",
                 "A spacious family room with two bedrooms and a kitchenette.",
@@ -393,7 +394,7 @@ public class DataSeeder implements CommandLineRunner {
 
         // Presidential Suite: tất cả facilities
         result.put("Presidential Suite", seedRoomType(
-                "PRESIDENTIAL", 6,
+                "PRESIDENTIAL", 7,
                 "Phòng Tổng thống", "Presidential Suite",
                 "Presidential Suite sang trọng bậc nhất với tầm nhìn panoramic 360 độ.",
                 "Our most luxurious presidential suite with panoramic 360-degree views.",
@@ -420,9 +421,10 @@ public class DataSeeder implements CommandLineRunner {
     private RoomType seedRoomType(String code, int maxGuests,
                                   String name, String nameEn, String desc, String descEn,
                                   List<String> imageUrls, Set<Facility> facilities) {
-        RoomType rt = roomTypeRepository.findByCode(code)
+        Optional<RoomType> existingRoomType = roomTypeRepository.findByCode(code)
                 .or(() -> roomTypeRepository.findByTypeName(name))
-                .or(() -> roomTypeRepository.findByTypeName(nameEn))
+                .or(() -> roomTypeRepository.findByTypeName(nameEn));
+        RoomType rt = existingRoomType
                 .orElseGet(() -> RoomType.builder()
                         .code(code)
                         .typeName(name)
@@ -435,7 +437,12 @@ public class DataSeeder implements CommandLineRunner {
         rt.setTypeNameEn(nameEn);
         rt.setDescription(desc);
         rt.setDescriptionEn(descEn);
-        rt.setMaxGuests(maxGuests);
+        // Master seed establishes capacity for a new catalog only. Once the
+        // room type exists, the administrator's operational capacity remains
+        // authoritative across restarts.
+        if (existingRoomType.isEmpty()) {
+            rt.setMaxGuests(maxGuests);
+        }
         rt.setImageUrls(new ArrayList<>(imageUrls));
         rt.setImageUrl(imageUrls.isEmpty() ? null : imageUrls.get(0));
         rt.setFacilities(new HashSet<>(facilities));
@@ -487,17 +494,17 @@ public class DataSeeder implements CommandLineRunner {
         }
 
         seedRoomRateProfile(roomTypes.get("Standard"), stayPolicy,
-                new RateSeed(1, "70000", "20000", "170000", "300000"));
+                new RateSeed(2, "70000", "20000", "170000", "300000"));
         seedRoomRateProfile(roomTypes.get("Deluxe"), stayPolicy,
-                new RateSeed(2, "100000", "25000", "220000", "400000"));
+                new RateSeed(3, "100000", "25000", "220000", "400000"));
         seedRoomRateProfile(roomTypes.get("Executive"), stayPolicy,
-                new RateSeed(2, "120000", "30000", "270000", "480000"));
+                new RateSeed(3, "120000", "30000", "270000", "480000"));
         seedRoomRateProfile(roomTypes.get("Suite"), stayPolicy,
-                new RateSeed(2, "150000", "35000", "350000", "600000"));
+                new RateSeed(4, "150000", "35000", "350000", "600000"));
         seedRoomRateProfile(roomTypes.get("Family"), stayPolicy,
-                new RateSeed(4, "130000", "30000", "330000", "550000"));
+                new RateSeed(6, "130000", "30000", "330000", "550000"));
         seedRoomRateProfile(roomTypes.get("Presidential Suite"), stayPolicy,
-                new RateSeed(4, "200000", "50000", "450000", "850000"));
+                new RateSeed(6, "200000", "50000", "450000", "850000"));
     }
 
     /**

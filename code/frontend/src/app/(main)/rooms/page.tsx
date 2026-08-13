@@ -137,7 +137,7 @@ function RoomsPageContent() {
               <option value="0">{localize("Tất cả số khách", "Any guest count")}</option>
               {guestCountOptions.map((count) => (
                 <option key={count} value={count}>
-                  {localize(`Phù hợp cho ${count} khách`, `Suitable for ${count} ${count === 1 ? "guest" : "guests"}`)}
+                  {localize(`Có thể ở ${count} khách`, `Can accommodate ${count} ${count === 1 ? "guest" : "guests"}`)}
                 </option>
               ))}
             </select>
@@ -262,7 +262,7 @@ function RoomsPageContent() {
                       <span className="text-xs font-medium text-[#66727C]">{localize("Chưa có đánh giá", "No reviews yet")}</span>
                     )}
                   </div>
-                  <p className="mt-2 text-sm font-semibold text-[#0F2A43]">{localize(`Tối đa ${room.maxGuests || 2} khách / phòng`, `Up to ${room.maxGuests || 2} guests / room`)}</p>
+                  <p className="mt-2 text-sm font-semibold text-[#0F2A43]">{localize(`Phù hợp ${room.includedGuests || room.maxGuests || 2} khách / phòng`, `Suitable for ${room.includedGuests || room.maxGuests || 2} guests / room`)}</p>
                   <p className="mt-3 line-clamp-3 text-sm leading-6 text-[#66727C]">
                     {localize(room.description, room.descriptionEn) || localize("Không gian nghỉ dưỡng tiện nghi, phù hợp cho kỳ lưu trú của bạn.", "A comfortable space suited to your stay.")}
                   </p>

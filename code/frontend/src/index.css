@@ -26,6 +26,91 @@
 .hotel-time-input:hover::-webkit-calendar-picker-indicator {
   opacity: 1;
 }
+
+/*
+ * Keep native date/month controls and select fields visually consistent across
+ * guest, authentication and operations screens. This only changes presentation;
+ * the native values and form events remain untouched.
+ */
+:where(.guest-site, .dashboard-shell, .auth-shell) select:not([multiple]) {
+  appearance: none;
+  cursor: pointer;
+  padding-inline-end: 2.65rem !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%230F2A43' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  background-size: 0.95rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) select:not([multiple]):not(:disabled):hover {
+  border-color: rgba(184, 148, 79, 0.62);
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) select:not([multiple]):focus-visible {
+  border-color: #B8944F;
+  box-shadow: 0 0 0 3px rgba(184, 148, 79, 0.16);
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) select:not([multiple]):disabled {
+  cursor: not-allowed;
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) select option,
+:where(.guest-site, .dashboard-shell, .auth-shell) select optgroup {
+  background: #FBFAF6;
+  color: #0F2A43;
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) :is(
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"]
+) {
+  color-scheme: light;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) :is(
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"]
+)::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  border-radius: 0.4rem;
+  opacity: 0.72;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) :is(
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"]
+):not(:disabled):hover::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  transform: scale(1.06);
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: #B8944F;
+}
+
+:where(.guest-site, .dashboard-shell, .auth-shell) select[class*="bg-[#173D5F]"],
+:where(.guest-site, .dashboard-shell, .auth-shell) select[class*="bg-[#0F2A43]"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23F5F1E8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+}
+
+html.hotel-dark-mode :where(.guest-site, .dashboard-shell, .auth-shell) select:not([multiple]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23F5F1E8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+}
 @config "../tailwind.config.ts";
 
 @layer base {
