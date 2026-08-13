@@ -203,6 +203,27 @@ public class RoomTypeServiceImpl implements RoomTypeService {
         }
 
         int previousCapacity = roomType.getMaxGuests();
+        if (request.getMaxGuests() < previousCapacity) {
+            List<String> affectedReservations = reservationRoomTypeRepository
+                    .findActiveReservationCodesExceedingCapacity(
+                            id, request.getMaxGuests());
+            if (!affectedReservations.isEmpty()) {
+                String visibleCodes = affectedReservations.stream()
+                        .limit(5)
+                        .collect(Collectors.joining(", "));
+                String remaining = affectedReservations.size() > 5
+                        ? " và " + (affectedReservations.size() - 5)
+                                + " đơn khác"
+                        : "";
+                throw new AppException(
+                        ErrorCode.ROOM_TYPE_CAPACITY_CONFLICT,
+                        "Không thể giảm sức chứa xuống "
+                                + request.getMaxGuests()
+                                + " khách/phòng vì sẽ ảnh hưởng các đơn đang hoạt động: "
+                                + visibleCodes + remaining
+                                + ". Hãy hoàn tất/hủy các đơn này hoặc giữ sức chứa hiện tại.");
+            }
+        }
         if (request.getMaxGuests() > previousCapacity) {
             roomType.setMaxGuests(request.getMaxGuests());
             roomTypeRepository.saveAndFlush(roomType);

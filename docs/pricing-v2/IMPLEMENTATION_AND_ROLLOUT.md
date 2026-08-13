@@ -64,6 +64,20 @@ guestCount = SUM(lineGuestCount)
 quantity <= lineGuestCount <= roomType.maxGuests * quantity
 ```
 
+`includedGuests` là số khách phù hợp đã gồm trong giá của mỗi phòng;
+`maxGuests` là sức chứa tối đa riêng của từng loại phòng. Số khách nằm trong
+khoảng `(includedGuests, maxGuests]` được chấp nhận và tính phụ thu theo
+`extraGuestPrice`; vượt `maxGuests` bị từ chối. Card public chỉ công bố số khách
+phù hợp, còn trang chi tiết và bước đặt phòng phải hiển thị cả giới hạn tối đa
+và mức phụ thu.
+
+Nếu người dùng chưa phân bổ cụ thể, web/walk-in tự dùng mọi suất đã gồm giá
+trước rồi mới chọn suất phụ thu rẻ hơn trong các hạng đã chọn. Nếu đã nhập
+`lineGuestCount`, phân bổ đó là chủ ý của người dùng và phải được giữ nguyên;
+backend chỉ kiểm tra sức chứa và tính đúng phụ thu. Số khách đã gồm giá được
+pool theo `includedGuests * quantity` ở cấp dòng hạng phòng, còn check-in vẫn
+khóa cứng `maxGuests` cho từng phòng vật lý.
+
 Response chứa `quoteId`, `quoteHash`, expiry UTC, policy/rate version,
 package, room charge, extra-guest charge, service charge, total và
 `inventoryProtectedUntil`.

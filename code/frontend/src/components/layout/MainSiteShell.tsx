@@ -608,7 +608,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
       )}
 
       <div className={mobileMenuOpen ? "hidden" : ""}>
-        {chatReady && <ChatWidget />}
+        {chatReady && <ChatWidget avoidMobileBookingBar={showMobileBookingBar} />}
       </div>
 
       <footer className="guest-footer relative mt-auto overflow-hidden border-t border-white/8 px-6 pb-28 pt-14 text-white md:px-10 lg:pb-10">

@@ -31,6 +31,7 @@ public enum ErrorCode {
     ROOM_TYPE_CANNOT_ACTIVATE(5016, "Không thể kích hoạt loại phòng khi chưa có đúng một bảng giá hiệu lực", HttpStatus.CONFLICT),
     FACILITY_CANNOT_DELETE(5017, "Không thể xóa tiện nghi đang được hạng phòng sử dụng", HttpStatus.CONFLICT),
     ROOM_CANNOT_DELETE(5018, "Không thể xóa phòng đã có lịch sử vận hành", HttpStatus.CONFLICT),
+    ROOM_TYPE_CAPACITY_CONFLICT(5019, "Sức chứa mới ảnh hưởng đơn đặt phòng đang hoạt động", HttpStatus.CONFLICT),
 
     // ── RoomHold ─────────────────────────────────────────────
     ROOM_HOLD_NOT_FOUND(5020, "Không tìm thấy giữ chỗ", HttpStatus.NOT_FOUND),

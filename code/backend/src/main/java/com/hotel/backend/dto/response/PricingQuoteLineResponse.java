@@ -19,6 +19,9 @@ public class PricingQuoteLineResponse {
     private String roomTypeName;
     private Integer quantity;
     private Integer lineGuestCount;
+    private Integer includedGuestsPerRoom;
+    private Integer maxGuestsPerRoom;
+    private BigDecimal extraGuestPrice;
     private Long rateProfileId;
     private Integer rateProfileVersion;
     private StayClassification stayClassification;

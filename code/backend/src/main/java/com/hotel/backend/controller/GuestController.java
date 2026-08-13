@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
  
 import java.util.List;
  
@@ -51,8 +52,9 @@ public class GuestController {
     @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
     public ApiResponse<GuestResponse> updateGuest(
             @PathVariable Long guestId,
-            @Valid @RequestBody GuestRequest request) {
+            @Valid @RequestBody GuestRequest request,
+            @AuthenticationPrincipal com.hotel.backend.entity.User currentUser) {
         return ApiResponse.success("Cập nhật thông tin khách thành công",
-                guestService.updateGuest(guestId, request));
+                guestService.updateGuest(guestId, request, currentUser));
     }
 }

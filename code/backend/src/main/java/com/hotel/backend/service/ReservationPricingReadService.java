@@ -252,6 +252,24 @@ public class ReservationPricingReadService {
             line.setActualSubtotal(
                     actualRoom.add(actualExtra));
             line.setAppliedPackage(pair.latest().getAppliedPackage());
+            // Existing reservations display the immutable capacity accepted
+            // at booking time, not a later RoomType administration value.
+            Integer committedMaxGuests =
+                    pair.commitment().getMaxGuestsSnapshot();
+            if (committedMaxGuests != null) {
+                line.setMaxGuestsPerRoom(Math.max(1, committedMaxGuests));
+            }
+            Integer committedIncludedGuests =
+                    pair.commitment().getIncludedGuests();
+            if (committedIncludedGuests != null) {
+                line.setIncludedGuestsPerRoom(
+                        Math.max(1, committedIncludedGuests));
+            }
+            if (pair.commitment().getRateProfile() != null) {
+                line.setExtraGuestPricePerCycle(money(
+                        pair.commitment().getRateProfile()
+                                .getExtraGuestPrice()));
+            }
             line.setPricingSnapshotHash(
                     pair.latest().getSnapshotHash());
         }

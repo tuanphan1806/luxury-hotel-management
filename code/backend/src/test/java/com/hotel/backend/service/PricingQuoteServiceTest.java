@@ -102,7 +102,7 @@ class PricingQuoteServiceTest {
         roomType = RoomType.builder()
                 .code("STANDARD")
                 .typeName("Phòng tiêu chuẩn")
-                .maxGuests(2)
+                .maxGuests(3)
                 .build();
         roomType.setId(1L);
         rateProfile = RoomRateProfile.builder()
@@ -110,7 +110,7 @@ class PricingQuoteServiceTest {
                 .roomType(roomType)
                 .stayPolicyVersion(policy)
                 .profileVersion(1)
-                .includedGuests(1)
+                .includedGuests(2)
                 .firstBlockMinutes(120)
                 .firstBlockPrice(new BigDecimal("70000"))
                 .extraUnitMinutes(60)
@@ -151,6 +151,9 @@ class PricingQuoteServiceTest {
         assertNotNull(response.getQuoteExpiresAtUtc());
         assertEquals(64, response.getQuoteHash().length());
         assertEquals(21L, response.getLines().get(0).getRateProfileId());
+        assertEquals(2, response.getLines().get(0).getIncludedGuestsPerRoom());
+        assertEquals(3, response.getLines().get(0).getMaxGuestsPerRoom());
+        assertMoney("50000", response.getLines().get(0).getExtraGuestPrice());
 
         ArgumentCaptor<com.hotel.backend.entity.PricingQuote> quoteCaptor =
                 ArgumentCaptor.forClass(com.hotel.backend.entity.PricingQuote.class);
@@ -158,6 +161,47 @@ class PricingQuoteServiceTest {
         assertEquals(response.getQuoteHash(), quoteCaptor.getValue().getQuoteHash());
         verify(quoteLineRepository).saveAll(argThat(lines ->
                 ((List<?>) lines).size() == 1));
+    }
+
+    @Test
+    void standardTwoGuestsAreIncludedWithoutSurcharge() {
+        stubSingleRoomQuote();
+
+        PricingQuoteResponse response = service.createQuote(request(2, 2));
+
+        assertMoney("170000", response.getRoomCharge());
+        assertMoney("0", response.getExtraGuestCharge());
+        assertEquals(0, response.getLines().get(0).getExtraGuestCount());
+        assertMoney("170000", response.getTotalAmount());
+    }
+
+    @Test
+    void standardThirdGuestIsAcceptedWithVersionedSurcharge() {
+        stubSingleRoomQuote();
+
+        PricingQuoteResponse response = service.createQuote(request(3, 3));
+
+        assertMoney("170000", response.getRoomCharge());
+        assertMoney("50000", response.getExtraGuestCharge());
+        assertEquals(1, response.getLines().get(0).getExtraGuestCount());
+        assertMoney("220000", response.getTotalAmount());
+    }
+
+    @Test
+    void standardFourthGuestIsRejectedAboveConfiguredMaximum() {
+        when(roomTypeRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(roomType));
+        when(rateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(1L)), any(Instant.class)))
+                .thenReturn(List.of(rateProfile));
+
+        AppException exception = assertThrows(
+                AppException.class,
+                () -> service.createQuote(request(4, 4)));
+
+        assertEquals(ErrorCode.INVALID_REQUEST, exception.getErrorCode());
+        assertTrue(exception.getMessage().contains("capacity"));
+        verifyNoInteractions(quoteRepository, quoteLineRepository);
     }
 
     @Test
@@ -320,7 +364,25 @@ class PricingQuoteServiceTest {
         verifyNoInteractions(quoteRepository, quoteLineRepository);
     }
 
+    private void stubSingleRoomQuote() {
+        when(roomTypeRepository.findAllById(List.of(1L)))
+                .thenReturn(List.of(roomType));
+        when(rateProfileRepository.findEffectiveByRoomTypeIds(
+                eq(List.of(1L)), any(Instant.class)))
+                .thenReturn(List.of(rateProfile));
+        when(reservationAddOnService.previewBookingTimeForPackageCycles(
+                anyList(), anyInt(), eq(1)))
+                .thenReturn(new ReservationAddOnService.BookingQuote(
+                        List.of(), BigDecimal.ZERO));
+        when(quoteRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
     private PricingQuoteRequest request(int guestCount) {
+        return request(guestCount, 1);
+    }
+
+    private PricingQuoteRequest request(int guestCount, int lineGuestCount) {
         return PricingQuoteRequest.builder()
                 .checkIn(LocalDateTime.of(2026, 8, 1, 22, 0))
                 .checkOut(LocalDateTime.of(2026, 8, 2, 5, 0))
@@ -328,7 +390,7 @@ class PricingQuoteServiceTest {
                 .rooms(List.of(PricingQuoteRoomRequest.builder()
                         .roomTypeId(1L)
                         .quantity(1)
-                        .lineGuestCount(1)
+                        .lineGuestCount(lineGuestCount)
                         .build()))
                 .services(List.of())
                 .build();

@@ -3,6 +3,9 @@ package com.hotel.backend.constant;
 public enum ReservationAuditAction {
     CONFIRM,
     CHECK_IN,
+    GUEST_ADDED_DURING_STAY,
+    GUEST_MOVED_DURING_STAY,
+    GUEST_PROFILE_UPDATED,
     RESERVATION_EXTENDED,
     UPDATE_CHECKOUT_FEE,
     REFUND,

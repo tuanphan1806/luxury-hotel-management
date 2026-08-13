@@ -17,6 +17,30 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
 
     long countByRoomTypeId(Long roomTypeId);
 
+    /**
+     * Finds active reservations whose committed guest allocation would no
+     * longer fit after an administrator reduces a room type's hard capacity.
+     * Legacy active lines without an explicit allocation are returned as a
+     * conservative conflict instead of silently making check-in unsafe.
+     */
+    @Query("""
+        SELECT r.reservationCode
+        FROM ReservationRoomType rrt
+        JOIN rrt.reservation r
+        WHERE rrt.roomType.id = :roomTypeId
+          AND r.status IN ('PAYMENT_PENDING', 'DRAFT',
+                           'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
+          AND (
+              rrt.lineGuestCount IS NULL
+              OR rrt.lineGuestCount > (:maxGuests * rrt.quantity)
+          )
+        ORDER BY r.checkIn, r.id
+    """)
+    List<String> findActiveReservationCodesExceedingCapacity(
+        @Param("roomTypeId") Long roomTypeId,
+        @Param("maxGuests") int maxGuests
+    );
+
     @Query("""
         SELECT rrt
         FROM ReservationRoomType rrt

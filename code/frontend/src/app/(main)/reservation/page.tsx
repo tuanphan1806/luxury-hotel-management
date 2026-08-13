@@ -38,7 +38,9 @@ interface AvailabilityRoomOption {
   estimatedPricePerRoom?: number;
   estimatedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
   totalHours?: number;
+  includedGuestsPerRoom?: number;
   maxGuestsPerRoom?: number;
+  extraGuestPrice?: number;
   availableRooms?: number;
 }
 
@@ -53,11 +55,13 @@ interface RoomTypeFacilityOption {
 
 interface RoomTypeCatalogOption {
   id: number;
+  includedGuests?: number;
   maxGuests?: number;
   imageUrl?: string;
   imageUrls?: string[];
   overnightPrice?: number;
   dailyPrice?: number;
+  extraGuestPrice?: number;
   facilities?: RoomTypeFacilityOption[];
 }
 
@@ -88,7 +92,9 @@ const mapAvailabilityOptions = (
       estimatedPricePerRoom: room.estimatedPricePerRoom,
       estimatedPackage: room.estimatedPackage,
       totalHours: room.totalHours,
+      includedGuestsPerRoom: room.includedGuestsPerRoom ?? catalogRoom?.includedGuests,
       maxGuestsPerRoom: room.maxGuestsPerRoom ?? catalogRoom?.maxGuests,
+      extraGuestPrice: room.extraGuestPrice ?? catalogRoom?.extraGuestPrice,
       availableRooms: room.availableRooms,
       facilities: catalogRoom?.facilities ?? [],
     };
@@ -120,6 +126,14 @@ const formatVND = (value?: number) =>
   typeof value === "number"
     ? value.toLocaleString("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 })
     : "Liên hệ";
+
+const suitableGuestCount = (room: {
+  includedGuestsPerRoom?: number;
+  maxGuestsPerRoom?: number;
+}) => normalizeGuestCapacity(
+  room.includedGuestsPerRoom,
+  normalizeGuestCapacity(room.maxGuestsPerRoom),
+);
 
 export default function ReservationPage() {
   const { locale, localize } = useLanguage();
@@ -638,12 +652,18 @@ export default function ReservationPage() {
                   <p className="mt-3 line-clamp-3 text-sm font-light leading-7 text-[#66727C]">
                     {localize(room.description, room.descriptionEn) || localize("Không gian nghỉ dưỡng yên tĩnh với đầy đủ tiện nghi cần thiết cho chuyến đi.", "A calm room with the essential facilities for your stay.")}
                   </p>
-                  <p className="mt-3 text-xs font-bold text-[#0F2A43]">
-                    {localize(
-                      `Tối đa ${normalizeGuestCapacity(room.maxGuestsPerRoom)} khách / phòng`,
-                      `Up to ${normalizeGuestCapacity(room.maxGuestsPerRoom)} guests / room`,
+                  <div className="mt-3 text-xs font-bold leading-5 text-[#0F2A43]">
+                    <p>{localize(
+                      `Phù hợp ${suitableGuestCount(room)} khách / phòng`,
+                      `Suitable for ${suitableGuestCount(room)} guests / room`,
+                    )}</p>
+                    {normalizeGuestCapacity(room.maxGuestsPerRoom) > suitableGuestCount(room) && (
+                      <p className="font-semibold text-[#80632F]">{localize(
+                        `Tối đa ${normalizeGuestCapacity(room.maxGuestsPerRoom)} · từ khách thứ ${suitableGuestCount(room) + 1} phụ thu ${formatVND(room.extraGuestPrice)}/người/mỗi chu kỳ lưu trú`,
+                        `Maximum ${normalizeGuestCapacity(room.maxGuestsPerRoom)} · from guest ${suitableGuestCount(room) + 1}, ${formatVND(room.extraGuestPrice)}/person/stay cycle`,
+                      )}</p>
                     )}
-                  </p>
+                  </div>
                   <span className="mt-5 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#80632F]">
                     {localize("Xem nhanh chi tiết", "Quick view")} <span aria-hidden="true" className="text-base transition group-hover:translate-x-1">→</span>
                   </span>

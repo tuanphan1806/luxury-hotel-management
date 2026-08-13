@@ -22,7 +22,9 @@ export interface ReservationRoomQuickViewItem {
   estimatedPricePerRoom?: number;
   estimatedPackage?: "HOURLY" | "OVERNIGHT" | "DAILY";
   totalHours?: number;
+  includedGuestsPerRoom?: number;
   maxGuestsPerRoom?: number;
+  extraGuestPrice?: number;
   availableRooms?: number;
   facilities?: ReservationRoomFacilityItem[];
 }
@@ -108,6 +110,19 @@ export default function ReservationRoomQuickViewModal({
 
   const roomName = localize(room.typeName, room.typeNameEn);
   const maximumQuantity = Math.min(room.availableRooms ?? 10, 20);
+  const includedGuests = Math.max(1, Number(
+    room.includedGuestsPerRoom || room.maxGuestsPerRoom || 1,
+  ));
+  const maxGuests = Math.max(includedGuests, Number(room.maxGuestsPerRoom || includedGuests));
+  const guestSurchargeLabel = maxGuests === includedGuests + 1
+    ? localize(
+        `Khách thứ ${maxGuests}: +${formatVND(room.extraGuestPrice)}/người/mỗi chu kỳ lưu trú`,
+        `Guest ${maxGuests}: +${formatVND(room.extraGuestPrice)}/person/stay cycle`,
+      )
+    : localize(
+        `Khách thứ ${includedGuests + 1}–${maxGuests}: +${formatVND(room.extraGuestPrice)}/người/mỗi chu kỳ lưu trú`,
+        `Guests ${includedGuests + 1}–${maxGuests}: +${formatVND(room.extraGuestPrice)}/person/stay cycle`,
+      );
   const facilities = room.facilities ?? [];
   const galleryImages = Array.from(new Set([
     ...(room.gallery ?? []),
@@ -197,8 +212,13 @@ export default function ReservationRoomQuickViewModal({
               <dd className="mt-1.5 text-sm font-bold leading-5 text-[#0F2A43]">{localize(`${room.availableRooms ?? 0} phòng trong khung giờ này`, `${room.availableRooms ?? 0} rooms for this time window`)}</dd>
             </div>
             <div className="rounded-xl border border-[#0F2A43]/10 bg-[#F1F0EA] p-3.5">
-              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#66727C]">{localize("Sức chứa", "Capacity")}</dt>
-              <dd className="mt-1.5 text-sm font-extrabold leading-5 text-[#0F2A43]">{localize(`Tối đa ${room.maxGuestsPerRoom ?? 0} khách / phòng`, `Up to ${room.maxGuestsPerRoom ?? 0} guests / room`)}</dd>
+              <dt className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#66727C]">{localize("Số khách", "Guests")}</dt>
+              <dd className="mt-1.5 text-sm font-extrabold leading-5 text-[#0F2A43]">{localize(`Phù hợp ${includedGuests} · tối đa ${maxGuests}`, `Suitable for ${includedGuests} · max ${maxGuests}`)}</dd>
+              {maxGuests > includedGuests && typeof room.extraGuestPrice === "number" && (
+                <dd className="mt-1 text-[11px] font-semibold leading-5 text-[#80632F]">
+                  {guestSurchargeLabel}
+                </dd>
+              )}
             </div>
           </dl>
 

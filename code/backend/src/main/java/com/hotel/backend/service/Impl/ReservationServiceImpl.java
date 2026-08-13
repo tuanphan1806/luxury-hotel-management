@@ -19,6 +19,7 @@ import com.hotel.backend.constant.StayPackage;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.constant.WalkInPaymentOption;
 import com.hotel.backend.dto.request.AssignRoomRequest;
+import com.hotel.backend.dto.request.AddStayGuestRequest;
 import com.hotel.backend.dto.request.CancelReservationRequest;
 import com.hotel.backend.dto.request.CheckoutRefundRequest;
 import com.hotel.backend.dto.request.CreateReservationRequest;
@@ -31,6 +32,7 @@ import com.hotel.backend.dto.request.ReservationRefundRequest;
 import com.hotel.backend.dto.request.RejectReservationRequest;
 import com.hotel.backend.dto.request.UpdateReservationRequest;
 import com.hotel.backend.dto.request.GuestRequest;
+import com.hotel.backend.dto.request.MoveStayGuestRequest;
 import com.hotel.backend.dto.request.WalkInPriceOverrideRequest;
 import com.hotel.backend.dto.response.*;
 import com.hotel.backend.entity.*;
@@ -78,6 +80,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -1431,7 +1434,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .estimatedPricePerRoom(
                         pricingEstimate.estimatedPricePerRoom())
                 .estimatedPackage(pricingEstimate.estimatedPackage())
+                .includedGuestsPerRoom(pricingEstimate.includedGuests())
                 .maxGuestsPerRoom(roomCapacity(rt))
+                .extraGuestPrice(pricingEstimate.extraGuestPrice())
                 .imageUrl(rt.getImageUrl())
                 .imageUrls(rt.getImageUrls() == null || rt.getImageUrls().isEmpty()
                         ? (rt.getImageUrl() == null ? List.of() : List.of(rt.getImageUrl()))
@@ -1490,11 +1495,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         int submittedGuestCount = requests.stream()
                 .mapToInt(request -> request.getGuests() == null ? 0 : request.getGuests().size())
                 .sum();
-        if (reservation.getGuestCount() != null && submittedGuestCount > reservation.getGuestCount()) {
-            throw new AppException(ErrorCode.INVALID_REQUEST,
-                    String.format("Reservation khai báo tối đa %d khách nhưng danh sách check-in có %d khách",
-                            reservation.getGuestCount(), submittedGuestCount));
-        }
+        int declaredGuestCount = reservation.getGuestCount() != null
+                ? reservation.getGuestCount() : 0;
 
         // Giữ thứ tự khóa cố định cho mọi luồng gán phòng: RoomType tăng dần
         // trước, sau đó mới đến Room tăng dần. Điều này tránh deadlock khi hai
@@ -1523,10 +1525,28 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         reservation.setActualCheckIn(actualCheckIn);
         boolean pricingV2Reservation =
                 pricingV2LifecycleService.supports(reservation);
+        if (!pricingV2Reservation && submittedGuestCount > declaredGuestCount) {
+            throw new AppException(ErrorCode.INVALID_REQUEST,
+                    String.format(
+                            "Reservation legacy khai báo tối đa %d khách nhưng danh sách check-in có %d khách",
+                            declaredGuestCount, submittedGuestCount));
+        }
+        Map<Long, Integer> committedMaxGuestsByReservationLine =
+                new HashMap<>();
         if (pricingV2Reservation) {
             PricingV2LifecycleService.Projection checkInProjection =
                     pricingV2LifecycleService.project(
                             reservation, reservation.getCheckOut());
+            for (PricingV2LifecycleService.LineProjection projectedLine
+                    : checkInProjection.lines()) {
+                Integer committedMaxGuests = projectedLine.commitment()
+                        .getMaxGuestsSnapshot();
+                if (committedMaxGuests != null) {
+                    committedMaxGuestsByReservationLine.put(
+                            projectedLine.reservationLine().getId(),
+                            Math.max(1, committedMaxGuests));
+                }
+            }
             List<ReservationRoomType> pricingLines =
                     reservationRoomTypeRepository
                             .findDetailsByReservationId(reservationId);
@@ -1589,7 +1609,14 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 throw new AppException(ErrorCode.INVALID_REQUEST,
                         String.format("Phòng '%s' phải có ít nhất một khách", room.getRoomName()));
             }
-            int roomGuestCapacity = roomCapacity(room.getRoomType());
+            guests.forEach(this::validateStayGuest);
+            // Pricing V2 must honour the immutable capacity accepted when the
+            // reservation was committed. A later catalog edit must not turn a
+            // paid, valid booking into a check-in failure.
+            int roomGuestCapacity = committedMaxGuestsByReservationLine
+                    .getOrDefault(
+                            rr.getReservationRoomType().getId(),
+                            roomCapacity(room.getRoomType()));
             if (guests.size() > roomGuestCapacity) {
                 throw new AppException(ErrorCode.INVALID_REQUEST,
                         String.format("Phòng '%s' chỉ chứa tối đa %d khách",
@@ -1610,25 +1637,29 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 throw new AppException(ErrorCode.GUEST_MULTIPLE_PRIMARY);
             }
 
-            //nv check lai de xem co the tao nhieu guest
             List<Guest> existingGuests = guestRepository.findByReservationRoomId(rr.getId());
             if (existingGuests.isEmpty()) {
                 for (GuestRequest g : guests) {
                     Guest guest = Guest.builder()
                             .reservationRoom(rr)
-                            .fullName(g.getFullName())
-                            .phone(g.getPhone())
-                            .email(g.getEmail())
-                            .idCardNumber(g.getIdCardNumber())
+                            .fullName(g.getFullName().trim())
+                            .phone(trimToNull(g.getPhone()))
+                            .email(trimToNull(g.getEmail()))
+                            .idCardNumber(trimToNull(g.getIdCardNumber()))
                             .idCardType(g.getIdCardType())
                             .dateOfBirth(g.getDateOfBirth())
-                            .nationality(g.getNationality())
+                            .nationality(trimToNull(g.getNationality()))
                             .isPrimary(g.getIsPrimary())
                             .build();
                     guestRepository.save(guest);
                 }
             } else {
-                log.info("ReservationRoom {} đã có guest, bỏ qua tạo mới", rr.getId());
+                ensureExistingGuestsMatchCheckInRequest(
+                        room.getRoomName(), existingGuests, guests);
+                log.info(
+                        "ReservationRoom {} đã có bộ hồ sơ khách trùng khớp; "
+                                + "tiếp tục check-in theo dữ liệu đã lưu",
+                        rr.getId());
             }
             rr.setRoom(room);
             rr.setStatus(AssignStatus.CHECKED_IN);
@@ -1646,15 +1677,496 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     actualGuestsByReservationLine);
         }
 
+        // guestCount becomes the actual checked-in headcount. Pricing V2 has
+        // already applied any extra-guest charge per reservation line above;
+        // every physical room was independently checked against its immutable
+        // committed capacity snapshot before reaching this point.
+        reservation.setGuestCount(submittedGuestCount);
         reservation.setStatus(ReservationStatus.CHECKED_IN);
         reservationRepository.save(reservation);
 
         auditService.record(reservation, ReservationAuditAction.CHECK_IN,
-                "Check-in " + requests.size() + " phòng, " + submittedGuestCount + " khách");
+                "Check-in " + requests.size() + " phòng, " + submittedGuestCount
+                        + " khách (đơn khai báo " + declaredGuestCount + ")");
 
         log.info("Reservation checked-in: id={}", reservationId);
         return responseAssembler
                 .withRoomTypeDetailsAndRefundSummary(reservation);
+    }
+
+    private void ensureExistingGuestsMatchCheckInRequest(
+            String roomName,
+            List<Guest> existingGuests,
+            List<GuestRequest> requestedGuests) {
+        Map<String, Long> existingFingerprints = existingGuests.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        this::guestFingerprint,
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.counting()));
+        Map<String, Long> requestedFingerprints = requestedGuests.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        this::guestFingerprint,
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.counting()));
+        if (!existingFingerprints.equals(requestedFingerprints)) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    String.format(
+                            "Phòng '%s' đã có hồ sơ khách khác với dữ liệu check-in. "
+                                    + "Hãy kiểm tra lại hồ sơ thay vì bỏ qua hoặc tính tiền theo dữ liệu mới",
+                            roomName));
+        }
+    }
+
+    private String guestFingerprint(Guest guest) {
+        return String.join("\u001F",
+                normalizedGuestValue(guest.getFullName()),
+                normalizedGuestValue(guest.getPhone()),
+                normalizedGuestValue(guest.getEmail()),
+                normalizedGuestValue(guest.getIdCardNumber()),
+                guest.getIdCardType() == null ? "" : guest.getIdCardType().name(),
+                guest.getDateOfBirth() == null ? "" : guest.getDateOfBirth().toString(),
+                normalizedGuestValue(guest.getNationality()),
+                String.valueOf(Boolean.TRUE.equals(guest.getIsPrimary())));
+    }
+
+    private String guestFingerprint(GuestRequest guest) {
+        return String.join("\u001F",
+                normalizedGuestValue(guest.getFullName()),
+                normalizedGuestValue(guest.getPhone()),
+                normalizedGuestValue(guest.getEmail()),
+                normalizedGuestValue(guest.getIdCardNumber()),
+                guest.getIdCardType() == null ? "" : guest.getIdCardType().name(),
+                guest.getDateOfBirth() == null ? "" : guest.getDateOfBirth().toString(),
+                normalizedGuestValue(guest.getNationality()),
+                String.valueOf(Boolean.TRUE.equals(guest.getIsPrimary())));
+    }
+
+    private String normalizedGuestValue(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReservationResponse addStayGuest(
+            Long reservationId,
+            AddStayGuestRequest request) {
+        if (request == null || request.getReservationRoomId() == null
+                || request.getGuest() == null) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Thiếu phòng hoặc thông tin khách cần thêm");
+        }
+        Reservation reservation = reservationRepository
+                .findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new AppException(
+                        ErrorCode.RESERVATION_NOT_FOUND));
+        if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Chỉ có thể thêm khách khi đơn đang lưu trú");
+        }
+        if (!pricingV2LifecycleService.supports(reservation)) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Đơn dùng bảng giá cũ chưa hỗ trợ tự động tính khách phát sinh");
+        }
+        ensureNoPendingSettlementPayment(reservationId);
+
+        ReservationRoom reservationRoom = reservationRoomRepository
+                .findByIdWithStayDetails(request.getReservationRoomId())
+                .orElseThrow(() -> new AppException(
+                        ErrorCode.RESERVATION_ROOM_NOT_FOUND));
+        ReservationRoomType reservationLine =
+                reservationRoom.getReservationRoomType();
+        if (!Objects.equals(
+                reservationLine.getReservation().getId(), reservationId)) {
+            throw new AppException(
+                    ErrorCode.RESERVATION_ROOM_NOT_FOUND,
+                    "Phòng lưu trú không thuộc đơn này");
+        }
+        if (reservationRoom.getStatus() != AssignStatus.CHECKED_IN
+                || reservationRoom.getRoom() == null) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Phòng chưa ở trạng thái đang có khách");
+        }
+
+        GuestRequest guestRequest = request.getGuest();
+        validateStayGuest(guestRequest);
+        if (Boolean.TRUE.equals(guestRequest.getIsPrimary())) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Khách thêm trong kỳ lưu trú không thể thay khách chính");
+        }
+        if (!guestRepository
+                .existsByReservationRoomIdAndIsPrimaryTrueAndCheckedOutAtIsNull(
+                reservationRoom.getId())) {
+            throw new AppException(
+                    ErrorCode.GUEST_PRIMARY_REQUIRED);
+        }
+
+        PricingV2LifecycleService.Projection currentProjection =
+                pricingV2LifecycleService.project(
+                        reservation, activeStayPricingCheckout(reservation));
+        PricingV2LifecycleService.LineProjection targetLine =
+                currentProjection.lines().stream()
+                        .filter(line -> Objects.equals(
+                                line.reservationLine().getId(),
+                                reservationLine.getId()))
+                        .findFirst()
+                        .orElseThrow(() -> new AppException(
+                                ErrorCode.PRICING_QUOTE_MISMATCH,
+                                "Không tìm thấy snapshot giá của hạng phòng"));
+        int maximumGuestsPerRoom = Math.max(
+                1, targetLine.commitment().getMaxGuestsSnapshot());
+        long currentRoomGuests = guestRepository
+                .countByReservationRoomIdAndCheckedOutAtIsNull(
+                        reservationRoom.getId());
+        if (currentRoomGuests >= maximumGuestsPerRoom) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    String.format(
+                            "Phòng '%s' đã đủ sức chứa tối đa %d khách",
+                            reservationRoom.getRoom().getRoomName(),
+                            maximumGuestsPerRoom));
+        }
+
+        Guest guest = Guest.builder()
+                .reservationRoom(reservationRoom)
+                .fullName(guestRequest.getFullName().trim())
+                .phone(trimToNull(guestRequest.getPhone()))
+                .email(trimToNull(guestRequest.getEmail()))
+                .idCardNumber(trimToNull(
+                        guestRequest.getIdCardNumber()))
+                .idCardType(guestRequest.getIdCardType())
+                .dateOfBirth(guestRequest.getDateOfBirth())
+                .nationality(trimToNull(
+                        guestRequest.getNationality()))
+                .isPrimary(false)
+                .build();
+        guestRepository.saveAndFlush(guest);
+
+        Map<Long, Integer> actualGuestsByReservationLine =
+                new LinkedHashMap<>();
+        for (ReservationLineGuestCountProjection guestCount
+                : guestRepository.countActiveGuestsByReservationLine(
+                        reservationId)) {
+            actualGuestsByReservationLine.put(
+                    guestCount.getReservationRoomTypeId(),
+                    Math.toIntExact(guestCount.getGuestCount()));
+        }
+        PricingV2LifecycleService.Projection updatedProjection =
+                pricingV2LifecycleService.applyAutomatic(
+                        reservation,
+                        activeStayPricingCheckout(reservation),
+                        RateSnapshotStage.ADJUSTMENT,
+                        actualGuestsByReservationLine);
+        int actualGuestCount = actualGuestsByReservationLine.values()
+                .stream()
+                .mapToInt(Integer::intValue)
+                .sum();
+        reservation.setGuestCount(actualGuestCount);
+        reservationRepository.save(reservation);
+
+        PricingV2LifecycleService.LineProjection updatedLine =
+                updatedProjection.lines().stream()
+                        .filter(line -> Objects.equals(
+                                line.reservationLine().getId(),
+                                reservationLine.getId()))
+                        .findFirst()
+                        .orElseThrow();
+        long previousLineCharge = targetLine.finalExtraGuestCharge()
+                .longValue();
+        long updatedLineCharge = updatedLine.finalExtraGuestCharge()
+                .longValue();
+        auditService.record(
+                reservation,
+                "GUEST",
+                String.valueOf(guest.getId()),
+                ReservationAuditAction.GUEST_ADDED_DURING_STAY,
+                "Thêm khách " + guest.getFullName() + " vào phòng "
+                        + reservationRoom.getRoom().getRoomName(),
+                Map.of(
+                        "guestCount", actualGuestCount - 1,
+                        "lineExtraGuestCharge", previousLineCharge),
+                Map.of(
+                        "guestCount", actualGuestCount,
+                        "lineExtraGuestCharge", updatedLineCharge),
+                Map.of(
+                        "reservationRoomId", reservationRoom.getId(),
+                        "reservationRoomTypeId", reservationLine.getId(),
+                        "roomName", reservationRoom.getRoom().getRoomName(),
+                        "surchargeAdded",
+                        Math.max(0L, updatedLineCharge
+                                - previousLineCharge)),
+                UUID.randomUUID().toString(),
+                null);
+        eventPublisher.publishEvent(
+                new CheckoutReconciliationChangedEvent(
+                        reservationId,
+                        "STAY_GUEST_ADDED"));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReservationResponse moveStayGuest(
+            Long reservationId,
+            Long guestId,
+            MoveStayGuestRequest request) {
+        if (guestId == null || request == null
+                || request.getTargetReservationRoomId() == null) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Thiếu khách hoặc phòng đích cần chuyển");
+        }
+        if (!hasText(request.getReason())
+                || request.getReason().trim().length() < 5
+                || request.getReason().trim().length() > 500) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Lý do chuyển phòng phải từ 5 đến 500 ký tự");
+        }
+        Reservation reservation = reservationRepository
+                .findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new AppException(
+                        ErrorCode.RESERVATION_NOT_FOUND));
+        if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Chỉ có thể chuyển phòng cho khách khi đơn đang lưu trú");
+        }
+        if (!pricingV2LifecycleService.supports(reservation)) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Đơn dùng bảng giá cũ chưa hỗ trợ tự động tính lại khi chuyển khách");
+        }
+        ensureNoPendingSettlementPayment(reservationId);
+
+        Guest guest = guestRepository.findByIdForUpdate(guestId)
+                .orElseThrow(() -> new AppException(
+                        ErrorCode.GUEST_NOT_FOUND));
+        ReservationRoom sourceRoom = guest.getReservationRoom();
+        if (sourceRoom == null
+                || !Objects.equals(
+                        sourceRoom.getReservationRoomType()
+                                .getReservation().getId(),
+                        reservationId)) {
+            throw new AppException(
+                    ErrorCode.GUEST_NOT_FOUND,
+                    "Khách lưu trú không thuộc đơn này");
+        }
+        if (Boolean.TRUE.equals(guest.getIsPrimary())) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Không thể chuyển khách chính bằng thao tác này; hãy cập nhật người đại diện trước");
+        }
+        if (guest.getCheckedOutAt() != null) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Không thể chuyển phòng cho hồ sơ khách đã checkout");
+        }
+
+        ReservationRoom targetRoom = reservationRoomRepository
+                .findByIdWithStayDetails(
+                        request.getTargetReservationRoomId())
+                .orElseThrow(() -> new AppException(
+                        ErrorCode.RESERVATION_ROOM_NOT_FOUND));
+        if (!Objects.equals(
+                targetRoom.getReservationRoomType()
+                        .getReservation().getId(),
+                reservationId)) {
+            throw new AppException(
+                    ErrorCode.RESERVATION_ROOM_NOT_FOUND,
+                    "Phòng đích không thuộc đơn này");
+        }
+        if (Objects.equals(sourceRoom.getId(), targetRoom.getId())) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Khách đang ở chính phòng đã chọn");
+        }
+        if (sourceRoom.getStatus() != AssignStatus.CHECKED_IN
+                || targetRoom.getStatus() != AssignStatus.CHECKED_IN
+                || sourceRoom.getRoom() == null
+                || targetRoom.getRoom() == null) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Cả phòng nguồn và phòng đích phải đang có khách");
+        }
+        if (!guestRepository
+                .existsByReservationRoomIdAndIsPrimaryTrueAndCheckedOutAtIsNull(
+                targetRoom.getId())) {
+            throw new AppException(ErrorCode.GUEST_PRIMARY_REQUIRED);
+        }
+
+        PricingV2LifecycleService.Projection currentProjection =
+                pricingV2LifecycleService.project(
+                        reservation, activeStayPricingCheckout(reservation));
+        PricingV2LifecycleService.LineProjection targetLine =
+                currentProjection.lines().stream()
+                        .filter(line -> Objects.equals(
+                                line.reservationLine().getId(),
+                                targetRoom.getReservationRoomType().getId()))
+                        .findFirst()
+                        .orElseThrow(() -> new AppException(
+                                ErrorCode.PRICING_QUOTE_MISMATCH,
+                                "Không tìm thấy snapshot giá của phòng đích"));
+        int maximumGuestsPerRoom = Math.max(
+                1, targetLine.commitment().getMaxGuestsSnapshot());
+        long targetGuestCount = guestRepository
+                .countByReservationRoomIdAndCheckedOutAtIsNull(
+                        targetRoom.getId());
+        if (targetGuestCount >= maximumGuestsPerRoom) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    String.format(
+                            "Phòng '%s' đã đủ sức chứa tối đa %d khách",
+                            targetRoom.getRoom().getRoomName(),
+                            maximumGuestsPerRoom));
+        }
+
+        Long sourceLineId = sourceRoom.getReservationRoomType().getId();
+        Long targetLineId = targetRoom.getReservationRoomType().getId();
+        BigDecimal oldExtraGuestCharge = currentProjection
+                .extraGuestCharge();
+        String sourceRoomName = sourceRoom.getRoom().getRoomName();
+        String targetRoomName = targetRoom.getRoom().getRoomName();
+
+        guest.setReservationRoom(targetRoom);
+        guestRepository.saveAndFlush(guest);
+
+        Map<Long, Integer> actualGuestsByReservationLine =
+                activeGuestCountsByReservationLine(reservationId);
+        PricingV2LifecycleService.Projection updatedProjection =
+                pricingV2LifecycleService.applyGuestDistributionCorrection(
+                        reservation,
+                        activeStayPricingCheckout(reservation),
+                        actualGuestsByReservationLine);
+        int actualGuestCount = actualGuestsByReservationLine.values()
+                .stream()
+                .mapToInt(Integer::intValue)
+                .sum();
+        reservation.setGuestCount(actualGuestCount);
+        reservationRepository.save(reservation);
+
+        auditService.record(
+                reservation,
+                "GUEST",
+                String.valueOf(guest.getId()),
+                ReservationAuditAction.GUEST_MOVED_DURING_STAY,
+                "Chuyển khách " + guest.getFullName() + " từ phòng "
+                        + sourceRoomName + " sang phòng " + targetRoomName,
+                Map.of(
+                        "reservationRoomId", sourceRoom.getId(),
+                        "reservationRoomTypeId", sourceLineId,
+                        "roomName", sourceRoomName,
+                        "extraGuestCharge", oldExtraGuestCharge.longValue()),
+                Map.of(
+                        "reservationRoomId", targetRoom.getId(),
+                        "reservationRoomTypeId", targetLineId,
+                        "roomName", targetRoomName,
+                        "extraGuestCharge", updatedProjection
+                                .extraGuestCharge().longValue()),
+                Map.of(
+                        "reason", request.getReason().trim(),
+                        "guestCount", actualGuestCount),
+                UUID.randomUUID().toString(),
+                null);
+        eventPublisher.publishEvent(
+                new CheckoutReconciliationChangedEvent(
+                        reservationId,
+                        "STAY_GUEST_MOVED"));
+        return responseAssembler
+                .withRoomTypeDetailsAndRefundSummary(reservation);
+    }
+
+    private Map<Long, Integer> activeGuestCountsByReservationLine(
+            Long reservationId) {
+        Map<Long, Integer> counts = new LinkedHashMap<>();
+        for (ReservationLineGuestCountProjection guestCount
+                : guestRepository.countActiveGuestsByReservationLine(
+                        reservationId)) {
+            counts.put(
+                    guestCount.getReservationRoomTypeId(),
+                    Math.toIntExact(guestCount.getGuestCount()));
+        }
+        return counts;
+    }
+
+    private LocalDateTime activeStayPricingCheckout(
+            Reservation reservation) {
+        LocalDateTime now = LocalDateTime.now();
+        return now.isAfter(reservation.getCheckOut())
+                ? now
+                : reservation.getCheckOut();
+    }
+
+    private void validateStayGuest(GuestRequest guest) {
+        if (guest == null) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Thiếu thông tin khách lưu trú");
+        }
+        if (!hasText(guest.getFullName())
+                || guest.getFullName().trim().length() < 2) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Họ tên khách phải có ít nhất 2 ký tự");
+        }
+        if (guest.getFullName().trim().length() > 100) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Họ tên khách không được quá 100 ký tự");
+        }
+        if (hasText(guest.getPhone())
+                && guest.getPhone().trim().length() > 20) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Số điện thoại khách không được quá 20 ký tự");
+        }
+        if (hasText(guest.getPhone())
+                && !isValidVietnamesePhone(guest.getPhone())) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Số điện thoại khách không hợp lệ");
+        }
+        if (hasText(guest.getEmail())
+                && !isValidEmail(guest.getEmail())) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Email khách không đúng định dạng");
+        }
+        if (hasText(guest.getIdCardNumber())
+                && guest.getIdCardNumber().trim().length() < 4) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Số giấy tờ khách phải có ít nhất 4 ký tự");
+        }
+        if (hasText(guest.getIdCardNumber())
+                && guest.getIdCardNumber().trim().length() > 50) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Số giấy tờ khách không được quá 50 ký tự");
+        }
+        if (hasText(guest.getNationality())
+                && guest.getNationality().trim().length() > 100) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Quốc tịch không được quá 100 ký tự");
+        }
+        if (guest.getDateOfBirth() != null
+                && !guest.getDateOfBirth().isBefore(
+                        java.time.LocalDate.now())) {
+            throw new AppException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Ngày sinh phải nằm trong quá khứ");
+        }
+    }
+
+    private String trimToNull(String value) {
+        return hasText(value) ? value.trim() : null;
     }
 
     private ReservationRoom resolveReservationRoomForCheckIn(
@@ -2590,6 +3102,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     projection.plannedRoomCharge().longValue(),
                     projection.actualRoomCharge().longValue(),
                     projection.extraGuestCharge().longValue(),
+                    checkoutExtraGuestLines(projection),
                     projection.cumulativePricingIncrease().longValue(),
                     PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
         }
@@ -2660,8 +3173,42 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 actualRoomCharge + projectedEarly.longValue(),
                 actualRoomCharge,
                 0L,
+                List.of(),
                 projectedLate.longValue(),
                 PricingAlgorithmVersion.LEGACY_V1);
+    }
+
+    private List<CheckoutExtraGuestChargeLineResponse> checkoutExtraGuestLines(
+            PricingV2LifecycleService.Projection projection) {
+        return projection.lines().stream()
+                .filter(line -> line.finalExtraGuestCharge().signum() > 0
+                        || line.breakdown().extraGuestCount() > 0)
+                .map(line -> {
+                    ReservationRateSnapshot snapshot = line.latest();
+                    RoomType roomType = line.reservationLine().getRoomType();
+                    int roomQuantity = Math.max(1, snapshot.getRoomQuantity());
+                    int includedGuestsPerRoom = Math.max(1, snapshot.getIncludedGuests());
+                    return CheckoutExtraGuestChargeLineResponse.builder()
+                            .reservationRoomTypeId(line.reservationLine().getId())
+                            .roomTypeId(roomType.getId())
+                            .roomTypeName(roomType.getTypeName())
+                            .roomTypeNameEn(roomType.getTypeNameEn())
+                            .roomQuantity(roomQuantity)
+                            .actualGuestCount(line.lineGuestCount())
+                            .includedGuestsPerRoom(includedGuestsPerRoom)
+                            .includedGuestCapacity(Math.multiplyExact(
+                                    includedGuestsPerRoom, roomQuantity))
+                            .maxGuestsPerRoom(Math.max(
+                                    includedGuestsPerRoom,
+                                    snapshot.getMaxGuestsSnapshot()))
+                            .extraGuestCount(line.breakdown().extraGuestCount())
+                            .packageCycles(line.breakdown().packageCycles())
+                            .extraGuestPricePerCycle(snapshot.getRateProfile()
+                                    .getExtraGuestPrice().longValue())
+                            .amount(line.finalExtraGuestCharge().longValue())
+                            .build();
+                })
+                .toList();
     }
 
     private CheckoutReconciliationResponse buildCheckoutReconciliation(
@@ -2710,6 +3257,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .plannedRoomCharge(projected.plannedRoomCharge())
                 .actualRoomCharge(projected.actualRoomCharge())
                 .extraGuestCharge(projected.extraGuestCharge())
+                .extraGuestLines(projected.extraGuestLines())
                 .postCommitmentRoomIncrease(
                         projected.postCommitmentRoomIncrease())
                 .lateCheckoutFee(projected.lateCheckoutFee())
@@ -2738,6 +3286,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             long plannedRoomCharge,
             long actualRoomCharge,
             long extraGuestCharge,
+            List<CheckoutExtraGuestChargeLineResponse> extraGuestLines,
             long postCommitmentRoomIncrease,
             PricingAlgorithmVersion pricingVersion) {}
 

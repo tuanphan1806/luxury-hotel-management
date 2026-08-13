@@ -85,7 +85,7 @@ public class PricingV2LifecycleService {
             LocalDateTime requestedCheckout,
             Map<Long, Integer> lineGuestCountOverrides) {
         return project(reservation, requestedCheckout,
-                lineGuestCountOverrides, null, null);
+                lineGuestCountOverrides, null, null, false);
     }
 
     private Projection project(
@@ -94,6 +94,22 @@ public class PricingV2LifecycleService {
             Map<Long, Integer> lineGuestCountOverrides,
             List<ReservationRoomType> preloadedRoomTypes,
             List<ReservationRateSnapshot> preloadedSnapshots) {
+        return project(
+                reservation,
+                requestedCheckout,
+                lineGuestCountOverrides,
+                preloadedRoomTypes,
+                preloadedSnapshots,
+                false);
+    }
+
+    private Projection project(
+            Reservation reservation,
+            LocalDateTime requestedCheckout,
+            Map<Long, Integer> lineGuestCountOverrides,
+            List<ReservationRoomType> preloadedRoomTypes,
+            List<ReservationRateSnapshot> preloadedSnapshots,
+            boolean allowExtraGuestCorrection) {
         requireV2(reservation);
         if (requestedCheckout == null) {
             throw new AppException(
@@ -249,9 +265,11 @@ public class PricingV2LifecycleService {
                         latest.getFinalRoomCharge(),
                         commitment.getMinimumCommittedRoomCharge(),
                         recalculated.roomCharge());
-                finalExtraGuestCharge = maxMoney(
-                        latest.getExtraGuestCharge(),
-                        recalculated.extraGuestCharge());
+                finalExtraGuestCharge = allowExtraGuestCorrection
+                        ? money(recalculated.extraGuestCharge())
+                        : maxMoney(
+                                latest.getExtraGuestCharge(),
+                                recalculated.extraGuestCharge());
             }
             BigDecimal latestBase = money(latest.getFinalRoomCharge())
                     .add(money(latest.getExtraGuestCharge()));
@@ -408,6 +426,35 @@ public class PricingV2LifecycleService {
                 projection);
     }
 
+    /**
+     * Reprices the real distribution after a staff correction moves a guest
+     * between physical rooms. Room-price floors remain untouched; only an
+     * extra-guest charge that no longer corresponds to the persisted guest
+     * distribution may decrease. The caller must hold the reservation lock,
+     * validate both rooms and write an audit reason.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Projection applyGuestDistributionCorrection(
+            Reservation reservation,
+            LocalDateTime requestedCheckout,
+            Map<Long, Integer> lineGuestCountOverrides) {
+        Projection projection = project(
+                reservation,
+                requestedCheckout,
+                lineGuestCountOverrides == null
+                        ? Map.of()
+                        : Map.copyOf(lineGuestCountOverrides),
+                null,
+                null,
+                true);
+        return applyProjection(
+                reservation,
+                requestedCheckout,
+                RateSnapshotStage.ADJUSTMENT,
+                PricingTransitionReason.ADMIN_APPROVED_ADJUSTMENT,
+                projection);
+    }
+
     private Projection applyProjection(
             Reservation reservation,
             LocalDateTime requestedCheckout,
@@ -415,9 +462,13 @@ public class PricingV2LifecycleService {
             PricingTransitionReason reason,
             Projection projection) {
         boolean finalCheckout = stage == RateSnapshotStage.CHECKOUT;
+        boolean guestDistributionChanged = projection.lines().stream()
+                .anyMatch(line -> line.lineGuestCount()
+                        != line.latest().getLineGuestCount());
         boolean appendEvidence = finalCheckout
                 || stage == RateSnapshotStage.CHECK_IN
                 || stage == RateSnapshotStage.EXTENSION
+                || guestDistributionChanged
                 || projection.deltaAmount().signum() != 0;
 
         if (projection.deltaAmount().signum() != 0) {

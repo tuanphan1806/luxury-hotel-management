@@ -28,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -142,27 +143,27 @@ class DataSeederTest {
                         RoomRateProfile::getDailyPrice,
                         RoomRateProfile::getExtraGuestPrice)
                 .containsExactly(
-                        tuple("STANDARD", 1,
+                        tuple("STANDARD", 2,
                                 new BigDecimal("70000"), new BigDecimal("20000"),
                                 new BigDecimal("170000"), new BigDecimal("300000"),
                                 new BigDecimal("50000")),
-                        tuple("DELUXE", 2,
+                        tuple("DELUXE", 3,
                                 new BigDecimal("100000"), new BigDecimal("25000"),
                                 new BigDecimal("220000"), new BigDecimal("400000"),
                                 new BigDecimal("50000")),
-                        tuple("EXECUTIVE", 2,
+                        tuple("EXECUTIVE", 3,
                                 new BigDecimal("120000"), new BigDecimal("30000"),
                                 new BigDecimal("270000"), new BigDecimal("480000"),
                                 new BigDecimal("50000")),
-                        tuple("SUITE", 2,
+                        tuple("SUITE", 4,
                                 new BigDecimal("150000"), new BigDecimal("35000"),
                                 new BigDecimal("350000"), new BigDecimal("600000"),
                                 new BigDecimal("50000")),
-                        tuple("FAMILY", 4,
+                        tuple("FAMILY", 6,
                                 new BigDecimal("130000"), new BigDecimal("30000"),
                                 new BigDecimal("330000"), new BigDecimal("550000"),
                                 new BigDecimal("50000")),
-                        tuple("PRESIDENTIAL", 4,
+                        tuple("PRESIDENTIAL", 6,
                                 new BigDecimal("200000"), new BigDecimal("50000"),
                                 new BigDecimal("450000"), new BigDecimal("850000"),
                                 new BigDecimal("50000")));
@@ -194,6 +195,29 @@ class DataSeederTest {
     }
 
     @Test
+    void masterSeedDoesNotResetAdministratorManagedRoomCapacity() {
+        DataSeeder seeder = seeder();
+        RoomType existing = roomType(1L, "STANDARD", 5);
+        when(roomTypeRepository.findByCode("STANDARD"))
+                .thenReturn(Optional.of(existing));
+        when(roomTypeRepository.save(existing)).thenReturn(existing);
+
+        RoomType result = ReflectionTestUtils.invokeMethod(
+                seeder,
+                "seedRoomType",
+                "STANDARD",
+                3,
+                "Phòng tiêu chuẩn",
+                "Standard",
+                "Mô tả",
+                "Description",
+                List.of("/standard.webp"),
+                Set.of());
+
+        assertThat(result.getMaxGuests()).isEqualTo(5);
+    }
+
+    @Test
     void pricingSeedRespectsAnInactiveExistingPolicy() {
         DataSeeder seeder = seeder();
         when(stayPolicyVersionRepository.findEffectiveByPolicyCode(
@@ -212,12 +236,12 @@ class DataSeederTest {
 
     private Map<String, RoomType> seededRoomTypes() {
         Map<String, RoomType> roomTypes = new LinkedHashMap<>();
-        roomTypes.put("Standard", roomType(1L, "STANDARD", 2));
-        roomTypes.put("Deluxe", roomType(2L, "DELUXE", 3));
-        roomTypes.put("Executive", roomType(3L, "EXECUTIVE", 3));
-        roomTypes.put("Suite", roomType(4L, "SUITE", 4));
-        roomTypes.put("Family", roomType(5L, "FAMILY", 6));
-        roomTypes.put("Presidential Suite", roomType(6L, "PRESIDENTIAL", 6));
+        roomTypes.put("Standard", roomType(1L, "STANDARD", 3));
+        roomTypes.put("Deluxe", roomType(2L, "DELUXE", 4));
+        roomTypes.put("Executive", roomType(3L, "EXECUTIVE", 4));
+        roomTypes.put("Suite", roomType(4L, "SUITE", 5));
+        roomTypes.put("Family", roomType(5L, "FAMILY", 7));
+        roomTypes.put("Presidential Suite", roomType(6L, "PRESIDENTIAL", 7));
         return roomTypes;
     }
 

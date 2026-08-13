@@ -2,6 +2,7 @@
 
 import type { Dispatch, FormEventHandler, SetStateAction } from "react";
 import ViewportModal from "@/components/UI/ViewportModal";
+import { TimePickerInput } from "@/components/forms/DateTimeField";
 import {
   formatShiftTime,
   workShiftColorForStartTime,
@@ -151,24 +152,24 @@ export default function WorkShiftTemplateManagerModal({
                 className={inputClass}
               />
             </label>
-            <label>
+            <div>
               <span className={labelClass}>Bắt đầu *</span>
-              <input
-                type="time"
+              <TimePickerInput
+                label="Giờ bắt đầu ca"
                 value={form.startTime}
-                onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))}
+                onValueChange={(value) => setForm((current) => ({ ...current, startTime: value }))}
                 className={inputClass}
               />
-            </label>
-            <label>
+            </div>
+            <div>
               <span className={labelClass}>Kết thúc *</span>
-              <input
-                type="time"
+              <TimePickerInput
+                label="Giờ kết thúc ca"
                 value={form.endTime}
-                onChange={(event) => setForm((current) => ({ ...current, endTime: event.target.value }))}
+                onValueChange={(value) => setForm((current) => ({ ...current, endTime: value }))}
                 className={inputClass}
               />
-            </label>
+            </div>
             <label>
               <span className={labelClass}>Cho check-in sớm (phút)</span>
               <input
