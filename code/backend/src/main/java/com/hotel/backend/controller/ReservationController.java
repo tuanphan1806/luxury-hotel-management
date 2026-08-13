@@ -1,6 +1,7 @@
 package com.hotel.backend.controller;
 
 import com.hotel.backend.dto.request.AssignRoomRequest;
+import com.hotel.backend.dto.request.AddStayGuestRequest;
 import com.hotel.backend.dto.request.CheckoutRefundRequest;
 import com.hotel.backend.dto.request.CancelReservationRequest;
 import com.hotel.backend.dto.request.RejectReservationRequest;
@@ -12,6 +13,7 @@ import com.hotel.backend.dto.request.ReservationRefundRequest;
 import com.hotel.backend.dto.request.RefundRecipientRequest;
 import com.hotel.backend.dto.request.UpdateReservationRequest;
 import com.hotel.backend.dto.request.ManualRoomHoldReleaseRequest;
+import com.hotel.backend.dto.request.MoveStayGuestRequest;
 import com.hotel.backend.dto.response.ApiResponse;
 import com.hotel.backend.dto.response.AvailabilityResponse;
 import com.hotel.backend.dto.response.FinalPaymentResponse;
@@ -432,6 +434,58 @@ public ApiResponse<List<AvailabilityResponse>> checkAvailability(
                 reservationId -> reservationService.getReservation(
                         Long.valueOf(reservationId), currentUser, null));
         return ApiResponse.success("Check-in thành công", response);
+    }
+
+    @Operation(
+            summary = "Add a guest during an active stay",
+            description = "Registers the guest in a physical room and automatically reprices the immutable Pricing V2 reservation")
+    @PostMapping("/{id}/stay-guests")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
+    public ApiResponse<ReservationResponse> addStayGuest(
+            @PathVariable Long id,
+            @Valid @RequestBody AddStayGuestRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal com.hotel.backend.entity.User currentUser) {
+        ReservationResponse response = idempotencyService.executeSnapshot(
+                idempotencyKey,
+                "RESERVATION_STAY_GUEST_ADD",
+                idempotencyService.actorScope(currentUser, null),
+                java.util.Map.of("reservationId", id, "request", request),
+                "RESERVATION",
+                String.valueOf(id),
+                () -> reservationService.addStayGuest(id, request),
+                ReservationResponse.class);
+        return ApiResponse.success(
+                "Đã thêm khách vào phòng và cập nhật chi phí lưu trú",
+                response);
+    }
+
+    @Operation(
+            summary = "Move a guest during an active stay",
+            description = "Moves a non-primary guest to another checked-in room in the same reservation and reprices both room-type lines atomically")
+    @PatchMapping("/{id}/stay-guests/{guestId}/room")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
+    public ApiResponse<ReservationResponse> moveStayGuest(
+            @PathVariable Long id,
+            @PathVariable Long guestId,
+            @Valid @RequestBody MoveStayGuestRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @AuthenticationPrincipal com.hotel.backend.entity.User currentUser) {
+        ReservationResponse response = idempotencyService.executeSnapshot(
+                idempotencyKey,
+                "RESERVATION_STAY_GUEST_MOVE",
+                idempotencyService.actorScope(currentUser, null),
+                java.util.Map.of(
+                        "reservationId", id,
+                        "guestId", guestId,
+                        "request", request),
+                "RESERVATION",
+                String.valueOf(id),
+                () -> reservationService.moveStayGuest(id, guestId, request),
+                ReservationResponse.class);
+        return ApiResponse.success(
+                "Đã chuyển khách sang phòng mới và cập nhật chi phí lưu trú",
+                response);
     }
 
     @Operation(summary = "Check out Reservation", description = "API check out a reservation by id")

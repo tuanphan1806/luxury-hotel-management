@@ -66,6 +66,7 @@ class ReservationPricingReadServiceTest {
                         .finalRoomCharge(money("140000"))
                         .extraGuestCharge(money("50000"))
                         .allocatedServiceCharge(money("20000"))
+                        .maxGuestsSnapshot(3)
                         .appliedPackage(StayPackage.HOURLY)
                         .snapshotHash("commitment")
                         .build();
@@ -88,6 +89,7 @@ class ReservationPricingReadServiceTest {
                 ReservationRoomTypeResponse.builder()
                         .id(51L)
                         .quantity(2)
+                        .maxGuestsPerRoom(2)
                         .build();
         ReservationResponse response = ReservationResponse.builder()
                 .addOnServiceAmount(money("50000"))
@@ -128,6 +130,7 @@ class ReservationPricingReadServiceTest {
                 .isEqualTo(StayPackage.DAILY);
         assertThat(lineResponse.getPricingSnapshotHash())
                 .isEqualTo("latest");
+        assertThat(lineResponse.getMaxGuestsPerRoom()).isEqualTo(3);
     }
 
     @Test

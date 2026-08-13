@@ -57,6 +57,11 @@ public class RoomRateProfileManagementService {
                 || request.getIncludedGuests() > request.getMaxGuests()) {
             throw invalid("Số khách đã bao gồm không được vượt sức chứa loại phòng");
         }
+        if (request.getMaxGuests() > request.getIncludedGuests()
+                && request.getExtraGuestPrice().signum() <= 0) {
+            throw invalid(
+                    "Phụ thu khách thêm phải lớn hơn 0 khi sức chứa tối đa vượt số khách đã gồm trong giá");
+        }
         if (request.getFirstBlockPrice().compareTo(
                 request.getOvernightPrice()) > 0) {
             throw invalid("Giá 2 giờ đầu không được lớn hơn giá qua đêm");

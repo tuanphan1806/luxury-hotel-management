@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import axios from "axios";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
 import ViewportModal from "@/components/UI/ViewportModal";
@@ -39,15 +39,19 @@ interface BookingData {
     roomTypeId: number;
     roomName: string;
     quantity: number;
+    includedGuestsPerRoom: number;
     maxGuestsPerRoom: number;
+    extraGuestPrice: number;
   }>;
 }
 
 interface CurrentUserProfile {
   fullName?: string;
+  username?: string;
   email?: string;
   phone?: string;
   address?: string;
+  type?: string;
 }
 
 interface PendingReservationSession {
@@ -62,6 +66,9 @@ interface PricingQuoteLine {
   roomTypeName: string;
   quantity: number;
   lineGuestCount: number;
+  includedGuestsPerRoom: number;
+  maxGuestsPerRoom: number;
+  extraGuestPrice: number;
   appliedPackage: "HOURLY" | "OVERNIGHT" | "DAILY";
   roomCharge: number;
   extraGuestCount: number;
@@ -117,7 +124,9 @@ interface BookingRoomType {
   id: number;
   typeName?: string;
   typeNameEn?: string;
+  includedGuests?: number;
   maxGuests?: number;
+  extraGuestPrice?: number;
   imageUrl?: string;
   size?: string;
 }
@@ -203,12 +212,22 @@ function BookingFormContent() {
   const [country, setCountry] = useState("Việt Nam");
   const [specialRequest, setSpecialRequest] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [profileFieldLocks, setProfileFieldLocks] = useState({
+    fullName: false,
+    email: false,
+    phone: false,
+    country: false,
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addOnCatalog, setAddOnCatalog] = useState<AddOnServiceItem[]>([]);
   const [addOnSelections, setAddOnSelections] = useState<Record<number, AddOnSelection>>({});
   const [isAddOnLoading, setIsAddOnLoading] = useState(true);
   const [addOnLoadError, setAddOnLoadError] = useState("");
+  const [isAddOnModalOpen, setIsAddOnModalOpen] = useState(false);
   const [lineGuestCounts, setLineGuestCounts] = useState<Record<number, number>>({});
+  const autoAllocationKeyRef = useRef("");
+  const termsSectionRef = useRef<HTMLDivElement>(null);
+  const termsCheckboxRef = useRef<HTMLInputElement>(null);
   const [pricingQuote, setPricingQuote] = useState<PricingQuote | null>(null);
   const [pricingQuoteMode, setPricingQuoteMode] = useState<PricingQuoteMode>("checking");
   const [pricingQuoteError, setPricingQuoteError] = useState("");
@@ -256,19 +275,6 @@ function BookingFormContent() {
       Math.ceil((checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60)),
     );
 
-    // Prefill customer info when an account session exists, but allow guest checkout.
-    void authSession.getCurrentUser<CurrentUserProfile>(false).then((profile) => {
-      if (profile) {
-        setIsAuthenticated(true);
-        setFullName(profile?.fullName || "");
-        setEmail(profile?.email || "");
-        setPhone(profile?.phone || "");
-        setCountry(profile?.address || "Việt Nam");
-      } else {
-        setIsAuthenticated(false);
-      }
-    });
-
     // Một catalog dùng chung thay cho một request riêng cho từng loại phòng.
     getPublicRoomTypes<BookingRoomType>()
       .then((roomTypes) => {
@@ -283,11 +289,32 @@ function BookingFormContent() {
           roomTypeId: requested.id,
           roomName: localize(roomType?.typeName, roomType?.typeNameEn),
           quantity: requested.quantity,
+          includedGuestsPerRoom: normalizeGuestCapacity(
+            roomType?.includedGuests,
+            normalizeGuestCapacity(roomType?.maxGuests),
+          ),
           maxGuestsPerRoom: normalizeGuestCapacity(roomType?.maxGuests),
+          extraGuestPrice: Number(roomType?.extraGuestPrice || 0),
         }));
         if (selectedRooms.length > 0) {
           const totalGuests = Number(adults || 0) + Number(childrenVal || 0);
-          setLineGuestCounts(allocateGuestsToRoomTypes(selectedRooms, totalGuests));
+          const autoAllocationKey = JSON.stringify({
+            rooms: selectedRooms.map((room) => ({
+              roomTypeId: room.roomTypeId,
+              quantity: room.quantity,
+              includedGuestsPerRoom: room.includedGuestsPerRoom,
+              maxGuestsPerRoom: room.maxGuestsPerRoom,
+              extraGuestPrice: room.extraGuestPrice,
+            })),
+            totalGuests,
+          });
+          // Recompute only when the actual selection, capacity, surcharge or
+          // declared party changes. Locale/presentation refreshes must not
+          // overwrite a distribution the customer has chosen manually.
+          if (autoAllocationKeyRef.current !== autoAllocationKey) {
+            setLineGuestCounts(allocateGuestsToRoomTypes(selectedRooms, totalGuests));
+            autoAllocationKeyRef.current = autoAllocationKey;
+          }
           const match = matches[0].roomType as BookingRoomType;
           setBookingData({
             roomName: selectedRooms.map((room) => `${room.quantity} × ${room.roomName}`).join(", "),
@@ -307,6 +334,60 @@ function BookingFormContent() {
         router.push("/rooms");
       });
   }, [roomId, roomTypesParam, checkIn, checkOut, adults, childrenVal, router, localize]);
+
+  useEffect(() => {
+    let active = true;
+
+    const applyProfile = (profile: CurrentUserProfile, lockVerifiedFields = false) => {
+      if (!active) return;
+      const profileName = profile.fullName?.trim() || profile.username?.trim() || "";
+      const profileEmail = profile.email?.trim() || "";
+      const profilePhone = profile.phone?.trim() || "";
+      if (profileName) setFullName(profileName);
+      if (profileEmail) setEmail(profileEmail);
+      if (profilePhone) setPhone(profilePhone);
+      const normalizedAddress = profile.address?.trim().toLocaleLowerCase("vi-VN");
+      const recognizedCountry = normalizedAddress === "việt nam" || normalizedAddress === "viet nam" || normalizedAddress === "vietnam"
+        ? "Việt Nam"
+        : normalizedAddress === "mỹ" || normalizedAddress === "usa" || normalizedAddress === "united states"
+          ? "Mỹ"
+          : normalizedAddress === "nhật bản" || normalizedAddress === "japan"
+            ? "Nhật Bản"
+            : normalizedAddress === "hàn quốc" || normalizedAddress === "south korea" || normalizedAddress === "korea"
+              ? "Hàn Quốc"
+              : "";
+      if (recognizedCountry) setCountry(recognizedCountry);
+      if (lockVerifiedFields) {
+        setProfileFieldLocks({
+          fullName: Boolean(profileName),
+          email: Boolean(profileEmail),
+          phone: Boolean(profilePhone),
+          country: Boolean(recognizedCountry),
+        });
+      }
+    };
+
+    // Điền ngay dữ liệu phiên đã cache để form không nháy trắng, sau đó luôn
+    // đồng bộ lại từ /api/user/me. Không lọc role: CUSTOMER, STAFF và ADMIN
+    // dùng cùng một contract hồ sơ khi tự đặt phòng trên trang public.
+    try {
+      const cachedProfile = window.localStorage.getItem("user");
+      if (cachedProfile) applyProfile(JSON.parse(cachedProfile) as CurrentUserProfile);
+    } catch {
+      // Cache chỉ là tối ưu hiển thị; backend vẫn là nguồn xác thực cuối cùng.
+    }
+
+    void authSession.getCurrentUser<CurrentUserProfile>(false).then((profile) => {
+      if (!active) return;
+      setIsAuthenticated(Boolean(profile));
+      if (profile) applyProfile(profile, true);
+      else setProfileFieldLocks({ fullName: false, email: false, phone: false, country: false });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -455,6 +536,9 @@ function BookingFormContent() {
   const roomTotal = hasAuthoritativeQuote ? pricingQuote.roomCharge : 0;
   const extraGuestTotal = hasAuthoritativeQuote ? pricingQuote.extraGuestCharge : 0;
   const displayedAddOnTotal = hasAuthoritativeQuote ? pricingQuote.serviceCharge : 0;
+  const addOnSummaryTotal = hasAuthoritativeQuote
+    ? displayedAddOnTotal
+    : selectedAddOns.reduce((sum, item) => sum + item.total, 0);
   const total = hasAuthoritativeQuote ? pricingQuote.totalAmount : 0;
   const deposit50 = Math.ceil(total * 0.5);
   const amountDueNow = paymentPlan === "PREPAY_100" ? total : deposit50;
@@ -557,6 +641,15 @@ function BookingFormContent() {
 
   const handleRequestBooking = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
+    if (!agree) {
+      setPaymentError(localize(
+        "Bạn phải đồng ý với Điều khoản & Điều kiện trước khi đặt phòng.",
+        "You must accept the Terms & Conditions before booking.",
+      ));
+      termsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.requestAnimationFrame(() => termsCheckboxRef.current?.focus({ preventScroll: true }));
+      return;
+    }
     const validationError = getFormValidationError();
     setPaymentError(validationError);
     if (validationError) return;
@@ -1004,121 +1097,132 @@ function BookingFormContent() {
             {/* Customer Details Form */}
             <div className="space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
               <h3 className="border-b border-gray-100 pb-3 font-serif text-xl font-bold text-primary-navy">
-                Thông tin khách hàng
+                {localize("Thông tin khách hàng", "Guest information")}
               </h3>
               {isAuthenticated && (
                 <p className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-800">
-                  Thông tin được lấy từ tài khoản đang đăng nhập. Bạn có thể cập nhật tại trang cài đặt tài khoản.
+                  {localize(
+                    "Các trường đã có trong hồ sơ được điền tự động và khóa để bảo đảm đúng tài khoản. Thông tin còn thiếu vẫn có thể bổ sung tại đây.",
+                    "Profile fields are filled and locked to keep the booking tied to the right account. Missing details can still be completed here.",
+                  )}
                 </p>
               )}
               
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-bold text-text-dark uppercase tracking-wider mb-2">Họ và tên *</label>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-text-dark">{localize("Họ và tên", "Full name")} *</label>
                   <input 
                     type="text" 
-                    placeholder="Nguyễn Văn A" 
+                    placeholder={localize("Nguyễn Văn A", "Your full name")}
                     value={fullName}
                     onChange={(e) => { setFullName(e.target.value.slice(0, 100)); setPaymentError(""); }}
-                    readOnly={isAuthenticated || Boolean(pendingReservation)}
+                    readOnly={profileFieldLocks.fullName || Boolean(pendingReservation)}
                     minLength={2}
                     maxLength={100}
                     autoComplete="name"
-                    className="w-full border border-gray-300 px-4 py-3 rounded-sm focus:outline-none focus:ring-2 focus:ring-accent-gold/50 focus:border-accent-gold text-sm font-medium"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium transition focus:border-accent-gold focus:outline-none focus:ring-2 focus:ring-accent-gold/20 read-only:cursor-default read-only:bg-[#F4F1EA] read-only:text-[#596873]"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-text-dark uppercase tracking-wider mb-2">Email *</label>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-text-dark">Email *</label>
                   <input 
                     type="email" 
                     placeholder="email@example.com" 
                     value={email}
                     onChange={(e) => { setEmail(e.target.value.slice(0, 254)); setPaymentError(""); }}
-                    readOnly={isAuthenticated || Boolean(pendingReservation)}
+                    readOnly={profileFieldLocks.email || Boolean(pendingReservation)}
                     maxLength={254}
                     autoComplete="email"
-                    className="w-full border border-gray-300 px-4 py-3 rounded-sm focus:outline-none focus:ring-2 focus:ring-accent-gold/50 focus:border-accent-gold text-sm font-medium"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium transition focus:border-accent-gold focus:outline-none focus:ring-2 focus:ring-accent-gold/20 read-only:cursor-default read-only:bg-[#F4F1EA] read-only:text-[#596873]"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-text-dark uppercase tracking-wider mb-2">Số điện thoại *</label>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-text-dark">{localize("Số điện thoại", "Phone number")} *</label>
                   <input 
                     type="tel" 
-                    placeholder="+84 ..." 
+                    placeholder={localize("Ví dụ: 0387736436", "Example: +84 387 736 436")}
                     value={phone}
                     onChange={(e) => { setPhone(e.target.value.slice(0, 24)); setPaymentError(""); }}
-                    readOnly={isAuthenticated || Boolean(pendingReservation)}
+                    readOnly={profileFieldLocks.phone || Boolean(pendingReservation)}
                     inputMode="tel"
                     maxLength={24}
                     autoComplete="tel"
-                    className="w-full border border-gray-300 px-4 py-3 rounded-sm focus:outline-none focus:ring-2 focus:ring-accent-gold/50 focus:border-accent-gold text-sm font-medium"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium transition focus:border-accent-gold focus:outline-none focus:ring-2 focus:ring-accent-gold/20 read-only:cursor-default read-only:bg-[#F4F1EA] read-only:text-[#596873]"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-text-dark uppercase tracking-wider mb-2">Quốc gia</label>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-text-dark">{localize("Quốc gia", "Country")}</label>
                   <select 
                     value={country}
                     onChange={(e) => setCountry(e.target.value)}
-                    disabled={isAuthenticated || Boolean(pendingReservation)}
-                    className="w-full border border-gray-300 px-4 py-3 rounded-sm focus:outline-none focus:ring-2 focus:ring-accent-gold/50 focus:border-accent-gold text-sm font-medium bg-transparent"
+                    disabled={profileFieldLocks.country || Boolean(pendingReservation)}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium transition focus:border-accent-gold focus:outline-none focus:ring-2 focus:ring-accent-gold/20 disabled:bg-[#F4F1EA] disabled:text-[#596873]"
                   >
-                    <option value="Việt Nam">Việt Nam</option>
-                    <option value="Mỹ">Mỹ</option>
-                    <option value="Nhật Bản">Nhật Bản</option>
-                    <option value="Hàn Quốc">Hàn Quốc</option>
+                    <option value="Việt Nam">{localize("Việt Nam", "Vietnam")}</option>
+                    <option value="Mỹ">{localize("Mỹ", "United States")}</option>
+                    <option value="Nhật Bản">{localize("Nhật Bản", "Japan")}</option>
+                    <option value="Hàn Quốc">{localize("Hàn Quốc", "South Korea")}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-text-dark uppercase tracking-wider mb-2">Yêu cầu đặc biệt</label>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-text-dark">{localize("Yêu cầu đặc biệt", "Special requests")}</label>
                 <textarea 
                   rows={2}
-                  placeholder="Ví dụ: Phòng tầng cao, check-in sớm..." 
+                  placeholder={localize("Ví dụ: Phòng tầng cao, nhận phòng sớm...", "Example: High floor, early check-in...")}
                   value={specialRequest}
                   onChange={(e) => { setSpecialRequest(e.target.value.slice(0, 500)); setPaymentError(""); }}
                   readOnly={Boolean(pendingReservation)}
                   maxLength={500}
-                  className="w-full border border-gray-300 px-4 py-3 rounded-sm focus:outline-none focus:ring-2 focus:ring-accent-gold/50 focus:border-accent-gold text-sm font-medium"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium transition focus:border-accent-gold focus:outline-none focus:ring-2 focus:ring-accent-gold/20 read-only:cursor-default read-only:bg-[#F4F1EA] read-only:text-[#596873]"
                 />
                 <span className="mt-1 block text-right text-[10px] font-medium text-text-light">{specialRequest.length}/500</span>
               </div>
             </div>
 
-            {/* Optional services selected before the deposit amount is calculated. */}
-            <section className="space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
-              <div className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-100 pb-3">
-                <div>
+            {/* Compact summary; the complete selector lives in a viewport modal. */}
+            <section className="rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#80632F]">{localize("Nâng cấp kỳ nghỉ", "Enhance your stay")}</p>
                   <h3 className="mt-1 font-serif text-xl font-bold text-primary-navy">{localize("Dịch vụ thêm", "Add-on services")}</h3>
-                  <p className="mt-1 text-xs leading-5 text-[#66727C]">{localize("Dịch vụ chọn tại đây được cộng vào tổng đơn trước khi tính cọc 50% hoặc trả trước 100%.", "Services selected here are added before the 50% deposit or 100% prepayment is calculated.")}</p>
+                  <p className="mt-1 text-xs leading-5 text-[#66727C]">
+                    {selectedAddOns.length > 0
+                      ? localize(`${selectedAddOns.length} dịch vụ đã chọn · ${formatVND(addOnSummaryTotal)}`, `${selectedAddOns.length} selected · ${formatVND(addOnSummaryTotal)}`)
+                      : localize("Chọn khi cần; trang thanh toán vẫn gọn và dễ kiểm tra.", "Choose only when needed while keeping checkout concise.")}
+                  </p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Đã chọn", "Selected")}</p>
-                  <p className="mt-1 font-black tabular-nums text-[#80632F]">{formatVND(displayedAddOnTotal)}</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddOnModalOpen(true)}
+                  disabled={isAddOnLoading}
+                  className="inline-flex min-h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#B8944F] bg-[#F0EADF]/65 px-5 text-sm font-bold text-[#0F2A43] transition duration-200 hover:bg-[#E8DDC7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isAddOnLoading
+                    ? localize("Đang tải...", "Loading...")
+                    : selectedAddOns.length > 0
+                      ? localize("Xem và chỉnh sửa", "Review and edit")
+                      : localize("Chọn dịch vụ", "Choose services")}
+                  <span aria-hidden="true">→</span>
+                </button>
               </div>
-              {addOnLoadError && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">{addOnLoadError}</p>}
-              <BookingAddOnSelector
-                services={addOnCatalog}
-                selections={addOnSelections}
-                guestCount={declaredGuestCount}
-                nights={stayNights}
-                authoritativeLineTotals={authoritativeServiceTotals}
-                loading={isAddOnLoading}
-                disabled={Boolean(pendingReservation)}
-                onChange={(next) => {
-                  setAddOnSelections(next);
-                  setPricingQuote(null);
-                  setPricingQuoteMode("checking");
-                  setPricingQuoteError("");
-                  setPaymentError("");
-                  setIsConfirmationOpen(false);
-                }}
-              />
+              {selectedAddOns.length > 0 && (
+                <ul className="mt-4 flex flex-wrap gap-2 border-t border-[#0F2A43]/10 pt-4" aria-label={localize("Dịch vụ đã chọn", "Selected services")}>
+                  {selectedAddOns.slice(0, 3).map(({ service, selection }) => (
+                    <li key={service.id} className="rounded-full border border-[#B8944F]/35 bg-[#FBFAF6] px-3 py-1.5 text-xs font-semibold text-[#0F2A43]">
+                      {localize(service.name, service.nameEn)} × {selection.quantity}
+                    </li>
+                  ))}
+                  {selectedAddOns.length > 3 && (
+                    <li className="rounded-full bg-[#0F2A43] px-3 py-1.5 text-xs font-bold text-white">+{selectedAddOns.length - 3}</li>
+                  )}
+                </ul>
+              )}
+              {addOnLoadError && <p role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">{addOnLoadError}</p>}
             </section>
 
             <div className="grid items-start gap-5 xl:grid-cols-2">
@@ -1160,7 +1264,7 @@ function BookingFormContent() {
               </div>
             </div>
 
-            <div className="space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
+            <div ref={termsSectionRef} className="scroll-mt-24 space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-sm sm:p-6">
               <h3 className="border-b border-gray-100 pb-3 font-serif text-xl font-bold text-primary-navy">
                 {localize("Xác nhận điều khoản", "Accept the terms")}
               </h3>
@@ -1172,6 +1276,7 @@ function BookingFormContent() {
               </p>
               <label className="flex items-start gap-3 text-xs text-text-light font-medium cursor-pointer pt-2">
                 <input
+                  ref={termsCheckboxRef}
                   type="checkbox"
                   checked={agree}
                   onChange={(e) => {
@@ -1204,9 +1309,9 @@ function BookingFormContent() {
           </div>
 
           {/* Right Column - Booking Summary */}
-          <div className="sticky top-24 space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-md">
+          <div className="space-y-4 rounded-xl border border-[#0F2A43]/10 bg-white p-5 shadow-md lg:sticky lg:top-24">
             <h3 className="font-sans text-lg font-bold text-primary-navy pb-3 border-b border-gray-100">
-              Tóm tắt đặt phòng
+              {localize("Tóm tắt đặt phòng", "Booking summary")}
             </h3>
 
             {/* Room Info */}
@@ -1220,7 +1325,7 @@ function BookingFormContent() {
               </div>
               <div className="min-w-0">
                 <h4 className="font-serif text-base font-bold text-primary-navy truncate">{bookingData.roomName}</h4>
-                <p className="text-xs text-text-light font-medium mt-0.5">Diện tích: {bookingData.size}</p>
+                <p className="mt-0.5 text-xs font-medium text-text-light">{localize("Diện tích", "Area")}: {bookingData.size}</p>
               </div>
             </div>
 
@@ -1236,6 +1341,10 @@ function BookingFormContent() {
                       roomTypeId: line.roomTypeId,
                       roomTypeName: line.roomTypeName,
                       quantity: line.quantity,
+                      includedGuestsPerRoom: line.includedGuestsPerRoom,
+                      maxGuestsPerRoom: line.maxGuestsPerRoom,
+                      extraGuestPrice: line.extraGuestPrice,
+                      extraGuestCount: line.extraGuestCount,
                       packageName: line.appliedPackage === "OVERNIGHT"
                         ? localize("Qua đêm", "Overnight")
                         : line.appliedPackage === "DAILY"
@@ -1253,9 +1362,18 @@ function BookingFormContent() {
                       <p className="mt-0.5 text-[11px] font-medium text-[#66727C]">
                         {formatVND(line.unitPrice)}/{localize("phòng", "room")} · {line.packageName}
                       </p>
-                      {line.extraGuestCharge > 0 && (
+                      <p className="mt-0.5 text-[10px] font-medium text-[#66727C]">
+                        {localize(
+                          `Giá gồm ${line.includedGuestsPerRoom} khách/phòng · tối đa ${line.maxGuestsPerRoom}`,
+                          `Includes ${line.includedGuestsPerRoom} guests/room · max ${line.maxGuestsPerRoom}`,
+                        )}
+                      </p>
+                      {line.extraGuestCount > 0 && line.extraGuestCharge > 0 && (
                         <p className="mt-1 font-semibold text-[#80632F]">
-                          {localize("Phụ thu khách", "Extra guests")}: +{formatVND(line.extraGuestCharge)}
+                          {localize(
+                            `${line.extraGuestCount} khách thêm · ${formatVND(line.extraGuestPrice)}/người/mỗi chu kỳ lưu trú`,
+                            `${line.extraGuestCount} extra ${line.extraGuestCount === 1 ? "guest" : "guests"} · ${formatVND(line.extraGuestPrice)}/person/stay cycle`,
+                          )}: +{formatVND(line.extraGuestCharge)}
                         </p>
                       )}
                     </div>
@@ -1270,16 +1388,19 @@ function BookingFormContent() {
             {/* Dates & Guests */}
             <div className="grid grid-cols-2 gap-4 border-t border-b border-gray-100 py-4 text-xs font-semibold text-text-dark">
               <div>
-                <p className="text-text-light font-medium uppercase tracking-wider mb-1">Ngày đến</p>
+                <p className="mb-1 font-medium uppercase tracking-wider text-text-light">{localize("Ngày đến", "Arrival")}</p>
                 <p>{formatDateTimeVietnamese(bookingData.checkInDate)}</p>
               </div>
               <div>
-                <p className="text-text-light font-medium uppercase tracking-wider mb-1">Ngày đi</p>
+                <p className="mb-1 font-medium uppercase tracking-wider text-text-light">{localize("Ngày đi", "Departure")}</p>
                 <p>{formatDateTimeVietnamese(bookingData.checkOutDate)}</p>
               </div>
               <div className="col-span-2 pt-2 border-t border-gray-100/50">
-                <p className="text-text-light font-medium uppercase tracking-wider mb-1">Khách</p>
-                <p>{bookingData.adultsCount} Người lớn, {bookingData.childrenCount} Trẻ em · {localize(`Sức chứa ${selectedGuestCapacity}`, `Capacity ${selectedGuestCapacity}`)}</p>
+                <p className="mb-1 font-medium uppercase tracking-wider text-text-light">{localize("Khách", "Guests")}</p>
+                <p>{localize(
+                  `${bookingData.adultsCount} người lớn, ${bookingData.childrenCount} trẻ em · Sức chứa ${selectedGuestCapacity}`,
+                  `${bookingData.adultsCount} adults, ${bookingData.childrenCount} children · Capacity ${selectedGuestCapacity}`,
+                )}</p>
               </div>
             </div>
 
@@ -1291,7 +1412,10 @@ function BookingFormContent() {
                       {localize("Phân bổ khách", "Guest allocation")}
                     </p>
                     <p className="mt-0.5 text-[11px] font-medium text-[#66727C]">
-                      {localize("Theo từng hạng phòng", "By room type")}
+                      {localize(
+                        "Đề xuất dùng hết suất đã gồm giá và ưu tiên phụ thu thấp hơn. Bạn vẫn có thể đổi từng hạng; giá sẽ tự tính lại.",
+                        "The suggestion uses every included slot first, then the lowest surcharge. You can still change each room type and the price will update automatically.",
+                      )}
                     </p>
                   </div>
                   <span className={`rounded-full px-2.5 py-1 text-[11px] font-black tabular-nums ${
@@ -1305,6 +1429,7 @@ function BookingFormContent() {
                 <div className="space-y-2">
                   {bookingData.selectedRooms.map((room) => {
                     const capacity = room.quantity * room.maxGuestsPerRoom;
+                    const includedCapacity = room.quantity * room.includedGuestsPerRoom;
                     return (
                       <label key={room.roomTypeId} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-[#0F2A43]/10 bg-white px-3 py-2">
                         <span className="min-w-0">
@@ -1313,8 +1438,8 @@ function BookingFormContent() {
                           </span>
                           <span className="block text-[10px] font-medium text-[#66727C]">
                             {localize(
-                              `${room.quantity}–${capacity} khách`,
-                              `${room.quantity}–${capacity} guests`,
+                              `Giá gồm ${includedCapacity} khách · tối đa ${capacity}`,
+                              `Includes ${includedCapacity} guests · maximum ${capacity}`,
                             )}
                           </span>
                         </span>
@@ -1334,14 +1459,19 @@ function BookingFormContent() {
                             setPaymentError("");
                             setIsConfirmationOpen(false);
                           }}
-                          className="min-h-11 w-20 cursor-pointer rounded-lg border border-[#0F2A43]/20 bg-white px-2 text-center text-sm font-bold text-[#0F2A43] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
+                          className="min-h-11 w-36 shrink-0 cursor-pointer rounded-lg border border-[#0F2A43]/20 bg-white px-2 text-sm font-bold text-[#0F2A43] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
                         >
                           <option value="" disabled>—</option>
                           {Array.from(
                             { length: capacity - room.quantity + 1 },
                             (_, index) => index + room.quantity,
                           ).map((value) => (
-                            <option key={value} value={value}>{value}</option>
+                            <option key={value} value={value}>
+                              {localize(
+                                `${value} khách${value > includedCapacity ? ` (+${value - includedCapacity} phụ thu)` : ""}`,
+                                `${value} guests${value > includedCapacity ? ` (+${value - includedCapacity} surcharge)` : ""}`,
+                              )}
+                            </option>
                           ))}
                         </select>
                       </label>
@@ -1437,6 +1567,45 @@ function BookingFormContent() {
         </div>
 
       </div>
+
+      <ViewportModal open={isAddOnModalOpen} onClose={() => setIsAddOnModalOpen(false)} labelledBy="booking-addon-modal-title" panelClassName="max-w-4xl" testId="booking-addon-modal">
+        <section className="flex min-h-0 flex-1 flex-col bg-[#FBFAF6]">
+          <header className="flex items-start justify-between gap-4 border-b border-white/10 bg-[#0F2A43] px-5 py-4 text-white sm:px-7 sm:py-5">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#D8C398]">{localize("Nâng cấp kỳ nghỉ", "Enhance your stay")}</p>
+              <h2 id="booking-addon-modal-title" className="mt-1 font-serif text-2xl font-bold">{localize("Chọn dịch vụ thêm", "Choose add-on services")}</h2>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-white/72">{localize("Mọi thay đổi sẽ được hệ thống báo giá lại tự động trước khi bạn đặt phòng.", "Every change is automatically repriced before you book.")}</p>
+            </div>
+            <button type="button" onClick={() => setIsAddOnModalOpen(false)} aria-label={localize("Đóng", "Close")} className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/25 text-xl transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C398]">×</button>
+          </header>
+          <div className="lux-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            <BookingAddOnSelector
+              services={addOnCatalog}
+              selections={addOnSelections}
+              guestCount={declaredGuestCount}
+              nights={stayNights}
+              authoritativeLineTotals={authoritativeServiceTotals}
+              loading={isAddOnLoading}
+              disabled={Boolean(pendingReservation)}
+              onChange={(next) => {
+                setAddOnSelections(next);
+                setPricingQuote(null);
+                setPricingQuoteMode("checking");
+                setPricingQuoteError("");
+                setPaymentError("");
+                setIsConfirmationOpen(false);
+              }}
+            />
+          </div>
+          <footer className="flex flex-col gap-3 border-t border-[#0F2A43]/10 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#66727C]">{localize("Đã chọn", "Selected")}</p>
+              <p className="mt-1 text-sm font-bold text-[#0F2A43]">{selectedAddOns.length} {localize("dịch vụ", "services")} · <span className="tabular-nums text-[#80632F]">{formatVND(addOnSummaryTotal)}</span></p>
+            </div>
+            <button type="button" onClick={() => setIsAddOnModalOpen(false)} className="min-h-11 cursor-pointer rounded-xl bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">{localize("Xong", "Done")}</button>
+          </footer>
+        </section>
+      </ViewportModal>
 
       <ViewportModal open={isConfirmationOpen} onClose={() => setIsConfirmationOpen(false)} labelledBy="booking-confirmation-title" busy={isSubmitting} panelClassName="max-w-xl" testId="booking-confirmation-modal">
           <section className="flex min-h-0 flex-1 flex-col bg-[#FBFAF6]">

@@ -3,6 +3,7 @@ import com.hotel.backend.constant.IdCardType;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,7 +21,7 @@ public class GuestRequest {
     @Size(max = 100, message = "Họ tên không được quá 100 ký tự")
     private String fullName;
  
-    @Size(max = 24, message = "Số điện thoại không được quá 24 ký tự")
+    @Size(max = 20, message = "Số điện thoại không được quá 20 ký tự")
     private String phone;
     @Email(message = "Email không đúng định dạng")
     @Size(max = 254, message = "Email không được quá 254 ký tự")
@@ -28,7 +29,9 @@ public class GuestRequest {
     @Size(max = 50, message = "Số giấy tờ không được quá 50 ký tự")
     private String idCardNumber;
     private IdCardType idCardType;
+    @Past(message = "Ngày sinh phải nằm trong quá khứ")
     private LocalDate dateOfBirth;
+    @Size(max = 100, message = "Quốc tịch không được quá 100 ký tự")
     private String nationality;
  
     @Builder.Default

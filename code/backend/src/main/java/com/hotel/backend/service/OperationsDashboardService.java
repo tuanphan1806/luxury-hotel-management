@@ -65,9 +65,13 @@ public class OperationsDashboardService {
                         startOfDay, startOfTomorrow, ReservationStatus.PAYMENT_PENDING))
                 .pendingConfirmations(reservationRepository.countByStatus(ReservationStatus.DRAFT))
                 .cancellationRequests(reservationRepository.countByStatus(ReservationStatus.CANCELLATION_PENDING))
-                .pendingServiceRequests(reservationServiceOrderRepository.countByStatusIn(List.of(
-                        ReservationServiceStatus.REQUESTED,
-                        ReservationServiceStatus.CONFIRMED)))
+                .pendingServiceRequests(reservationServiceOrderRepository.countOperationallyPending(
+                        List.of(
+                                ReservationServiceStatus.REQUESTED,
+                                ReservationServiceStatus.CONFIRMED),
+                        List.of(
+                                ReservationStatus.CONFIRMED,
+                                ReservationStatus.CHECKED_IN)))
                 .openContactMessages(contactMessageRepository.countByStatusIn(List.of(
                         ContactMessageStatus.NEW,
                         ContactMessageStatus.READ)))

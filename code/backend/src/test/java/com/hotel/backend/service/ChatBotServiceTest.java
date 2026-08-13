@@ -914,6 +914,30 @@ class ChatBotServiceTest {
         verifyNoInteractions(geminiChatClient);
     }
 
+    @Test
+    void roomDetailsExplainSuitableOccupancyAndAutomaticExtraGuestSurcharge() {
+        when(publicDataGateway.getRoomTypes()).thenReturn(List.of(
+                RoomTypeResponse.builder()
+                        .id(1L)
+                        .code("STANDARD")
+                        .typeName("Phòng tiêu chuẩn")
+                        .includedGuests(2)
+                        .maxGuests(3)
+                        .extraGuestPrice(new BigDecimal("50000"))
+                        .overnightPrice(new BigDecimal("170000"))
+                        .dailyPrice(new BigDecimal("300000"))
+                        .build()));
+
+        ChatResponse response = service.askWithAction(
+                "Phòng tiêu chuẩn có phù hợp cho 3 người không?",
+                "chat-extra-guest-capacity");
+
+        assertTrue(response.getAnswer().contains("phù hợp 2 khách/phòng"));
+        assertTrue(response.getAnswer().contains("tối đa 3 khách"));
+        assertTrue(response.getAnswer().contains("50.000 đ"));
+        assertTrue(response.getAnswer().contains("1 suất khách phụ thu"));
+    }
+
     private AvailabilityResponse deluxeAvailability(int maxGuests) {
         return AvailabilityResponse.builder()
                 .roomTypeId(2L)

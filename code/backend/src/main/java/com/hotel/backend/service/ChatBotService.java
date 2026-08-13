@@ -674,8 +674,8 @@ public class ChatBotService {
                         + Optional.ofNullable(roomType.getDescriptionEn())
                         .filter(value -> !value.isBlank())
                         .orElse(Optional.ofNullable(roomType.getDescription()).orElse("No description is published."))
-                        + " Capacity: up to " + Optional.ofNullable(roomType.getMaxGuests()).orElse(0)
-                        + " guests per room. Facilities: " + formatFacilities(roomType.getFacilities(), "en")
+                        + " " + formatGuestCapacity(roomType, "en")
+                        + ". Facilities: " + formatFacilities(roomType.getFacilities(), "en")
                         + ". Exact price and availability require check-in and check-out times.");
             }
             if (looksLikeRoomRecommendation(normalized)) {
@@ -691,8 +691,8 @@ public class ChatBotService {
                 return roomTypes.stream()
                         .max(Comparator.comparing(roomType -> Optional.ofNullable(roomType.getMaxGuests()).orElse(0)))
                         .map(roomType -> "For a family stay, consider "
-                                + roomTypeDisplayName(roomType, "en") + " (up to "
-                                + Optional.ofNullable(roomType.getMaxGuests()).orElse(0) + " guests per room). ");
+                                + roomTypeDisplayName(roomType, "en") + " ("
+                                + formatGuestCapacity(roomType, "en") + "). ");
             }
         }
 
@@ -983,6 +983,7 @@ public class ChatBotService {
     ) {
         String displayName = roomTypeDisplayName(roomType, "vi");
         int capacity = Optional.ofNullable(roomType.getMaxGuests()).orElse(0);
+        int includedGuests = suitableGuestCount(roomType);
         Optional<Integer> requestedGuests = extractGuestCount(question);
         boolean asksFacilities = normalized.contains("co gi")
                 || normalized.contains("dang chu y")
@@ -996,9 +997,7 @@ public class ChatBotService {
                 .append(". ");
 
         if (capacity > 0) {
-            answer.append("Hạng này phù hợp tối đa ")
-                    .append(capacity)
-                    .append(" khách trong mỗi phòng. ");
+            answer.append(formatGuestCapacity(roomType, "vi")).append(". ");
         } else {
             answer.append("Dữ liệu public hiện chưa xác nhận sức chứa tối đa của hạng này. ");
         }
@@ -1025,7 +1024,13 @@ public class ChatBotService {
             int guestCount = requestedGuests.get();
             if (guestCount <= capacity) {
                 answer.append("Với ").append(guestCount)
-                        .append(" khách, một phòng hạng này đáp ứng sức chứa. ");
+                        .append(" khách, một phòng hạng này đáp ứng sức chứa");
+                if (guestCount > includedGuests) {
+                    answer.append(" và có ")
+                            .append(guestCount - includedGuests)
+                            .append(" suất khách phụ thu theo báo giá");
+                }
+                answer.append(". ");
             } else {
                 int requiredRooms = (guestCount + capacity - 1) / capacity;
                 answer.append("Với ").append(guestCount)
@@ -1038,9 +1043,9 @@ public class ChatBotService {
                         .min(Comparator.comparing(this::getComparableRoomRate));
                 alternative.ifPresent(candidate -> answer.append(" hoặc có thể cân nhắc ")
                         .append(roomTypeDisplayName(candidate, "vi"))
-                        .append(" (tối đa ")
-                        .append(candidate.getMaxGuests())
-                        .append(" khách/phòng)"));
+                        .append(" (")
+                        .append(formatGuestCapacity(candidate, "vi"))
+                        .append(")"));
                 answer.append(". ");
             }
         } else if (requestedGuests.isPresent()) {
@@ -1060,6 +1065,7 @@ public class ChatBotService {
     ) {
         String displayName = roomTypeDisplayName(roomType, "en");
         int capacity = Optional.ofNullable(roomType.getMaxGuests()).orElse(0);
+        int includedGuests = suitableGuestCount(roomType);
         Optional<Integer> requestedGuests = extractGuestCount(question);
         boolean asksFacilities = normalized.contains("what is special")
                 || normalized.contains("facilities")
@@ -1073,9 +1079,7 @@ public class ChatBotService {
                 .append(displayName)
                 .append(". ");
         if (capacity > 0) {
-            answer.append("It accommodates up to ")
-                    .append(capacity)
-                    .append(" guests per room. ");
+            answer.append(formatGuestCapacity(roomType, "en")).append(". ");
         } else {
             answer.append("Its verified maximum capacity is not currently published. ");
         }
@@ -1103,7 +1107,13 @@ public class ChatBotService {
             int guestCount = requestedGuests.get();
             if (guestCount <= capacity) {
                 answer.append("For ").append(guestCount)
-                        .append(" guests, one room fits the published capacity. ");
+                        .append(" guests, one room fits the published capacity");
+                if (guestCount > includedGuests) {
+                    answer.append(" with ")
+                            .append(guestCount - includedGuests)
+                            .append(" extra-guest surcharge slot in the authoritative quote");
+                }
+                answer.append(". ");
             } else {
                 int requiredRooms = (guestCount + capacity - 1) / capacity;
                 answer.append("For ").append(guestCount)
@@ -1115,9 +1125,9 @@ public class ChatBotService {
                         .min(Comparator.comparing(this::getComparableRoomRate))
                         .ifPresent(candidate -> answer.append(" or consider ")
                                 .append(roomTypeDisplayName(candidate, "en"))
-                                .append(" (up to ")
-                                .append(candidate.getMaxGuests())
-                                .append(" guests per room)"));
+                                .append(" (")
+                                .append(formatGuestCapacity(candidate, "en"))
+                                .append(")"));
                 answer.append(". ");
             }
         } else if (requestedGuests.isPresent()) {
@@ -2873,6 +2883,39 @@ public class ChatBotService {
                 + localize(locale, ", ngày đêm ", ", daily ") + formatVnd(roomType.getDailyPrice());
     }
 
+    private int suitableGuestCount(RoomTypeResponse roomType) {
+        int maximum = Optional.ofNullable(roomType.getMaxGuests()).orElse(0);
+        int included = Optional.ofNullable(roomType.getIncludedGuests()).orElse(maximum);
+        if (maximum < 1) {
+            return Math.max(0, included);
+        }
+        return Math.max(1, Math.min(included, maximum));
+    }
+
+    private String formatGuestCapacity(RoomTypeResponse roomType, String locale) {
+        int maximum = Optional.ofNullable(roomType.getMaxGuests()).orElse(0);
+        int included = suitableGuestCount(roomType);
+        if (maximum < 1) {
+            return localize(locale,
+                    "chưa có sức chứa được xác nhận",
+                    "no verified guest capacity is published");
+        }
+        BigDecimal surcharge = roomType.getExtraGuestPrice();
+        if (maximum > included && surcharge != null
+                && surcharge.compareTo(BigDecimal.ZERO) > 0) {
+            return localize(locale,
+                    "phù hợp " + included + " khách/phòng; tối đa " + maximum
+                            + " khách với phụ thu " + formatVnd(surcharge)
+                            + "/khách/mỗi chu kỳ lưu trú",
+                    "suitable for " + included + " guests per room; maximum " + maximum
+                            + " with an extra-guest charge of " + formatVnd(surcharge)
+                            + " per guest per stay cycle");
+        }
+        return localize(locale,
+                "phù hợp tối đa " + maximum + " khách/phòng",
+                "suitable for up to " + maximum + " guests per room");
+    }
+
     private boolean hasRoomDescriptionContaining(List<RoomTypeResponse> roomTypes, String keyword) {
         String normalizedKeyword = normalizeForMatching(keyword);
         return roomTypes.stream()
@@ -3020,8 +3063,8 @@ public class ChatBotService {
                     sb.append("Code: ")
                             .append(Optional.ofNullable(rt.getCode()).orElse("n/a"))
                             .append("; capacity: ")
-                            .append(Optional.ofNullable(rt.getMaxGuests()).orElse(0))
-                            .append(" guests per room\n");
+                            .append(formatGuestCapacity(rt, "en"))
+                            .append("\n");
 
                     sb.append("Giá tham khảo: ")
                             .append(formatRoomRateSummary(rt))

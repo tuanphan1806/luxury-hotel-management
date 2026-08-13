@@ -38,6 +38,10 @@ interface ChatApiResponse {
   payload?: ChatActionPayload;
 }
 
+interface ChatWidgetProps {
+  avoidMobileBookingBar?: boolean;
+}
+
 const INITIAL_BOT_MESSAGE: StoredChatMessage = {
   id: "welcome",
   role: "bot",
@@ -47,7 +51,7 @@ const INITIAL_BOT_MESSAGE: StoredChatMessage = {
   timestamp: null,
 };
 
-export default function ChatWidget() {
+export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidgetProps) {
   const router = useRouter();
   const { locale, localize } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
@@ -424,7 +428,11 @@ export default function ChatWidget() {
         aria-labelledby="luxury-hotel-chat-title"
         aria-hidden={!isOpen}
         inert={!isOpen}
-        className={`fixed bottom-20 right-4 z-[9999] w-[380px] max-w-[calc(100vw-2rem)] origin-bottom-right transition-all duration-300 sm:bottom-24 sm:right-6 ${
+        className={`fixed ${
+          avoidMobileBookingBar
+            ? "bottom-[calc(6.5rem+env(safe-area-inset-bottom))]"
+            : "bottom-[calc(4.75rem+env(safe-area-inset-bottom))]"
+        } right-4 z-[76] w-[380px] max-w-[calc(100vw-2rem)] origin-bottom-right transition-all duration-300 sm:bottom-24 sm:right-6 ${
           isOpen
             ? "scale-100 opacity-100 translate-y-0 pointer-events-auto"
             : "scale-90 opacity-0 translate-y-4 pointer-events-none"
@@ -603,7 +611,11 @@ export default function ChatWidget() {
         type="button"
         ref={bubbleRef}
         onClick={() => setIsOpen(!isOpen)}
-        className={`group fixed bottom-4 right-4 z-[9999] flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-300 active:scale-90 sm:bottom-6 sm:right-6 sm:h-14 sm:w-14 ${
+        className={`group fixed ${
+          avoidMobileBookingBar
+            ? "bottom-[calc(5.75rem+env(safe-area-inset-bottom))]"
+            : "bottom-[calc(1rem+env(safe-area-inset-bottom))]"
+        } right-4 z-[76] flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-300 active:scale-90 sm:bottom-6 sm:right-6 sm:h-14 sm:w-14 lg:bottom-6 ${
           isOpen
             ? "rotate-0 bg-[#0F2A43] hover:bg-[#091E30]"
             : "bg-gradient-to-br from-[#C8A35B] to-[#c99a4e] hover:from-[#d4a85e] hover:to-[#b8893f] hover:shadow-xl hover:shadow-[#C8A35B]/25"

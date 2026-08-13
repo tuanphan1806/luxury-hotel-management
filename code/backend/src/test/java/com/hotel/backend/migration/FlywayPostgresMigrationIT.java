@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "38";
+    private static final String LATEST_VERSION = "39";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -539,14 +539,14 @@ class FlywayPostgresMigrationIT {
                     "ROOM_TYPE_" + customRoomTypeId);
             assertScalar(connection,
                     "SELECT max_guests::text FROM room_types WHERE id = " + familyRoomTypeId,
-                    "6");
+                    "7");
             assertScalar(connection, """
                     SELECT included_guests::text
                     FROM room_rate_profiles
                     WHERE room_type_id = %d
                       AND active = true
                       AND effective_to_utc IS NULL
-                    """.formatted(familyRoomTypeId), "4");
+                    """.formatted(familyRoomTypeId), "6");
             assertScalar(connection,
                     "SELECT pricing_version FROM reservations WHERE id = " + reservationId,
                     "LEGACY_V1");
@@ -606,7 +606,7 @@ class FlywayPostgresMigrationIT {
                     SELECT count(*)::text
                     FROM room_rate_profiles
                     WHERE room_type_id = %d
-                    """.formatted(canonicalRoomTypeId), "4");
+                    """.formatted(canonicalRoomTypeId), "5");
             assertScalar(connection, """
                     SELECT first_block_price::text
                     FROM room_rate_profiles
@@ -821,27 +821,27 @@ class FlywayPostgresMigrationIT {
             assertActiveRate(
                     connection,
                     "STANDARD",
-                    "2|1|120|70000.00|60|20000.00|170000.00|300000.00|50000.00");
+                    "3|2|120|70000.00|60|20000.00|170000.00|300000.00|50000.00");
             assertActiveRate(
                     connection,
                     "DELUXE",
-                    "3|2|120|100000.00|60|25000.00|220000.00|400000.00|50000.00");
+                    "4|3|120|100000.00|60|25000.00|220000.00|400000.00|50000.00");
             assertActiveRate(
                     connection,
                     "EXECUTIVE",
-                    "3|2|120|120000.00|60|30000.00|270000.00|480000.00|50000.00");
+                    "4|3|120|120000.00|60|30000.00|270000.00|480000.00|50000.00");
             assertActiveRate(
                     connection,
                     "SUITE",
-                    "4|2|120|150000.00|60|35000.00|350000.00|600000.00|50000.00");
+                    "5|4|120|150000.00|60|35000.00|350000.00|600000.00|50000.00");
             assertActiveRate(
                     connection,
                     "FAMILY",
-                    "6|4|120|130000.00|60|30000.00|330000.00|550000.00|50000.00");
+                    "7|6|120|130000.00|60|30000.00|330000.00|550000.00|50000.00");
             assertActiveRate(
                     connection,
                     "PRESIDENTIAL",
-                    "6|4|120|200000.00|60|50000.00|450000.00|850000.00|50000.00");
+                    "7|6|120|200000.00|60|50000.00|450000.00|850000.00|50000.00");
             assertScalar(connection, """
                     SELECT concat_ws('|', grace_minutes,
                             overnight_start_time::text,
@@ -859,6 +859,78 @@ class FlywayPostgresMigrationIT {
                       AND effective_to_utc IS NULL
                     """,
                     "15|20:00:00|05:00:00|0|10:00:00|720|1200|1440|30|t");
+        }
+    }
+
+    @Test
+    void v39VersionsIncludedGuestsWhenHardCapacityWasAlreadyRaised() throws Exception {
+        Flyway v38 = flyway("38");
+        v38.clean();
+        v38.migrate();
+
+        long roomTypeId;
+        long originalProfileId;
+        try (Connection connection = POSTGRES.createConnection("")) {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO room_types (code, type_name, max_guests)
+                    VALUES ('STANDARD', 'Standard pre-upgraded capacity', 3)
+                    RETURNING id
+                    """)) {
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    assertThat(resultSet.next()).isTrue();
+                    roomTypeId = resultSet.getLong(1);
+                }
+            }
+
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO room_rate_profiles (
+                        room_type_id, stay_policy_version_id, profile_version,
+                        included_guests, first_block_minutes, first_block_price,
+                        extra_unit_minutes, extra_unit_price, overnight_price,
+                        daily_price, extra_guest_price, extra_guest_billing_mode,
+                        effective_from_utc, active, created_at_utc
+                    )
+                    SELECT ?, policy.id, 1, 1, 120, 70000, 60, 20000,
+                           170000, 300000, 50000, 'PER_PACKAGE_CYCLE',
+                           CURRENT_TIMESTAMP - INTERVAL '1 day', true,
+                           CURRENT_TIMESTAMP - INTERVAL '1 day'
+                    FROM stay_policy_versions policy
+                    WHERE policy.policy_code = 'DEFAULT_MOTEL_POLICY'
+                      AND policy.active = true
+                      AND policy.effective_to_utc IS NULL
+                    RETURNING id
+                    """)) {
+                statement.setLong(1, roomTypeId);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    assertThat(resultSet.next()).isTrue();
+                    originalProfileId = resultSet.getLong(1);
+                }
+            }
+        }
+
+        flyway().migrate();
+
+        try (Connection connection = POSTGRES.createConnection("")) {
+            assertScalar(connection,
+                    "SELECT max_guests::text FROM room_types WHERE id = " + roomTypeId,
+                    "3");
+            assertScalar(connection, """
+                    SELECT included_guests::text
+                    FROM room_rate_profiles
+                    WHERE room_type_id = %d
+                      AND active = true
+                      AND effective_to_utc IS NULL
+                    """.formatted(roomTypeId), "2");
+            assertScalar(connection, """
+                    SELECT concat_ws('|', included_guests, active,
+                            effective_to_utc IS NOT NULL)
+                    FROM room_rate_profiles
+                    WHERE id = %d
+                    """.formatted(originalProfileId), "1|f|t");
+            assertScalar(connection,
+                    "SELECT count(*)::text FROM room_rate_profiles WHERE room_type_id = "
+                            + roomTypeId,
+                    "2");
         }
     }
 
@@ -1221,7 +1293,7 @@ class FlywayPostgresMigrationIT {
                     FROM room_rate_profiles profile
                     JOIN room_types room_type ON room_type.id = profile.room_type_id
                     WHERE room_type.code = 'STANDARD'
-                    """, "4");
+                    """, "5");
             assertScalar(connection, """
                     SELECT first_block_price::text
                     FROM room_rate_profiles profile
@@ -1235,7 +1307,7 @@ class FlywayPostgresMigrationIT {
                     FROM room_rate_profiles profile
                     JOIN room_types room_type ON room_type.id = profile.room_type_id
                     WHERE room_type.code = 'DELUXE'
-                    """, "4");
+                    """, "5");
             assertScalar(connection, """
                     SELECT profile_version::text || ':' || first_block_price::text
                     FROM room_rate_profiles profile
@@ -1243,7 +1315,7 @@ class FlywayPostgresMigrationIT {
                     WHERE room_type.code = 'DELUXE'
                       AND profile.active = true
                       AND profile.effective_to_utc IS NULL
-                    """, "10:111000.00");
+                    """, "11:111000.00");
         }
     }
 

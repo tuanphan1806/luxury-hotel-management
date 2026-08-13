@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateAddOnLineTotal,
   chargeableNights,
+  isOperationalServiceQueueReservation,
   type AddOnServiceItem,
 } from "./add-on-services";
 
@@ -72,4 +73,36 @@ describe("package-cycle add-on pricing", () => {
       ),
     ).toBe(400_000);
   });
+});
+
+describe("operational service queue", () => {
+  it.each(["CONFIRMED", "CHECKED_IN"])(
+    "includes pending services for active reservation status %s",
+    (reservationStatus) => {
+      expect(isOperationalServiceQueueReservation(
+        reservationStatus,
+        [{ status: "CONFIRMED" }],
+      )).toBe(true);
+    },
+  );
+
+  it.each(["CANCELLED", "NO_SHOW", "CHECKED_OUT", "DRAFT"])(
+    "excludes terminal or non-operational reservation status %s",
+    (reservationStatus) => {
+      expect(isOperationalServiceQueueReservation(
+        reservationStatus,
+        [{ status: "CONFIRMED" }],
+      )).toBe(false);
+    },
+  );
+
+  it.each(["FULFILLED", "CANCELLED"] as const)(
+    "excludes completed service status %s",
+    (serviceStatus) => {
+      expect(isOperationalServiceQueueReservation(
+        "CHECKED_IN",
+        [{ status: serviceStatus }],
+      )).toBe(false);
+    },
+  );
 });

@@ -640,13 +640,33 @@ class ReservationScenarioIntegrationTest {
     }
 
     @Test
-    void checkInRejectsActualGuestsAboveReservationGuestCount() {
+    void pricingV2CheckInAllowsMoreActualGuestsWithinCommittedCapacity() {
         RoomType roomType = roomType(3);
         Room room = room(roomType);
         Reservation reservation = confirmedReservation(customer(), roomType, 1, 1);
 
+        ReservationResponse checkedIn = reservationService.checkIn(
+                reservation.getId(),
+                List.of(assignment(room.getId(), "Khách 1", "Khách 2")));
+
+        assertEquals(ReservationStatus.CHECKED_IN, checkedIn.getStatus());
+        assertEquals(2, checkedIn.getGuestCount());
+        assertEquals(0, BigDecimal.ZERO.compareTo(
+                checkedIn.getExtraGuestCharge()));
+    }
+
+    @Test
+    void legacyCheckInStillRejectsGuestsAboveDeclaredCount() {
+        RoomType roomType = roomType(3);
+        Room room = room(roomType);
+        Reservation reservation = confirmedReservation(
+                customer(), roomType, 1, 1);
+        reservation.setPricingVersion(PricingAlgorithmVersion.LEGACY_V1);
+        reservationRepository.saveAndFlush(reservation);
+
         assertThrows(RuntimeException.class, () -> reservationService.checkIn(
-                reservation.getId(), List.of(assignment(room.getId(), "Khách 1", "Khách 2"))));
+                reservation.getId(),
+                List.of(assignment(room.getId(), "Khách 1", "Khách 2"))));
     }
 
     @Test

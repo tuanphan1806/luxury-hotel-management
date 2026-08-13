@@ -33,6 +33,7 @@ type TimePickerProps = {
   step: number;
   disabled: boolean;
   onChange: (value: string) => void;
+  className?: string;
 };
 
 const padTime = (value: number) => String(value).padStart(2, "0");
@@ -65,12 +66,12 @@ const displayTime = (value: string, morningLabel: string, afternoonLabel: string
   return `${padTime(toHour12(parsed.hour))}:${padTime(parsed.minute)} ${period === "SA" ? morningLabel : afternoonLabel}`;
 };
 
-function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onChange }: TimePickerProps) {
+function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onChange, className = "" }: TimePickerProps) {
   const { localize } = useLanguage();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ left: 12, top: 12, width: 248 });
+  const [position, setPosition] = useState({ left: 12, top: 12, width: 252 });
   const parsed = parseTime(value) ?? { hour: 14, minute: 0 };
   const selectedHour12 = toHour12(parsed.hour);
   const selectedPeriod: Period = parsed.hour < 12 ? "SA" : "CH";
@@ -135,8 +136,8 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
       const trigger = triggerRef.current;
       if (!trigger) return;
       const triggerRect = trigger.getBoundingClientRect();
-      const menuWidth = Math.min(248, Math.max(220, window.innerWidth - 24));
-      const menuHeight = menuRef.current?.getBoundingClientRect().height || 292;
+      const menuWidth = Math.min(264, Math.max(232, window.innerWidth - 24));
+      const menuHeight = menuRef.current?.getBoundingClientRect().height || 308;
       const belowTop = triggerRect.bottom + 8;
       const top = belowTop + menuHeight <= window.innerHeight - 12
         ? belowTop
@@ -190,7 +191,7 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
       role="dialog"
       aria-label={label}
       style={{ left: position.left, top: position.top, width: position.width }}
-      className="hotel-native-time-menu fixed z-[1000] grid grid-cols-[1fr_1fr_0.82fr] gap-1 rounded-xl border border-[#0F2A43]/15 bg-[#FBFAF6] p-2 shadow-[0_18px_45px_rgba(15,42,67,0.22)]"
+      className="hotel-native-time-menu fixed z-[1000] grid grid-cols-[1fr_1fr_0.86fr] gap-1 rounded-xl border border-[#0F2A43]/15 bg-[#FBFAF6] p-2 shadow-[0_18px_45px_rgba(15,42,67,0.22)]"
     >
       <div role="listbox" aria-label={localize("Giờ", "Hour")} className="lux-scrollbar hotel-native-time-list max-h-56 space-y-1 overflow-y-auto pr-1">
         {Array.from({ length: 12 }, (_, index) => index + 1).map((hour) => {
@@ -204,7 +205,7 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
               aria-selected={selected}
               disabled={unavailable}
               onClick={() => chooseHour(hour)}
-              className={`hotel-native-time-option min-h-10 w-full rounded-lg text-sm font-bold tabular-nums transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#0F2A43] text-white" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
+              className={`hotel-native-time-option min-h-11 w-full rounded-lg text-sm font-bold tabular-nums transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#0F2A43] text-white" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
             >
               {padTime(hour)}
             </button>
@@ -224,7 +225,7 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
               aria-selected={selected}
               disabled={unavailable}
               onClick={() => chooseMinute(minute)}
-              className={`hotel-native-time-option min-h-10 w-full rounded-lg text-sm font-bold tabular-nums transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#B8944F] text-white" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
+              className={`hotel-native-time-option min-h-11 w-full rounded-lg text-sm font-bold tabular-nums transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#B8944F] text-white" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
             >
               {padTime(minute)}
             </button>
@@ -243,7 +244,7 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
               aria-selected={selected}
               disabled={!periodAvailable(period)}
               onClick={() => choosePeriod(period)}
-              className={`hotel-native-time-option min-h-10 w-full rounded-lg text-sm font-bold transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#0F2A43] text-white" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
+              className={`hotel-native-time-option min-h-11 w-full rounded-lg text-sm font-bold transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#0F2A43] text-white" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
             >
               {period === "SA" ? localize("SA", "AM") : localize("CH", "PM")}
             </button>
@@ -264,7 +265,7 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
-        className="hotel-time-input flex min-h-7 min-w-0 items-center justify-between gap-2 appearance-none bg-transparent text-left text-sm font-bold tabular-nums text-[#0F2A43] outline-none transition focus-visible:ring-2 focus-visible:ring-[#B8944F]/50 disabled:cursor-not-allowed disabled:text-[#66727C]"
+        className={`hotel-time-input flex min-h-7 min-w-0 items-center justify-between gap-2 appearance-none text-left text-sm font-bold tabular-nums text-[#0F2A43] outline-none transition focus-visible:ring-2 focus-visible:ring-[#B8944F]/50 disabled:cursor-not-allowed disabled:text-[#66727C] ${className || "bg-transparent"}`}
       >
         <span>{displayTime(value, localize("SA", "AM"), localize("CH", "PM"))}</span>
         <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[#66727C]" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -274,6 +275,49 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
       </button>
       {dropdown && createPortal(dropdown, document.body)}
     </>
+  );
+}
+
+export type TimePickerInputProps = {
+  id?: string;
+  label: string;
+  value: string;
+  min?: string;
+  max?: string;
+  step?: number;
+  disabled?: boolean;
+  onValueChange: (value: string) => void;
+  className?: string;
+};
+
+/**
+ * Reuses the same styled time menu outside DateTimeField without changing the
+ * stored HH:mm value or the surrounding form layout.
+ */
+export function TimePickerInput({
+  id,
+  label,
+  value,
+  min,
+  max,
+  step = 60,
+  disabled = false,
+  onValueChange,
+  className = "",
+}: TimePickerInputProps) {
+  const generatedId = useId();
+  return (
+    <NativeStyleTimePicker
+      id={id || generatedId}
+      label={label}
+      value={value}
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      onChange={onValueChange}
+      className={className}
+    />
   );
 }
 

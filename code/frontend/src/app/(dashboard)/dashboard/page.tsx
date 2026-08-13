@@ -326,7 +326,7 @@ export default function DashboardOverview() {
     {
       label: localize("Dịch vụ chờ phục vụ", "Services awaiting fulfilment"),
       value: summary.pendingServiceRequests,
-      href: "/dashboard/services",
+      href: "/dashboard/reservations?serviceQueue=1",
       tone: "bg-blue-50 text-blue-900 border-blue-200",
     },
     {

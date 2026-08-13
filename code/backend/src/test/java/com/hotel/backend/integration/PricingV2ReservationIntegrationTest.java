@@ -9,12 +9,14 @@ import com.hotel.backend.constant.UserStatus;
 import com.hotel.backend.constant.UserType;
 import com.hotel.backend.constant.WalkInPaymentOption;
 import com.hotel.backend.dto.request.AssignRoomRequest;
+import com.hotel.backend.dto.request.AddStayGuestRequest;
 import com.hotel.backend.dto.request.CreateReservationRequest;
 import com.hotel.backend.dto.request.CreateWalkInCheckedInRequest;
 import com.hotel.backend.dto.request.CreateWalkInReservationRequest;
 import com.hotel.backend.dto.request.CustomerProfileRequest;
 import com.hotel.backend.dto.request.ExtendReservationRequest;
 import com.hotel.backend.dto.request.GuestRequest;
+import com.hotel.backend.dto.request.MoveStayGuestRequest;
 import com.hotel.backend.dto.request.PricingQuoteRequest;
 import com.hotel.backend.dto.request.PricingQuoteRoomRequest;
 import com.hotel.backend.dto.request.RoomTypeItemRequest;
@@ -23,12 +25,15 @@ import com.hotel.backend.dto.request.UpdateReservationRequest;
 import com.hotel.backend.dto.request.WalkInPriceOverrideRequest;
 import com.hotel.backend.dto.response.PricingQuoteResponse;
 import com.hotel.backend.dto.response.FinalPaymentResponse;
+import com.hotel.backend.dto.response.CheckoutReconciliationResponse;
 import com.hotel.backend.dto.response.ReservationInvoiceResponse;
 import com.hotel.backend.dto.response.ReservationResponse;
 import com.hotel.backend.dto.response.WalkInReservationResponse;
 import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.ReservationRateSnapshot;
+import com.hotel.backend.entity.ReservationRoom;
 import com.hotel.backend.entity.ReservationRoomType;
+import com.hotel.backend.entity.Guest;
 import com.hotel.backend.entity.Room;
 import com.hotel.backend.entity.RoomRateProfile;
 import com.hotel.backend.entity.RoomType;
@@ -93,6 +98,10 @@ class PricingV2ReservationIntegrationTest {
     private ReservationRoomTypeRepository reservationRoomTypeRepository;
     @Autowired
     private RoomRepository roomRepository;
+    @Autowired
+    private GuestRepository guestRepository;
+    @Autowired
+    private ReservationRoomRepository reservationRoomRepository;
     @Autowired
     private EntityManager entityManager;
 
@@ -279,6 +288,440 @@ class PricingV2ReservationIntegrationTest {
     }
 
     @Test
+    void checkInAcceptsActualExtraGuestOnChosenRoomTypeAndCheckoutExplainsCharge() {
+        RoomType standard = roomTypeRepository.findByCode("STANDARD")
+                .orElseThrow();
+        RoomType deluxe = roomTypeRepository.findByCode("DELUXE")
+                .orElseThrow();
+        Room standardRoom = availableRoom(standard);
+        Room deluxeRoom = availableRoom(deluxe);
+        LocalDateTime checkIn = LocalDateTime.now().plusMinutes(5)
+                .withSecond(0).withNano(0);
+        LocalDateTime checkOut = checkIn.plusHours(2);
+        PricingQuoteResponse quote = pricingQuoteService.createQuote(
+                PricingQuoteRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(5)
+                        .rooms(List.of(
+                                PricingQuoteRoomRequest.builder()
+                                        .roomTypeId(standard.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(2)
+                                        .build(),
+                                PricingQuoteRoomRequest.builder()
+                                        .roomTypeId(deluxe.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(3)
+                                        .build()))
+                        .build());
+        User customer = customer();
+        ReservationResponse created = reservationService.createReservation(
+                customer,
+                CreateReservationRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(5)
+                        .roomTypes(List.of(
+                                RoomTypeItemRequest.builder()
+                                        .roomTypeId(standard.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(2)
+                                        .build(),
+                                RoomTypeItemRequest.builder()
+                                        .roomTypeId(deluxe.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(3)
+                                        .build()))
+                        .quoteId(quote.getQuoteId())
+                        .quoteHash(quote.getQuoteHash())
+                        .build());
+        Reservation reservation = reservationRepository
+                .findByIdWithDetails(created.getId())
+                .orElseThrow();
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservationRepository.saveAndFlush(reservation);
+
+        ReservationResponse checkedIn = reservationService.checkIn(
+                reservation.getId(),
+                List.of(
+                        AssignRoomRequest.builder()
+                                .roomId(standardRoom.getId())
+                                .guests(checkInGuests("Standard 1", "Standard 2"))
+                                .build(),
+                        AssignRoomRequest.builder()
+                                .roomId(deluxeRoom.getId())
+                                .guests(checkInGuests(
+                                        "Deluxe 1", "Deluxe 2", "Deluxe 3", "Deluxe 4"))
+                                .build()));
+
+        assertEquals(ReservationStatus.CHECKED_IN, checkedIn.getStatus());
+        assertEquals(6, checkedIn.getGuestCount());
+        assertEquals(0, new BigDecimal("50000.00")
+                .compareTo(checkedIn.getExtraGuestCharge()));
+        assertEquals(0, quote.getTotalAmount()
+                .add(new BigDecimal("50000.00"))
+                .compareTo(checkedIn.getActualTotalAmount()));
+
+        CheckoutReconciliationResponse reconciliation =
+                reservationService.getCheckoutReconciliation(
+                        reservation.getId(), staff());
+        assertEquals(50_000L, reconciliation.getExtraGuestCharge());
+        assertEquals(1, reconciliation.getExtraGuestLines().size());
+        var deluxeExtra = reconciliation.getExtraGuestLines().get(0);
+        assertEquals(deluxe.getId(), deluxeExtra.getRoomTypeId());
+        assertEquals(4, deluxeExtra.getActualGuestCount());
+        assertEquals(3, deluxeExtra.getIncludedGuestCapacity());
+        assertEquals(1, deluxeExtra.getExtraGuestCount());
+        assertEquals(1, deluxeExtra.getPackageCycles());
+        assertEquals(50_000L, deluxeExtra.getAmount());
+
+        List<ReservationRoomType> persistedLines =
+                reservationRoomTypeRepository.findDetailsByReservationId(
+                        reservation.getId());
+        ReservationRoomType persistedDeluxe = persistedLines.stream()
+                .filter(line -> line.getRoomType().getId()
+                        .equals(deluxe.getId()))
+                .findFirst()
+                .orElseThrow();
+        List<ReservationRateSnapshot> deluxeSnapshots = snapshotRepository
+                .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
+                        persistedDeluxe.getId());
+        assertEquals(2, deluxeSnapshots.size());
+        assertEquals(RateSnapshotStage.CHECK_IN,
+                deluxeSnapshots.get(1).getSnapshotStage());
+        assertEquals(1, deluxeSnapshots.get(1).getExtraGuestCount());
+
+        Long standardReservationRoomId = reservationRoomRepository
+                .findAllByReservationId(reservation.getId())
+                .stream()
+                .filter(assignedRoom -> assignedRoom
+                        .getReservationRoomType().getRoomType().getId()
+                        .equals(standard.getId()))
+                .map(assignedRoom -> assignedRoom.getId())
+                .findFirst()
+                .orElseThrow();
+        ReservationResponse afterStayGuest = reservationService.addStayGuest(
+                reservation.getId(),
+                AddStayGuestRequest.builder()
+                        .reservationRoomId(standardReservationRoomId)
+                        .guest(GuestRequest.builder()
+                                .fullName("Standard 3 phát sinh")
+                                .phone("0901234567")
+                                .isPrimary(false)
+                                .build())
+                        .build());
+        assertEquals(7, afterStayGuest.getGuestCount());
+        assertEquals(0, new BigDecimal("100000.00")
+                .compareTo(afterStayGuest.getExtraGuestCharge()));
+        assertEquals(7, guestRepository.findAllByReservationId(
+                reservation.getId()).size());
+
+        CheckoutReconciliationResponse afterStayReconciliation =
+                reservationService.getCheckoutReconciliation(
+                        reservation.getId(), staff());
+        assertEquals(100_000L,
+                afterStayReconciliation.getExtraGuestCharge());
+        assertEquals(2,
+                afterStayReconciliation.getExtraGuestLines().size());
+        var standardExtra = afterStayReconciliation
+                .getExtraGuestLines().stream()
+                .filter(line -> line.getRoomTypeId()
+                        .equals(standard.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(3, standardExtra.getActualGuestCount());
+        assertEquals(2, standardExtra.getIncludedGuestCapacity());
+        assertEquals(1, standardExtra.getExtraGuestCount());
+        assertEquals(50_000L, standardExtra.getAmount());
+
+        ReservationRoomType persistedStandard =
+                reservationRoomTypeRepository
+                        .findDetailsByReservationId(reservation.getId())
+                        .stream()
+                        .filter(line -> line.getRoomType().getId()
+                                .equals(standard.getId()))
+                        .findFirst()
+                        .orElseThrow();
+        List<ReservationRateSnapshot> standardSnapshots = snapshotRepository
+                .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
+                        persistedStandard.getId());
+        assertEquals(3, standardSnapshots.size());
+        assertEquals(RateSnapshotStage.ADJUSTMENT,
+                standardSnapshots.get(2).getSnapshotStage());
+        assertEquals(3,
+                standardSnapshots.get(2).getLineGuestCount());
+        assertEquals(1,
+                standardSnapshots.get(2).getExtraGuestCount());
+    }
+
+    @Test
+    void addingStayGuestsRecordsIncludedCapacityAndRejectsBeyondCommittedMaximum() {
+        RoomType standard = roomTypeRepository.findByCode("STANDARD")
+                .orElseThrow();
+        Room standardRoom = availableRoom(standard);
+        LocalDateTime checkIn = LocalDateTime.now().plusMinutes(5)
+                .withSecond(0).withNano(0);
+        LocalDateTime checkOut = checkIn.plusHours(2);
+        PricingQuoteResponse quote = pricingQuoteService.createQuote(
+                PricingQuoteRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(1)
+                        .rooms(List.of(PricingQuoteRoomRequest.builder()
+                                .roomTypeId(standard.getId())
+                                .quantity(1)
+                                .lineGuestCount(1)
+                                .build()))
+                        .build());
+        ReservationResponse created = reservationService.createReservation(
+                customer(),
+                CreateReservationRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(1)
+                        .roomTypes(List.of(RoomTypeItemRequest.builder()
+                                .roomTypeId(standard.getId())
+                                .quantity(1)
+                                .lineGuestCount(1)
+                                .build()))
+                        .quoteId(quote.getQuoteId())
+                        .quoteHash(quote.getQuoteHash())
+                        .build());
+        Reservation reservation = reservationRepository
+                .findByIdWithDetails(created.getId())
+                .orElseThrow();
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservationRepository.saveAndFlush(reservation);
+
+        reservationService.checkIn(
+                reservation.getId(),
+                List.of(AssignRoomRequest.builder()
+                        .roomId(standardRoom.getId())
+                        .guests(checkInGuests("Standard primary"))
+                        .build()));
+        Long reservationRoomId = reservationRoomRepository
+                .findAllByReservationId(reservation.getId())
+                .get(0)
+                .getId();
+
+        ReservationResponse secondGuest = reservationService.addStayGuest(
+                reservation.getId(),
+                stayGuest(reservationRoomId, "Standard included 2"));
+        assertEquals(2, secondGuest.getGuestCount());
+        assertEquals(0, BigDecimal.ZERO.compareTo(
+                secondGuest.getExtraGuestCharge()));
+        assertEquals(0, quote.getTotalAmount().compareTo(
+                secondGuest.getActualTotalAmount()));
+
+        ReservationRoomType line = reservationRoomTypeRepository
+                .findDetailsByReservationId(reservation.getId())
+                .get(0);
+        List<ReservationRateSnapshot> includedSnapshots = snapshotRepository
+                .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
+                        line.getId());
+        assertEquals(3, includedSnapshots.size());
+        assertEquals(RateSnapshotStage.ADJUSTMENT,
+                includedSnapshots.get(2).getSnapshotStage());
+        assertEquals(2, includedSnapshots.get(2).getLineGuestCount());
+        assertEquals(0, includedSnapshots.get(2).getExtraGuestCount());
+
+        ReservationResponse thirdGuest = reservationService.addStayGuest(
+                reservation.getId(),
+                stayGuest(reservationRoomId, "Standard extra 3"));
+        assertEquals(3, thirdGuest.getGuestCount());
+        assertEquals(0, new BigDecimal("50000.00").compareTo(
+                thirdGuest.getExtraGuestCharge()));
+
+        AppException capacityExceeded = assertThrows(
+                AppException.class,
+                () -> reservationService.addStayGuest(
+                        reservation.getId(),
+                        stayGuest(reservationRoomId, "Standard rejected 4")));
+        assertEquals(ErrorCode.INVALID_REQUEST,
+                capacityExceeded.getErrorCode());
+        assertEquals(3, guestRepository.findAllByReservationId(
+                reservation.getId()).size());
+        assertEquals(4, snapshotRepository
+                .findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(
+                        line.getId())
+                .size());
+
+        CheckoutReconciliationResponse reconciliation =
+                reservationService.getCheckoutReconciliation(
+                        reservation.getId(), staff());
+        assertEquals(50_000L, reconciliation.getExtraGuestCharge());
+        assertEquals(1, reconciliation.getExtraGuestLines().size());
+        assertEquals(3, reconciliation.getExtraGuestLines().get(0)
+                .getActualGuestCount());
+        assertEquals(2, reconciliation.getExtraGuestLines().get(0)
+                .getIncludedGuestCapacity());
+        assertEquals(1, reconciliation.getExtraGuestLines().get(0)
+                .getExtraGuestCount());
+    }
+
+    @Test
+    void movingGuestBetweenRoomTypesRepricesOnlyPersistedDistribution() {
+        RoomType standard = roomTypeRepository.findByCode("STANDARD")
+                .orElseThrow();
+        RoomType deluxe = roomTypeRepository.findByCode("DELUXE")
+                .orElseThrow();
+        Room standardRoom = availableRoom(standard);
+        Room deluxeRoom = availableRoom(deluxe);
+        LocalDateTime checkIn = LocalDateTime.now().plusMinutes(5)
+                .withSecond(0).withNano(0);
+        LocalDateTime checkOut = checkIn.plusHours(2);
+        PricingQuoteResponse quote = pricingQuoteService.createQuote(
+                PricingQuoteRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(4)
+                        .rooms(List.of(
+                                PricingQuoteRoomRequest.builder()
+                                        .roomTypeId(standard.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(2)
+                                        .build(),
+                                PricingQuoteRoomRequest.builder()
+                                        .roomTypeId(deluxe.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(2)
+                                        .build()))
+                        .build());
+        ReservationResponse created = reservationService.createReservation(
+                customer(),
+                CreateReservationRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(4)
+                        .roomTypes(List.of(
+                                RoomTypeItemRequest.builder()
+                                        .roomTypeId(standard.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(2)
+                                        .build(),
+                                RoomTypeItemRequest.builder()
+                                        .roomTypeId(deluxe.getId())
+                                        .quantity(1)
+                                        .lineGuestCount(2)
+                                        .build()))
+                        .quoteId(quote.getQuoteId())
+                        .quoteHash(quote.getQuoteHash())
+                        .build());
+        Reservation reservation = reservationRepository
+                .findByIdWithDetails(created.getId())
+                .orElseThrow();
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservationRepository.saveAndFlush(reservation);
+
+        ReservationResponse checkedIn = reservationService.checkIn(
+                reservation.getId(),
+                List.of(
+                        AssignRoomRequest.builder()
+                                .roomId(standardRoom.getId())
+                                .guests(checkInGuests(
+                                        "Standard primary",
+                                        "Standard movable",
+                                        "Standard extra"))
+                                .build(),
+                        AssignRoomRequest.builder()
+                                .roomId(deluxeRoom.getId())
+                                .guests(checkInGuests("Deluxe primary"))
+                                .build()));
+        assertEquals(0, new BigDecimal("50000.00").compareTo(
+                checkedIn.getExtraGuestCharge()));
+
+        List<Guest> guests = guestRepository.findAllByReservationId(
+                reservation.getId());
+        Guest movedGuest = guests.stream()
+                .filter(guest -> "Standard movable".equals(
+                        guest.getFullName()))
+                .findFirst()
+                .orElseThrow();
+        Long sourceRoomId = movedGuest.getReservationRoom().getId();
+        Long targetRoomId = guests.stream()
+                .filter(guest -> "Deluxe primary".equals(
+                        guest.getFullName()))
+                .map(guest -> guest.getReservationRoom().getId())
+                .findFirst()
+                .orElseThrow();
+
+        ReservationResponse corrected = reservationService.moveStayGuest(
+                reservation.getId(),
+                movedGuest.getId(),
+                MoveStayGuestRequest.builder()
+                        .targetReservationRoomId(targetRoomId)
+                        .reason("Sửa phân bổ khách để dùng đúng suất đã gồm giá")
+                        .build());
+
+        assertEquals(4, corrected.getGuestCount());
+        assertEquals(0, BigDecimal.ZERO.compareTo(
+                corrected.getExtraGuestCharge()));
+        assertEquals(0, quote.getTotalAmount().compareTo(
+                corrected.getActualTotalAmount()));
+        Guest reloaded = guestRepository.findById(movedGuest.getId())
+                .orElseThrow();
+        assertEquals(targetRoomId, reloaded.getReservationRoom().getId());
+        assertNotEquals(sourceRoomId, reloaded.getReservationRoom().getId());
+        assertEquals(2L, guestRepository
+                .countByReservationRoomIdAndCheckedOutAtIsNull(sourceRoomId));
+        assertEquals(2L, guestRepository
+                .countByReservationRoomIdAndCheckedOutAtIsNull(targetRoomId));
+
+        CheckoutReconciliationResponse reconciliation = reservationService
+                .getCheckoutReconciliation(reservation.getId(), staff());
+        assertEquals(0L, reconciliation.getExtraGuestCharge());
+        assertTrue(reconciliation.getExtraGuestLines().isEmpty());
+    }
+
+    @Test
+    void checkInResumesWhenPreSavedGuestsExactlyMatchSubmittedProfiles() {
+        PreparedCheckIn prepared = prepareStandardCheckIn();
+        guestRepository.saveAndFlush(Guest.builder()
+                .reservationRoom(prepared.reservationRoom())
+                .fullName("Persisted primary")
+                .isPrimary(true)
+                .build());
+
+        ReservationResponse checkedIn = reservationService.checkIn(
+                prepared.reservationId(),
+                List.of(AssignRoomRequest.builder()
+                        .roomId(prepared.room().getId())
+                        .guests(checkInGuests("Persisted primary"))
+                        .build()));
+
+        assertEquals(ReservationStatus.CHECKED_IN, checkedIn.getStatus());
+        assertEquals(1, checkedIn.getGuestCount());
+        assertEquals(1, guestRepository.findAllByReservationId(
+                prepared.reservationId()).size(),
+                "Retry trùng khớp không được nhân đôi hồ sơ khách");
+    }
+
+    @Test
+    void checkInRejectsWhenPreSavedGuestsDifferFromSubmittedProfiles() {
+        PreparedCheckIn prepared = prepareStandardCheckIn();
+        guestRepository.saveAndFlush(Guest.builder()
+                .reservationRoom(prepared.reservationRoom())
+                .fullName("Persisted primary")
+                .isPrimary(true)
+                .build());
+
+        AppException conflict = assertThrows(
+                AppException.class,
+                () -> reservationService.checkIn(
+                        prepared.reservationId(),
+                        List.of(AssignRoomRequest.builder()
+                                .roomId(prepared.room().getId())
+                                .guests(checkInGuests("Different primary"))
+                                .build())));
+
+        assertEquals(ErrorCode.INVALID_REQUEST, conflict.getErrorCode());
+        assertTrue(conflict.getMessage().contains("đã có hồ sơ khách khác"));
+        assertEquals(1, guestRepository.findAllByReservationId(
+                prepared.reservationId()).size());
+    }
+
+    @Test
     void allCanonicalRatesAndGuestSurchargesReconcileFromQuoteThroughInvoice() {
         List<String> codes = List.of(
                 "STANDARD",
@@ -298,9 +741,9 @@ class PricingV2ReservationIntegrationTest {
                 "STANDARD", new BigDecimal("50000.00"),
                 "DELUXE", new BigDecimal("50000.00"),
                 "EXECUTIVE", new BigDecimal("50000.00"),
-                "SUITE", new BigDecimal("100000.00"),
-                "FAMILY", new BigDecimal("100000.00"),
-                "PRESIDENTIAL", new BigDecimal("100000.00"));
+                "SUITE", new BigDecimal("50000.00"),
+                "FAMILY", new BigDecimal("50000.00"),
+                "PRESIDENTIAL", new BigDecimal("50000.00"));
         List<RoomType> roomTypes = codes.stream()
                 .map(code -> roomTypeRepository.findByCode(code)
                         .orElseThrow())
@@ -331,9 +774,9 @@ class PricingV2ReservationIntegrationTest {
         assertEquals(6, quote.getLines().size());
         assertEquals(0, new BigDecimal("770000.00")
                 .compareTo(quote.getRoomCharge()));
-        assertEquals(0, new BigDecimal("450000.00")
+        assertEquals(0, new BigDecimal("300000.00")
                 .compareTo(quote.getExtraGuestCharge()));
-        assertEquals(0, new BigDecimal("1220000.00")
+        assertEquals(0, new BigDecimal("1070000.00")
                 .compareTo(quote.getTotalAmount()));
         quote.getLines().forEach(line -> {
             BigDecimal expectedRoom = expectedRoomCharges.get(
@@ -389,9 +832,9 @@ class PricingV2ReservationIntegrationTest {
         assertEquals(6, invoice.getRoomTypes().size());
         assertEquals(0, new BigDecimal("770000.00")
                 .compareTo(invoice.getActualRoomCharge()));
-        assertEquals(0, new BigDecimal("450000.00")
+        assertEquals(0, new BigDecimal("300000.00")
                 .compareTo(invoice.getExtraGuestCharge()));
-        assertEquals(0, new BigDecimal("1220000.00")
+        assertEquals(0, new BigDecimal("1070000.00")
                 .compareTo(invoice.getTotalAmount()));
         assertEquals(0, invoice.getRoomTypes().stream()
                 .map(item -> item.getActualSubtotal())
@@ -524,7 +967,7 @@ class PricingV2ReservationIntegrationTest {
                 CreateWalkInCheckedInRequest.builder()
                         .customer(walkInCustomer("Atomic V2"))
                         .checkOut(LocalDateTime.now().plusHours(21))
-                        .guestCount(2)
+                        .guestCount(3)
                         .rooms(List.of(AssignRoomRequest.builder()
                                 .roomId(room.getId())
                                 .guests(List.of(walkInGuest("Khách đã khai báo")))
@@ -555,7 +998,7 @@ class PricingV2ReservationIntegrationTest {
                 persisted.getPricingVersion());
         assertEquals(0, new java.math.BigDecimal("350000.00")
                 .compareTo(persisted.getTotalAmount()));
-        assertEquals(2, line.getLineGuestCount());
+        assertEquals(3, line.getLineGuestCount());
         assertEquals(0, new java.math.BigDecimal("350000.00")
                 .compareTo(line.getSubtotal()));
         assertEquals(1, snapshot.getExtraGuestCount());
@@ -1152,6 +1595,78 @@ class PricingV2ReservationIntegrationTest {
                 .fullName(name)
                 .isPrimary(true)
                 .build();
+    }
+
+    private List<GuestRequest> checkInGuests(String... names) {
+        return java.util.stream.IntStream.range(0, names.length)
+                .mapToObj(index -> GuestRequest.builder()
+                        .fullName(names[index])
+                        .isPrimary(index == 0)
+                        .build())
+                .toList();
+    }
+
+    private AddStayGuestRequest stayGuest(
+            Long reservationRoomId,
+            String fullName) {
+        return AddStayGuestRequest.builder()
+                .reservationRoomId(reservationRoomId)
+                .guest(GuestRequest.builder()
+                        .fullName(fullName)
+                        .phone("0901234567")
+                        .isPrimary(false)
+                        .build())
+                .build();
+    }
+
+    private PreparedCheckIn prepareStandardCheckIn() {
+        RoomType standard = roomTypeRepository.findByCode("STANDARD")
+                .orElseThrow();
+        Room room = availableRoom(standard);
+        LocalDateTime checkIn = LocalDateTime.now().plusMinutes(5)
+                .withSecond(0).withNano(0);
+        LocalDateTime checkOut = checkIn.plusHours(2);
+        PricingQuoteResponse quote = pricingQuoteService.createQuote(
+                PricingQuoteRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(1)
+                        .rooms(List.of(PricingQuoteRoomRequest.builder()
+                                .roomTypeId(standard.getId())
+                                .quantity(1)
+                                .lineGuestCount(1)
+                                .build()))
+                        .build());
+        ReservationResponse created = reservationService.createReservation(
+                customer(),
+                CreateReservationRequest.builder()
+                        .checkIn(checkIn)
+                        .checkOut(checkOut)
+                        .guestCount(1)
+                        .roomTypes(List.of(RoomTypeItemRequest.builder()
+                                .roomTypeId(standard.getId())
+                                .quantity(1)
+                                .lineGuestCount(1)
+                                .build()))
+                        .quoteId(quote.getQuoteId())
+                        .quoteHash(quote.getQuoteHash())
+                        .build());
+        Reservation reservation = reservationRepository
+                .findByIdWithDetails(created.getId())
+                .orElseThrow();
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservationRepository.saveAndFlush(reservation);
+        ReservationRoom reservationRoom = reservationRoomRepository
+                .findAllByReservationId(reservation.getId())
+                .get(0);
+        return new PreparedCheckIn(
+                reservation.getId(), reservationRoom, room);
+    }
+
+    private record PreparedCheckIn(
+            Long reservationId,
+            com.hotel.backend.entity.ReservationRoom reservationRoom,
+            Room room) {
     }
 
     private Room availableRoom(RoomType roomType) {

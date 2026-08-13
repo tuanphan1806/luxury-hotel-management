@@ -129,8 +129,10 @@ public class AvailabilityPricingService {
                     ErrorCode.INVALID_REQUEST, exception.getMessage());
         }
         return new Estimate(
+                rateProfile.getIncludedGuests(),
                 rateProfile.getFirstBlockMinutes(),
                 rateProfile.getFirstBlockPrice(),
+                rateProfile.getExtraGuestPrice(),
                 breakdown.roomChargePerRoom(),
                 breakdown.appliedPackage());
     }
@@ -154,8 +156,10 @@ public class AvailabilityPricingService {
     }
 
     public record Estimate(
+            int includedGuests,
             int firstBlockMinutes,
             BigDecimal firstBlockPrice,
+            BigDecimal extraGuestPrice,
             BigDecimal estimatedPricePerRoom,
             StayPackage estimatedPackage) {
     }

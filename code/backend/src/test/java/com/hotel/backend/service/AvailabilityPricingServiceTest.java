@@ -76,7 +76,7 @@ class AvailabilityPricingServiceTest {
         roomType = RoomType.builder()
                 .code("STANDARD")
                 .typeName("Phòng tiêu chuẩn")
-                .maxGuests(2)
+                .maxGuests(3)
                 .build();
         roomType.setId(1L);
         rateProfile = RoomRateProfile.builder()
@@ -84,7 +84,7 @@ class AvailabilityPricingServiceTest {
                 .roomType(roomType)
                 .stayPolicyVersion(policy)
                 .profileVersion(1)
-                .includedGuests(1)
+                .includedGuests(2)
                 .firstBlockMinutes(120)
                 .firstBlockPrice(new BigDecimal("70000"))
                 .extraUnitMinutes(60)
@@ -113,11 +113,14 @@ class AvailabilityPricingServiceTest {
                 .orElseThrow();
 
         assertEquals(120, estimate.firstBlockMinutes());
+        assertEquals(2, estimate.includedGuests());
         assertEquals(0, new BigDecimal("70000")
                 .compareTo(estimate.firstBlockPrice()));
         assertEquals(0, new BigDecimal("300000")
                 .compareTo(estimate.estimatedPricePerRoom()));
         assertEquals(StayPackage.DAILY, estimate.estimatedPackage());
+        assertEquals(0, new BigDecimal("50000")
+                .compareTo(estimate.extraGuestPrice()));
     }
 
     @Test
@@ -163,11 +166,14 @@ class AvailabilityPricingServiceTest {
         AvailabilityPricingService.Estimate estimate =
                 estimates.get(roomType.getId());
         assertEquals(120, estimate.firstBlockMinutes());
+        assertEquals(2, estimate.includedGuests());
         assertEquals(0, new BigDecimal("70000")
                 .compareTo(estimate.firstBlockPrice()));
         assertEquals(0, new BigDecimal("300000")
                 .compareTo(estimate.estimatedPricePerRoom()));
         assertEquals(StayPackage.DAILY, estimate.estimatedPackage());
+        assertEquals(0, new BigDecimal("50000")
+                .compareTo(estimate.extraGuestPrice()));
         verify(rateProfileRepository).findEffectiveByRoomTypeIds(
                 eq(List.of(1L)), any(Instant.class));
     }

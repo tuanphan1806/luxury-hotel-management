@@ -5,6 +5,7 @@ import com.hotel.backend.entity.Guest;
 import lombok.*;
  
 import java.time.LocalDate;
+import java.time.LocalDateTime;
  
 @Data
 @Builder
@@ -25,6 +26,7 @@ public class GuestResponse {
     private LocalDate dateOfBirth;
     private String nationality;
     private Boolean isPrimary;
+    private LocalDateTime checkedOutAt;
  
     public static GuestResponse from(Guest guest) {
         var reservationRoom = guest.getReservationRoom();
@@ -44,6 +46,7 @@ public class GuestResponse {
                 .dateOfBirth(guest.getDateOfBirth())
                 .nationality(guest.getNationality())
                 .isPrimary(guest.getIsPrimary())
+                .checkedOutAt(guest.getCheckedOutAt())
                 .build();
     }
 }

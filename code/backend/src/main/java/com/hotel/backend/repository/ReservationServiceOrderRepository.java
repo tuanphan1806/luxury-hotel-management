@@ -1,6 +1,7 @@
 package com.hotel.backend.repository;
 
 import com.hotel.backend.constant.ReservationServiceStatus;
+import com.hotel.backend.constant.ReservationStatus;
 import com.hotel.backend.entity.ReservationServiceOrder;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -61,7 +62,15 @@ public interface ReservationServiceOrderRepository
             Long reservationId,
             Collection<ReservationServiceStatus> statuses);
 
-    long countByStatusIn(Collection<ReservationServiceStatus> statuses);
+    @Query("""
+            select count(orderLine)
+            from ReservationServiceOrder orderLine
+            where orderLine.status in :serviceStatuses
+              and orderLine.reservation.status in :reservationStatuses
+            """)
+    long countOperationallyPending(
+            @Param("serviceStatuses") Collection<ReservationServiceStatus> serviceStatuses,
+            @Param("reservationStatuses") Collection<ReservationStatus> reservationStatuses);
 
     @Query("""
             select coalesce(sum(orderLine.totalPrice), 0)

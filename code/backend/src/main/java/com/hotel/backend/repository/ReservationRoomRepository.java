@@ -15,6 +15,16 @@ import java.util.Optional;
 @Repository
 public interface ReservationRoomRepository extends JpaRepository<ReservationRoom, Long> {
 
+    @Query("""
+        SELECT rr FROM ReservationRoom rr
+        JOIN FETCH rr.reservationRoomType rrt
+        JOIN FETCH rrt.reservation
+        JOIN FETCH rrt.roomType
+        LEFT JOIN FETCH rr.room
+        WHERE rr.id = :id
+    """)
+    Optional<ReservationRoom> findByIdWithStayDetails(@Param("id") Long id);
+
     List<ReservationRoom> findByReservationRoomTypeId(Long reservationRoomTypeId);
 
     List<ReservationRoom> findByStatus(AssignStatus status);

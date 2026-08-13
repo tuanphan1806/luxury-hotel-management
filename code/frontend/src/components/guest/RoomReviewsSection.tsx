@@ -23,7 +23,7 @@ interface RoomReviewsSectionProps {
 }
 
 const PAGE_SIZE = 6;
-const PREVIEW_COUNT = 4;
+const PREVIEW_COUNT = 3;
 
 function ReviewCard({ review, detailed = false }: { review: PublicRoomReview; detailed?: boolean }) {
   const { localize, localeTag } = useLanguage();
@@ -44,31 +44,31 @@ function ReviewCard({ review, detailed = false }: { review: PublicRoomReview; de
   }, [localeTag, review.createdAt]);
 
   return (
-    <article className={`flex h-full flex-col rounded-[1.25rem] border border-[#0F2A43]/9 bg-white p-5 shadow-[0_10px_28px_rgba(15,42,67,0.06)] ${detailed ? "sm:p-6" : ""}`}>
+    <article className={`flex h-full flex-col rounded-[1.15rem] border border-[#0F2A43]/9 bg-white shadow-[0_8px_24px_rgba(15,42,67,0.055)] ${detailed ? "p-5 sm:p-6" : "p-4 sm:p-5"}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h4 className="truncate font-serif text-xl font-bold text-primary-navy">{reviewer}</h4>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="flex gap-1 text-sm text-[#B8944F]" aria-label={localize(`${score} trên 5 sao`, `${score} out of 5 stars`)}>
+          <h4 className={`truncate font-serif font-bold text-primary-navy ${detailed ? "text-xl" : "text-lg"}`}>{reviewer}</h4>
+          <div className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-2">
+            <div className="flex shrink-0 gap-0.5 whitespace-nowrap text-[13px] leading-none text-[#B8944F]" aria-label={localize(`${score} trên 5 sao`, `${score} out of 5 stars`)}>
               {Array.from({ length: 5 }).map((_, starIndex) => (
                 <span key={starIndex} aria-hidden="true">{starIndex < score ? "★" : "☆"}</span>
               ))}
             </div>
-            {reviewDate && <time className="text-[11px] font-semibold tabular-nums text-[#66727C]" dateTime={review.createdAt}>{reviewDate}</time>}
+            {reviewDate && <time className="shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums text-[#66727C]" dateTime={review.createdAt}>{reviewDate}</time>}
           </div>
         </div>
         {review.userImageUrl ? (
-          <Image src={resolveMediaSource(review.userImageUrl)} alt={reviewer} width={44} height={44} className="h-11 w-11 shrink-0 rounded-full border border-[#0F2A43]/10 object-cover" />
+          <Image src={resolveMediaSource(review.userImageUrl)} alt={reviewer} width={40} height={40} className="h-10 w-10 shrink-0 rounded-full border border-[#0F2A43]/10 object-cover" />
         ) : (
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#EAE2D2] font-serif font-bold text-[#80632F]">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EAE2D2] font-serif font-bold text-[#80632F]">
             {reviewer.charAt(0).toUpperCase()}
           </div>
         )}
       </div>
 
-      <div className="mt-4 flex-1">
+      <div className={`${detailed ? "mt-4" : "mt-3"} flex-1`}>
         {comment ? (
-          <p className={`text-sm font-medium leading-7 text-[#4F5E69] ${!showFullComment ? "line-clamp-4" : ""}`}>
+          <p className={`text-sm font-medium text-[#4F5E69] ${detailed ? "leading-7" : "leading-6"} ${!showFullComment ? (detailed ? "line-clamp-4" : "line-clamp-3") : ""}`}>
             &ldquo;{comment}&rdquo;
           </p>
         ) : (
@@ -82,13 +82,6 @@ function ReviewCard({ review, detailed = false }: { review: PublicRoomReview; de
           </button>
         )}
       </div>
-
-      {review.verifiedStay && (
-        <p className="mt-4 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-700">
-          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="m5 12 4 4L19 6" /></svg>
-          {localize("Kỳ nghỉ đã xác minh", "Verified stay")}
-        </p>
-      )}
     </article>
   );
 }
@@ -156,22 +149,25 @@ export default function RoomReviewsSection({ roomTypeId, averageRating, totalRev
 
   return (
     <>
-      <section className="rounded-[1.75rem] bg-[#F1F0EA] p-6 md:p-8" aria-labelledby="room-reviews-title">
-        <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+      <section className="rounded-[1.75rem] bg-[#F1F0EA] p-5 md:p-7" aria-labelledby="room-reviews-title">
+        <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <p className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-[#80632F]">{localize("Đánh giá của khách", "Guest reviews")}</p>
-            <h3 id="room-reviews-title" className="font-serif text-3xl font-bold text-primary-navy">{localize("Trải nghiệm thực tế với loại phòng này", "Real stays in this room type")}</h3>
+            <h3 id="room-reviews-title" className="font-serif text-2xl font-bold text-primary-navy md:text-3xl">{localize("Trải nghiệm thực tế với loại phòng này", "Real stays in this room type")}</h3>
           </div>
           {displayedTotal > 0 && (
-            <div className="rounded-[1.15rem] bg-white px-4 py-3 text-right shadow-sm">
-              <p className="font-serif text-2xl font-bold text-[#80632F]">{Number(averageRating || 0).toFixed(1)}</p>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#66727C]">{displayedTotal} {localize("lượt đánh giá", displayedTotal === 1 ? "review" : "reviews")}</p>
+            <div className="inline-flex w-fit shrink-0 flex-nowrap items-center gap-2.5 rounded-full border border-[#0F2A43]/8 bg-white px-4 py-2.5 shadow-sm">
+              <strong className="font-serif text-xl leading-none text-[#80632F]">{Number(averageRating || 0).toFixed(1)}</strong>
+              <span className="flex shrink-0 gap-0.5 whitespace-nowrap text-[13px] leading-none text-[#B8944F]" aria-label={localize(`${Number(averageRating || 0).toFixed(1)} trên 5 sao`, `${Number(averageRating || 0).toFixed(1)} out of 5 stars`)}>
+                {Array.from({ length: 5 }).map((_, index) => <span key={index} aria-hidden="true">{index < Math.round(averageRating || 0) ? "★" : "☆"}</span>)}
+              </span>
+              <span className="shrink-0 whitespace-nowrap border-l border-[#0F2A43]/10 pl-2.5 text-xs font-semibold text-[#66727C]">{displayedTotal} {localize("đánh giá", displayedTotal === 1 ? "review" : "reviews")}</span>
             </div>
           )}
         </div>
 
         {isLoading ? (
-          <div className="grid gap-4 md:grid-cols-2" aria-label={localize("Đang tải đánh giá", "Loading reviews")}>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label={localize("Đang tải đánh giá", "Loading reviews")}>
             {Array.from({ length: PREVIEW_COUNT }).map((_, index) => <div key={index} className="skeleton-surface h-52 rounded-[1.25rem]" />)}
           </div>
         ) : hasInitialError ? (
@@ -183,7 +179,7 @@ export default function RoomReviewsSection({ roomTypeId, averageRating, totalRev
           </div>
         ) : previewReviews.length ? (
           <>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {previewReviews.map((review, index) => <ReviewCard key={review.id || `${review.userName}-${index}`} review={review} />)}
             </div>
             {showMoreButton && (
@@ -206,7 +202,7 @@ export default function RoomReviewsSection({ roomTypeId, averageRating, totalRev
       <ViewportModal open={modalOpen} onClose={() => setModalOpen(false)} labelledBy="all-room-reviews-title" panelClassName="max-w-5xl" testId="room-reviews-modal">
         <header className="relative shrink-0 bg-[#0F2A43] px-5 py-5 text-white sm:px-7 sm:py-6">
           <button type="button" data-modal-autofocus onClick={() => setModalOpen(false)} aria-label={localize("Đóng danh sách đánh giá", "Close review list")} className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full border border-white/18 bg-white/8 text-xl transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">×</button>
-          <p className="pr-14 text-[10px] font-bold uppercase tracking-[0.22em] text-[#D8C398]">{localize("Đánh giá đã xác minh", "Verified reviews")}</p>
+          <p className="pr-14 text-[10px] font-bold uppercase tracking-[0.22em] text-[#D8C398]">{localize("Đánh giá của khách", "Guest reviews")}</p>
           <h2 id="all-room-reviews-title" className="mt-2 pr-14 font-serif text-2xl font-bold sm:text-3xl">{localize("Trải nghiệm của khách lưu trú", "Guest experiences")}</h2>
           <p className="mt-2 text-sm text-white/72">{displayedTotal} {localize("lượt đánh giá cho hạng phòng này", displayedTotal === 1 ? "review for this room type" : "reviews for this room type")}</p>
         </header>
@@ -214,10 +210,10 @@ export default function RoomReviewsSection({ roomTypeId, averageRating, totalRev
         <div className="grid min-h-0 flex-1 md:grid-cols-[15rem_minmax(0,1fr)]">
           <aside className="border-b border-[#0F2A43]/10 bg-[#F1F0EA] p-5 md:border-b-0 md:border-r sm:p-6">
             <p className="font-serif text-5xl font-bold text-[#0F2A43]">{Number(averageRating || 0).toFixed(1)}</p>
-            <div className="mt-2 flex gap-1 text-lg text-[#B8944F]" aria-hidden="true">
+            <div className="mt-2 flex flex-nowrap gap-1 whitespace-nowrap text-lg leading-none text-[#B8944F]" aria-hidden="true">
               {Array.from({ length: 5 }).map((_, index) => <span key={index}>{index < Math.round(averageRating || 0) ? "★" : "☆"}</span>)}
             </div>
-            <p className="mt-2 text-sm font-semibold text-[#66727C]">{displayedTotal} {localize("lượt đánh giá", displayedTotal === 1 ? "review" : "reviews")}</p>
+            <p className="mt-2 whitespace-nowrap text-sm font-semibold text-[#66727C]">{displayedTotal} {localize("đánh giá", displayedTotal === 1 ? "review" : "reviews")}</p>
             <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium leading-5 text-emerald-800">
               {localize("Chỉ khách đã hoàn tất kỳ nghỉ mới có thể gửi đánh giá cho hạng phòng đã sử dụng.", "Only guests who completed their stay can review the room type they used.")}
             </div>

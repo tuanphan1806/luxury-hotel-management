@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
 const REVEAL_SELECTOR = ".deferred-section, [data-guest-reveal]";
 
 export default function GuestMotionController() {
   const pathname = usePathname();
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
     let observer: IntersectionObserver | null = null;
     let animationFrame = 0;
 
@@ -55,7 +62,7 @@ export default function GuestMotionController() {
       window.cancelAnimationFrame(animationFrame);
       observer?.disconnect();
     };
-  }, [pathname]);
+  }, [hydrated, pathname]);
 
   return null;
 }

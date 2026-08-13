@@ -130,20 +130,26 @@ Các đơn vị theo **đêm lịch** (`PER_OCCUPIED_NIGHT`,
 order lưu được đúng đối tượng nhận dịch vụ và snapshot được quy tắc đếm đêm;
 trước đó catalog chỉ được chọn các đơn vị hệ thống thực sự tính đúng.
 
-### RoomType, capacity và rate profile V1
+### RoomType, số khách phù hợp và sức chứa tối đa
 
-| Code | Sức chứa/phòng | Khách gồm trong giá/phòng | 2 giờ đầu | Giờ thêm | Qua đêm | 24 giờ |
+| Code | Sức chứa tối đa/phòng | Khách phù hợp, gồm trong giá/phòng | 2 giờ đầu | Giờ thêm | Qua đêm | 24 giờ |
 |---|---:|---:|---:|---:|---:|---:|
-| `STANDARD` | 2 | 1 | 70.000 | 20.000 | 170.000 | 300.000 |
-| `DELUXE` | 3 | 2 | 100.000 | 25.000 | 220.000 | 400.000 |
-| `EXECUTIVE` | 3 | 2 | 120.000 | 30.000 | 270.000 | 480.000 |
-| `SUITE` | 4 | 2 | 150.000 | 35.000 | 350.000 | 600.000 |
-| `FAMILY` | 6 | 4 | 130.000 | 30.000 | 330.000 | 550.000 |
-| `PRESIDENTIAL` | 6 | 4 | 200.000 | 50.000 | 450.000 | 850.000 |
+| `STANDARD` | 3 | 2 | 70.000 | 20.000 | 170.000 | 300.000 |
+| `DELUXE` | 4 | 3 | 100.000 | 25.000 | 220.000 | 400.000 |
+| `EXECUTIVE` | 4 | 3 | 120.000 | 30.000 | 270.000 | 480.000 |
+| `SUITE` | 5 | 4 | 150.000 | 35.000 | 350.000 | 600.000 |
+| `FAMILY` | 7 | 6 | 130.000 | 30.000 | 330.000 | 550.000 |
+| `PRESIDENTIAL` | 7 | 6 | 200.000 | 50.000 | 450.000 | 850.000 |
 
 Phụ thu khách thêm mặc định là 50.000đ theo chu kỳ package. Đây là seed version
 1, không phải hằng số trong pricing service. Seed chỉ tạo profile còn thiếu và
 không ghi đè profile đã được quản trị.
+
+`includedGuests` là số khách phù hợp được công bố trên card public và đã nằm
+trong giá phòng. `maxGuests` là giới hạn cứng sau khi tính cả khách phụ thu.
+Hai giá trị được quản trị riêng cho từng loại phòng; hệ thống chỉ bắt buộc
+`1 <= includedGuests <= maxGuests`, không áp dụng công thức tăng cố định cho
+loại phòng mới hay lần chỉnh sửa sau này.
 
 Tại booking:
 
@@ -154,8 +160,18 @@ extraGuestCount
   = max(lineGuestCount - includedGuests * quantity, 0)
 ```
 
+Với đơn có nhiều phòng hoặc nhiều hạng, hạn mức đã gồm giá được cộng theo
+từng dòng `ReservationRoomType` vì phòng vật lý chưa được gán ở bước booking.
+Phân bổ tự động chạy hai lượt: dùng hết toàn bộ suất đã gồm giá trước, sau đó
+mới dùng suất phụ thu theo `extraGuestPrice` tăng dần. Đây chỉ là đề xuất mặc
+định; khách/nhân viên vẫn được đổi `lineGuestCount` của từng hạng trong giới
+hạn và backend báo giá lại đúng lựa chọn đó. Hệ thống không tự bỏ hạng phòng,
+không đổi số lượng phòng và không ghi đè phân bổ đã nhập rõ ràng.
+
 Trước check-in, guest assignment của từng phòng vật lý vẫn phải không vượt
-`roomType.maxGuests`.
+`maxGuests` đã snapshot khi đơn được cam kết. Quản trị không được giảm sức
+chứa nếu còn đơn hoạt động vượt giới hạn mới; vì vậy một chỉnh sửa catalog sau
+đặt phòng không thể làm đơn hợp lệ bị từ chối tại check-in.
 
 ## Ranh giới tài chính
 
