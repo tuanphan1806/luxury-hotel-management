@@ -3101,6 +3101,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     addOnServiceAmount.longValue(),
                     projection.plannedRoomCharge().longValue(),
                     projection.actualRoomCharge().longValue(),
+                    checkoutRoomChargeLines(projection),
                     projection.extraGuestCharge().longValue(),
                     checkoutExtraGuestLines(projection),
                     projection.cumulativePricingIncrease().longValue(),
@@ -3172,6 +3173,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 addOnServiceAmount.longValue(),
                 actualRoomCharge + projectedEarly.longValue(),
                 actualRoomCharge,
+                List.of(),
                 0L,
                 List.of(),
                 projectedLate.longValue(),
@@ -3206,6 +3208,60 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                             .extraGuestPricePerCycle(snapshot.getRateProfile()
                                     .getExtraGuestPrice().longValue())
                             .amount(line.finalExtraGuestCharge().longValue())
+                            .build();
+                })
+                .toList();
+    }
+
+    private List<CheckoutRoomChargeLineResponse> checkoutRoomChargeLines(
+            PricingV2LifecycleService.Projection projection) {
+        return projection.lines().stream()
+                .map(line -> {
+                    ReservationRoomType reservationLine = line.reservationLine();
+                    RoomType roomType = reservationLine.getRoomType();
+                    int quantity = Math.max(1, reservationLine.getQuantity());
+                    List<CheckoutRoomChargeCycleResponse> cycles = line.breakdown().cycles().stream()
+                            .map(cycle -> CheckoutRoomChargeCycleResponse.builder()
+                                    .sequence(cycle.sequence())
+                                    .appliedPackage(cycle.appliedPackage())
+                                    .transitionReason(cycle.transitionReason())
+                                    .billableStart(cycle.billableStart())
+                                    .billableEnd(cycle.plannedSegmentEnd())
+                                    .includedCheckout(cycle.packageIncludedCheckout())
+                                    .billableMinutes(cycle.billableMinutes())
+                                    .chargedExtraUnits(cycle.chargedExtraUnits())
+                                    .unitPrice(cycle.roomChargePerRoom().longValue())
+                                    .roomQuantity(quantity)
+                                    .amount(cycle.roomChargePerRoom()
+                                            .multiply(BigDecimal.valueOf(quantity))
+                                            .longValue())
+                                    .build())
+                            .toList();
+                    long cycleSubtotal = cycles.stream()
+                            .mapToLong(CheckoutRoomChargeCycleResponse::getAmount)
+                            .sum();
+                    long finalAmount = line.finalRoomCharge().longValue();
+                    return CheckoutRoomChargeLineResponse.builder()
+                            .reservationRoomTypeId(reservationLine.getId())
+                            .roomTypeId(roomType.getId())
+                            .roomTypeName(roomType.getTypeName())
+                            .roomTypeNameEn(roomType.getTypeNameEn())
+                            .roomQuantity(quantity)
+                            .actualGuestCount(line.lineGuestCount())
+                            .appliedPackage(line.breakdown().appliedPackage())
+                            .transitionReason(line.breakdown().transitionReason())
+                            .billableMinutes(line.breakdown().actualMinutes())
+                            .firstBlockMinutes(line.latest().getFirstBlockMinutes())
+                            .firstBlockPrice(line.latest().getFirstBlockPrice().longValue())
+                            .extraUnitMinutes(line.latest().getExtraUnitMinutes())
+                            .extraUnitPrice(line.latest().getExtraUnitPrice().longValue())
+                            .graceMinutes(line.latest().getGraceMinutes())
+                            .overnightPrice(line.latest().getOvernightPrice().longValue())
+                            .dailyPrice(line.latest().getDailyPrice().longValue())
+                            .cycleSubtotal(cycleSubtotal)
+                            .pricingAdjustment(finalAmount - cycleSubtotal)
+                            .amount(finalAmount)
+                            .cycles(cycles)
                             .build();
                 })
                 .toList();
@@ -3247,6 +3303,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         return CheckoutReconciliationResponse.builder()
                 .reservationId(reservation.getId())
                 .reservationCode(reservation.getReservationCode())
+                .calculatedAt(now)
                 .requiredAmount(projected.totalAmount())
                 .acceptedAmount(acceptedAmount)
                 .reservedRefundAmount(reservedRefundAmount)
@@ -3256,6 +3313,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .pricingVersion(projected.pricingVersion())
                 .plannedRoomCharge(projected.plannedRoomCharge())
                 .actualRoomCharge(projected.actualRoomCharge())
+                .roomChargeLines(projected.roomChargeLines())
                 .extraGuestCharge(projected.extraGuestCharge())
                 .extraGuestLines(projected.extraGuestLines())
                 .postCommitmentRoomIncrease(
@@ -3285,6 +3343,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             long addOnServiceAmount,
             long plannedRoomCharge,
             long actualRoomCharge,
+            List<CheckoutRoomChargeLineResponse> roomChargeLines,
             long extraGuestCharge,
             List<CheckoutExtraGuestChargeLineResponse> extraGuestLines,
             long postCommitmentRoomIncrease,

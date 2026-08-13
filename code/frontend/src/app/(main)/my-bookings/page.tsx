@@ -902,6 +902,8 @@ export default function MyBookingsPage() {
                             reservationCode={booking.bookingId}
                             reservationStatus={booking.status}
                             guestCount={Number(booking.guestCount) || 1}
+                            checkIn={booking.checkInDate}
+                            checkOut={booking.checkOutDate}
                             initialServices={booking.services}
                             onChanged={() => void loadBookings()}
                           />
