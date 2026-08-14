@@ -20,6 +20,7 @@ import com.hotel.backend.repository.WorkShiftSessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,6 +32,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -238,6 +240,12 @@ class WorkScheduleServiceTest {
         assertFalse(response.autoCheckOut());
         verify(cashierShiftService).closeForWorkSession(session, staff, "Bàn giao đủ");
         verify(dailyShiftService).completeIfEligible(3L, LocalDate.of(2026, 8, 1));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, ?>> auditDetail = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).recordTargetForUser(
+                eq(staff), eq("WORK_SHIFT_SESSION"), eq("901"),
+                eq(ReservationAuditAction.WORK_SHIFT_CHECKED_OUT), any(), auditDetail.capture());
+        assertEquals("Bàn giao đủ", auditDetail.getValue().get("note"));
         InOrder lockOrder = inOrder(repository, dailyShiftService);
         lockOrder.verify(repository).findById(81L);
         lockOrder.verify(dailyShiftService).lockForAttendanceClosure(
