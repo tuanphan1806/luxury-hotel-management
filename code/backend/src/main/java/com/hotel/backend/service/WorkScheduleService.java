@@ -335,17 +335,18 @@ public class WorkScheduleService {
             throw new AppException(ErrorCode.WORK_SCHEDULE_NOT_ACTIVE);
         }
         Instant now = clock.instant();
+        String attendanceNote = trimToNull(request.note());
         if (now.isBefore(assignment.getScheduledEndUtc())
-                && trimToNull(request.note()) == null) {
+                && attendanceNote == null) {
             throw new AppException(
                     ErrorCode.INVALID_REQUEST,
                     "Checkout trước giờ kết thúc ca phải nhập lý do");
         }
-        cashierShiftService.closeForWorkSession(session, actor, trimToNull(request.note()));
+        cashierShiftService.closeForWorkSession(session, actor, attendanceNote);
         session.setStatus(WorkShiftSessionStatus.CLOSED);
         session.setActualCheckOutUtc(now);
         session.setCheckOutBy(actor);
-        session.setNote(mergeNote(session.getNote(), request.note()));
+        session.setNote(mergeNote(session.getNote(), attendanceNote));
         session = sessionRepository.saveAndFlush(session);
         assignment.setStatus(WorkScheduleStatus.FULFILLED);
         assignment.setUpdatedBy(actor);
@@ -354,6 +355,7 @@ public class WorkScheduleService {
 
         Map<String, Object> detail = attendanceDetail(assignment, session, now);
         detail.put("cashierShift", "CLOSED_AUTOMATICALLY");
+        if (attendanceNote != null) detail.put("note", attendanceNote);
         auditSession(
                 actor,
                 session,
