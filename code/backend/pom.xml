@@ -37,6 +37,11 @@
 	<properties>
 		<java.version>17</java.version>
 		<aws.java.sdk.version>2.47.2</aws.java.sdk.version>
+		<!-- Security-reviewed patch levels. Keep these centralized so every
+		     transitive module resolves to the same fixed family. -->
+		<netty.version>4.1.136.Final</netty.version>
+		<httpcore5.version>5.4.3</httpcore5.version>
+		<postgresql.version>42.7.12</postgresql.version>
 		<jacoco.version>0.8.15</jacoco.version>
 		<cyclonedx.maven.plugin.version>2.9.1</cyclonedx.maven.plugin.version>
 	</properties>

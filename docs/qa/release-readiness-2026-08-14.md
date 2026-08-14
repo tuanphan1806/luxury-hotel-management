@@ -55,7 +55,10 @@ uniqueness prevents duplicate financial/idempotency effects.
 - A full OSV source scan covers the Maven POM and pnpm lockfile on CI; known
   vulnerabilities fail the job and are published as code-scanning evidence.
 - The built backend image is scanned for fixable High/Critical operating-system
-  and library CVEs before a release check can pass.
+  and library CVEs before a release check can pass. The final local release
+  image returned `0` findings for both Ubuntu and the application JAR after
+  upgrading Netty to `4.1.136.Final`, HttpCore to `5.4.3`, and PostgreSQL JDBC
+  to `42.7.12`.
 - Full frontend dependency audit includes development tooling, not only
   production dependencies.
 
