@@ -99,7 +99,7 @@ export default function FacilitiesPage() {
           {highlights.map((item) => (
             <div key={item.title} className="rounded-[1.25rem] bg-[#FBFAF6] p-5 shadow-sm even:bg-[#EAE2D2]">
               <h3 className="font-serif text-xl font-bold text-[#0F2A43]">{item.title}</h3>
-              <p className="mt-3 text-sm font-medium leading-6 text-[#66727C]">{item.detail}</p>
+              <p className="mt-3 text-sm font-medium leading-6 text-[#465866]">{item.detail}</p>
             </div>
           ))}
         </div>

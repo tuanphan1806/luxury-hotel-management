@@ -128,6 +128,6 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
   const translate = useTranslations("language");
   const { locale, setLocale } = useLanguage();
   return <div className="inline-flex rounded-lg border border-current/20 bg-current/5 p-0.5" aria-label={translate("select")}>
-    {(["vi", "en"] as const).map((item) => <button key={item} type="button" onClick={() => setLocale(item)} aria-label={item === "vi" ? translate("switchToVietnamese") : translate("switchToEnglish")} aria-pressed={locale === item} className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition ${locale === item ? "bg-[#B8944F] text-[#0F2A43]" : "text-current opacity-60 hover:opacity-100"}`}>{compact ? item : item === "vi" ? "VI" : "EN"}</button>)}
+    {(["vi", "en"] as const).map((item) => <button key={item} type="button" onClick={() => setLocale(item)} aria-label={item === "vi" ? translate("switchToVietnamese") : translate("switchToEnglish")} aria-pressed={locale === item} className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition ${locale === item ? "bg-[#B8944F] text-[#0F2A43]" : "text-current opacity-85 hover:opacity-100"}`}>{compact ? item : item === "vi" ? "VI" : "EN"}</button>)}
   </div>;
 }

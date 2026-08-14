@@ -225,7 +225,7 @@ function NativeStyleTimePicker({ id, label, value, min, max, step, disabled, onC
               aria-selected={selected}
               disabled={unavailable}
               onClick={() => chooseMinute(minute)}
-              className={`hotel-native-time-option min-h-11 w-full rounded-lg text-sm font-bold tabular-nums transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#B8944F] text-white" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
+              className={`hotel-native-time-option min-h-11 w-full rounded-lg text-sm font-bold tabular-nums transition duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F] disabled:cursor-not-allowed disabled:opacity-30 ${selected ? "bg-[#B8944F] text-[#0F2A43]" : "text-[#0F2A43] hover:bg-[#EAE2D2]"}`}
             >
               {padTime(minute)}
             </button>

@@ -36,7 +36,8 @@ public class OperationsAttentionService {
         LocalDateTime now = LocalDateTime.now();
         List<OperationsAttentionResponse.Item> items = new ArrayList<>();
 
-        for (Reservation reservation : reservationRepository.findAllWithDetails()) {
+        for (Reservation reservation : reservationRepository.findAttentionCandidates(
+                now, now.plusHours(arrivalWindowHours))) {
             if (reservation.getStatus() == ReservationStatus.CANCELLATION_PENDING) {
                 items.add(item("CANCELLATION_REQUEST", "DANGER", reservation,
                         "Yêu cầu hủy chờ duyệt", "Xác nhận hủy hoặc từ chối yêu cầu của khách",

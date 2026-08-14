@@ -269,7 +269,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
     return `relative flex min-h-11 items-center px-1 text-sm font-semibold transition-colors after:absolute after:inset-x-1 after:bottom-0 after:h-px after:origin-left after:bg-[#B8944F] after:transition-transform ${
       active
         ? "text-[#0F2A43] after:scale-x-100"
-        : "text-[#66727C] after:scale-x-0 hover:text-[#0F2A43] hover:after:scale-x-100"
+        : "text-[#465866] after:scale-x-0 hover:text-[#0F2A43] hover:after:scale-x-100"
     }`;
   };
 
@@ -598,7 +598,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
           <div className="mx-auto flex max-w-lg items-center gap-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-bold text-[#0F2A43]">{localize("Sẵn sàng cho kỳ lưu trú?", "Ready for your stay?")}</p>
-              <p className="truncate text-[11px] text-[#66727C]">{localize("Xem giá và số phòng còn trống", "See live rates and availability")}</p>
+              <p className="truncate text-[11px] text-[#465866]">{localize("Xem giá và số phòng còn trống", "See live rates and availability")}</p>
             </div>
             <Link href="/reservation" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white transition hover:bg-[#091E30]">
               {localize("Tìm phòng", "Find a room")}
@@ -680,12 +680,12 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
             </nav>
           </div>
 
-          <div className="flex flex-col gap-4 border-t border-white/10 pt-6 text-xs text-white/46 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 border-t border-white/10 pt-6 text-xs text-white/60 sm:flex-row sm:items-center sm:justify-between">
             <p>© 2026 {siteConfig.name}. {localize("Đã đăng ký bản quyền.", "All rights reserved.")}</p>
             <div className="flex flex-wrap items-center gap-3 text-white/70">
               <span>{t("language")}</span>
               <LanguageSwitcher compact />
-              <span className="text-white/46">{localize("Đặt phòng trực tiếp · Đối soát minh bạch", "Direct booking · Transparent payment tracking")}</span>
+              <span className="text-white/60">{localize("Đặt phòng trực tiếp · Đối soát minh bạch", "Direct booking · Transparent payment tracking")}</span>
             </div>
           </div>
         </div>

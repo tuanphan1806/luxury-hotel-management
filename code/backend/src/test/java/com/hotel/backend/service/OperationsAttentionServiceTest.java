@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -54,7 +55,8 @@ class OperationsAttentionServiceTest {
                 .build();
         pendingRefund.setUpdatedAt(now.minusHours(2));
 
-        when(reservationRepository.findAllWithDetails()).thenReturn(List.of(cancellation, overdueCheckout));
+        when(reservationRepository.findAttentionCandidates(any(), any()))
+                .thenReturn(List.of(cancellation, overdueCheckout));
         when(paymentTransactionRepository.findByStatusOrderByUpdatedAtAsc(PaymentStatus.REFUND_PENDING))
                 .thenReturn(List.of(pendingRefund));
         ReflectionTestUtils.setField(attentionService, "draftWarningMinutes", 30L);
@@ -85,7 +87,8 @@ class OperationsAttentionServiceTest {
                 now.plusDays(1), now.plusDays(2));
         overdueDraft.setCreatedAt(now.minusMinutes(45));
 
-        when(reservationRepository.findAllWithDetails()).thenReturn(List.of(freshDraft, overdueDraft));
+        when(reservationRepository.findAttentionCandidates(any(), any()))
+                .thenReturn(List.of(freshDraft, overdueDraft));
         when(paymentTransactionRepository.findByStatusOrderByUpdatedAtAsc(PaymentStatus.REFUND_PENDING))
                 .thenReturn(List.of());
         ReflectionTestUtils.setField(attentionService, "draftWarningMinutes", 30L);
