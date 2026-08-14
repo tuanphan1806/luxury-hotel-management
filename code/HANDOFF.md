@@ -4,6 +4,25 @@
 - Trước khi kết thúc một tác vụ dài, hãy cập nhật `HANDOFF.md`.
 - Không xóa nội dung bàn giao khi công việc chưa hoàn thành.
 
+## Current release verification — 2026-08-14
+
+- Current source verification is recorded in
+  `docs/qa/release-readiness-2026-08-14.md`. It supersedes the test counts in
+  the historical sections below without rewriting their point-in-time
+  evidence.
+- Backend verification: 710 tests passed with no failure/error/skip; the
+  PostgreSQL 16 Testcontainers gate applied Flyway V1 through V39 and passed
+  Hibernate validation, migration, idempotency and concurrency checks.
+- Frontend verification: production dependency audit, ESLint, TypeScript,
+  105 Vitest tests and the 47-route Next.js production build passed.
+- The `nanoid` production advisory found during the 2026-08-14 audit was
+  remediated by moving the enforced transitive version from 3.3.17 to 3.3.18.
+- Remaining production gates are operational rather than hidden code-level
+  pass claims: rotate the existing demo ADMIN credential and revoke old
+  sessions; complete STAFF operator UAT and real-provider SePay/SendGrid
+  evidence; rehearse Neon restore/RPO/RTO; and establish accepted capacity for
+  the Render/Neon free-tier topology.
+
 ## Production release candidate — 2026-07-26
 
 - Release-readiness refresh 2026-08-02 on branch
