@@ -43,7 +43,7 @@ export default function HotelBrand({
           <span className={`truncate font-serif text-lg font-bold tracking-[-0.015em] ${inverse ? "text-[#FBFAF6]" : "text-[#0F2A43]"} ${wordmarkClassName}`}>
             {siteConfig.name}
           </span>
-          <span className={`mt-1.5 truncate text-[0.52rem] font-bold tracking-[0.3em] ${inverse ? "text-[#D8C398]" : "text-[#80632F]"}`}>
+          <span className={`mt-1.5 truncate text-[0.52rem] font-bold tracking-[0.3em] ${inverse ? "text-[#D8C398]" : "text-[#6F5426]"}`}>
             {descriptor}
           </span>
         </span>

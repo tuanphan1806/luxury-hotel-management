@@ -49,6 +49,38 @@ jobs:
             exit 1
           }
 
+  dependency-review:
+    name: Dependency and license review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Reject newly introduced high-risk dependencies
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: >-
+            AGPL-1.0-only,
+            AGPL-1.0-or-later,
+            AGPL-3.0-only,
+            AGPL-3.0-or-later
+
+  vulnerability-scan:
+    name: Known vulnerability scan
+    # v2.3.8 pinned by commit so a mutable tag cannot change release behavior.
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2
+    with:
+      scan-args: |-
+        --recursive
+        ./
+      fail-on-vuln: true
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
   backend:
     name: Backend and PostgreSQL 16
     runs-on: ubuntu-latest
@@ -63,9 +95,30 @@ jobs:
           java-version: "17"
           cache: maven
       - name: Test unit, migration and concurrency gates
-        run: ./mvnw -B -ntp -Ppostgres-migration-test verify
+        run: ./mvnw -B -ntp -Ppostgres-migration-test,release-audit verify
+      - name: Upload backend coverage and SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-release-evidence
+          path: |
+            code/backend/target/site/jacoco
+            code/backend/target/bom.json
+            code/backend/target/bom.xml
+          if-no-files-found: error
+          retention-days: 30
       - name: Build production container
         run: docker build --tag luxury-hotel-backend:ci .
+      - name: Scan production container for fixable High/Critical CVEs
+        # v0.36.0 pinned by commit; versions before 0.35.0 are intentionally avoided.
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          image-ref: luxury-hotel-backend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
 
   frontend:
     name: Frontend
@@ -84,19 +137,29 @@ jobs:
           cache: pnpm
           cache-dependency-path: code/frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level=high
+      - name: Audit all frontend dependencies
+        run: pnpm audit --audit-level=high
       - run: pnpm run lint
       - run: pnpm run typecheck
-      - run: pnpm run test:unit
+      - run: pnpm run test:coverage
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: code/frontend/coverage
+          if-no-files-found: error
+          retention-days: 30
       - run: pnpm run build
+      - name: Test public accessibility on desktop and mobile
+        run: pnpm run test:e2e:a11y
       - name: Test chatbot customer journey on desktop and mobile
         run: pnpm run test:e2e:chatbot
-      - name: Upload chatbot browser diagnostics
+      - name: Upload browser diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: chatbot-playwright-diagnostics
+          name: frontend-playwright-diagnostics
           path: |
             code/frontend/playwright-report
             code/frontend/test-results

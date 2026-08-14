@@ -441,7 +441,7 @@ export default function HomePage() {
           </div>
         </div>
         <div data-testid="home-facilities-frame" className="relative md:px-12">
-          <div ref={facilityScrollerRef} tabIndex={0} aria-label={localize("Danh sách tiện nghi nổi bật", "Featured facilities carousel")} className="guest-horizontal-scroller scroll-smooth overflow-x-auto pb-5 outline-none">
+          <div ref={facilityScrollerRef} role="region" tabIndex={0} aria-label={localize("Danh sách tiện nghi nổi bật", "Featured facilities carousel")} className="guest-horizontal-scroller scroll-smooth overflow-x-auto pb-5 outline-none">
             <div className="motion-stagger flex snap-x snap-mandatory items-stretch gap-6">
             {isCatalogLoading && [0, 1, 2].map((item) => (
               <div key={`facility-skeleton-${item}`} aria-hidden="true" className="skeleton-surface h-[78vw] w-[78vw] shrink-0 rounded-[1.75rem] sm:h-[21rem] sm:w-[21rem] lg:h-[23rem] lg:w-[23rem]" />

@@ -1,9 +1,9 @@
 # Full-system QA report
 
-> Current verification note (2026-08-02): the latest automated counts and
+> Current verification note (2026-08-14): the latest automated counts and
 > release-gate disposition are in
-> `docs/qa/release-readiness-2026-08-02.md` (522 backend unit + 27 PostgreSQL
-> integration tests, 71 frontend unit tests and 47 frontend routes). Counts
+> `docs/qa/release-readiness-2026-08-14.md` (717 backend tests, 108 frontend
+> unit tests, coverage/SBOM/accessibility gates and 47 frontend routes). Counts
 > below are retained as evidence for the 2026-07-26/30 audited revision, not as
 > the current HEAD inventory.
 

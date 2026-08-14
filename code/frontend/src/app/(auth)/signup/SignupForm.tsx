@@ -267,7 +267,7 @@ export default function SignupForm() {
           <div className="mb-5">
             <div className="mb-3 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3"><span className="h-px w-9 bg-[#B8944F]" aria-hidden="true" /><p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#80632F]">Luxury Hotel</p></div>
-              <span className="rounded-full border border-[#0F2A43]/10 bg-[#F1F0EA] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#66727C]">{localize("Bước 1 / 2", "Step 1 / 2")}</span>
+              <span className="rounded-full border border-[#0F2A43]/10 bg-[#F1F0EA] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#465866]">{localize("Bước 1 / 2", "Step 1 / 2")}</span>
             </div>
             <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-[#0F2A43] sm:text-[2.3rem]">{localize("Tạo tài khoản khách hàng", "Create your guest account")}</h1>
             <p className="mt-2 max-w-lg text-sm font-medium leading-6 text-[#66727C]">{localize("Đặt phòng nhanh hơn và theo dõi toàn bộ kỳ nghỉ trong một nơi.", "Book faster and track your entire stay in one place.")}</p>
@@ -357,7 +357,7 @@ export default function SignupForm() {
       {step === 2 && (
         <form onSubmit={handleStep2} className="space-y-4">
           <div className="mb-2">
-            <div className="mb-3 flex items-center justify-between gap-4"><div className="flex items-center gap-3"><span className="h-px w-9 bg-[#B8944F]" aria-hidden="true" /><p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#80632F]">Luxury Hotel</p></div><span className="rounded-full border border-[#0F2A43]/10 bg-[#F1F0EA] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#66727C]">{localize("Bước 2 / 2", "Step 2 / 2")}</span></div>
+            <div className="mb-3 flex items-center justify-between gap-4"><div className="flex items-center gap-3"><span className="h-px w-9 bg-[#B8944F]" aria-hidden="true" /><p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#80632F]">Luxury Hotel</p></div><span className="rounded-full border border-[#0F2A43]/10 bg-[#F1F0EA] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#465866]">{localize("Bước 2 / 2", "Step 2 / 2")}</span></div>
             <h2 className="font-serif text-3xl font-semibold leading-tight text-[#0F2A43]">{localize("Thiết lập mật khẩu", "Set your password")}</h2>
             <p className="mt-2 text-sm font-medium leading-6 text-text-light">{localize("Chỉ còn một bước. Hãy tạo mật khẩu an toàn cho tài khoản.", "Almost done. Create a secure password for your account.")}</p>
             <div className="mt-4 grid grid-cols-2 gap-2" aria-hidden="true"><span className="h-1 rounded-full bg-[#B8944F]" /><span className="h-1 rounded-full bg-[#B8944F]" /></div>
@@ -451,7 +451,7 @@ export default function SignupForm() {
       {step === 3 && (
         <div className="space-y-5">
           <div className="rounded-2xl border border-accent-gold/25 bg-accent-gold/5 p-5 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-gold text-white">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent-gold text-[#0F2A43]">
               <MailIcon />
             </div>
             <h2 className="text-2xl font-bold text-text-dark">Kiểm tra email của bạn</h2>
@@ -483,7 +483,7 @@ export default function SignupForm() {
             <button
               type="button"
               onClick={() => router.push('/login?registered=true')}
-              className="rounded-xl bg-accent-gold px-4 py-3.5 text-sm font-semibold text-white shadow-md transition hover:bg-[#c9a45e]"
+              className="rounded-xl bg-accent-gold px-4 py-3.5 text-sm font-semibold text-[#0F2A43] shadow-md transition hover:bg-[#c9a45e]"
             >
               Đi đến đăng nhập
             </button>

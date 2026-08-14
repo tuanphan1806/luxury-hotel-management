@@ -139,6 +139,28 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     """)
     List<Reservation> findAllWithDetails();
 
+    /**
+     * Bounded source for the operations attention queue. Completed/cancelled
+     * history and confirmed stays outside the arrival window cannot produce an
+     * attention item, so loading them only increases memory and query time as
+     * production data grows.
+     */
+    @Query("""
+        SELECT DISTINCT r FROM Reservation r
+        JOIN FETCH r.customerProfile cp
+        LEFT JOIN FETCH cp.linkedUser
+        WHERE r.status = com.hotel.backend.constant.ReservationStatus.CANCELLATION_PENDING
+           OR r.status = com.hotel.backend.constant.ReservationStatus.DRAFT
+           OR (r.status = com.hotel.backend.constant.ReservationStatus.CONFIRMED
+               AND r.checkIn <= :arrivalCutoff)
+           OR (r.status = com.hotel.backend.constant.ReservationStatus.CHECKED_IN
+               AND r.checkOut < :now)
+        ORDER BY r.createdAt DESC
+    """)
+    List<Reservation> findAttentionCandidates(
+            @Param("now") LocalDateTime now,
+            @Param("arrivalCutoff") LocalDateTime arrivalCutoff);
+
     @Modifying
     @Query("""
         UPDATE Reservation r

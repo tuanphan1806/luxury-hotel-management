@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/*
+ * Brand gold remains unchanged for surfaces and borders. Text needs the
+ * darker companion tone to meet WCAG AA on the cream/white guest surfaces.
+ */
+.text-accent-gold {
+  color: #80632f;
+}
+
 .hotel-datetime-input {
   color-scheme: light;
 }
