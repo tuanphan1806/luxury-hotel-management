@@ -39,7 +39,8 @@
 		<aws.java.sdk.version>2.47.2</aws.java.sdk.version>
 		<!-- Security-reviewed patch levels. Keep these centralized so every
 		     transitive module resolves to the same fixed family. -->
-		<netty.version>4.1.136.Final</netty.version>
+		<netty.version>4.1.137.Final</netty.version>
+		<tomcat.version>10.1.60</tomcat.version>
 		<httpcore5.version>5.4.3</httpcore5.version>
 		<postgresql.version>42.7.12</postgresql.version>
 		<jacoco.version>0.8.15</jacoco.version>
