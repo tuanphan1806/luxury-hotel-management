@@ -20,23 +20,24 @@ import com.hotel.backend.service.chatbot.ChatSemanticBookingFallback;
 import com.hotel.backend.service.chatbot.ChatbotPublicDataGateway;
 import com.hotel.backend.service.chatbot.GeminiChatClient;
 import com.hotel.backend.service.chatbot.GeminiChatResult;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.text.NumberFormat;
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.regex.Pattern;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ChatBotService {
 
@@ -53,6 +54,7 @@ public class ChatBotService {
      * - Không đưa reservation, payment, user account hoặc dữ liệu cá nhân vào prompt.
      */
     private static final Duration HOTEL_CONTEXT_TTL = Duration.ofMinutes(10);
+    private static final ZoneId HOTEL_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final int MAX_ROOM_TYPES_IN_CONTEXT = 12;
     private static final int MAX_FACILITIES_IN_CONTEXT = 20;
     private static final int MAX_HISTORY_TURNS = 12;
@@ -68,7 +70,7 @@ public class ChatBotService {
     private static final Pattern ISO_DATE_PATTERN =
             Pattern.compile("\\b(\\d{4})-(\\d{1,2})-(\\d{1,2})\\b");
     private static final Pattern VI_DATE_PATTERN =
-            Pattern.compile("\\b(\\d{1,2})[/-](\\d{1,2})(?:[/-](\\d{2,4}))?\\b");
+            Pattern.compile("(?<![\\d/-])(\\d{1,2})[/-](\\d{1,2})(?:[/-](\\d{2,4}))?\\b(?![/-]\\d)");
     private static final Pattern VI_DATE_RANGE_WITH_MONTH_PATTERN =
             Pattern.compile("\\b(?:ngay\\s*)?(\\d{1,2})\\s*(?:den|toi|-)\\s*(?:ngay\\s*)?(\\d{1,2})\\s*thang\\s*(\\d{1,2})(?:\\s*nam\\s*(\\d{2,4}))?\\b");
     private static final Pattern RELATIVE_DATE_PATTERN =
@@ -102,6 +104,30 @@ public class ChatBotService {
     private String publicCheckOutTime;
 
     private final ChatbotPublicDataGateway publicDataGateway;
+    private final Clock clock;
+
+    @Autowired
+    public ChatBotService(ChatInputPolicy inputPolicy, ChatIntentClassifier intentClassifier,
+            ChatPrivacyRedactor privacyRedactor, ChatResponsePolicy responsePolicy,
+            ChatSemanticBookingFallback semanticBookingFallback, GeminiChatClient geminiChatClient,
+            ChatbotPublicDataGateway publicDataGateway) {
+        this(inputPolicy, intentClassifier, privacyRedactor, responsePolicy,
+                semanticBookingFallback, geminiChatClient, publicDataGateway, Clock.systemUTC());
+    }
+
+    ChatBotService(ChatInputPolicy inputPolicy, ChatIntentClassifier intentClassifier,
+            ChatPrivacyRedactor privacyRedactor, ChatResponsePolicy responsePolicy,
+            ChatSemanticBookingFallback semanticBookingFallback, GeminiChatClient geminiChatClient,
+            ChatbotPublicDataGateway publicDataGateway, Clock clock) {
+        this.inputPolicy = inputPolicy;
+        this.intentClassifier = intentClassifier;
+        this.privacyRedactor = privacyRedactor;
+        this.responsePolicy = responsePolicy;
+        this.semanticBookingFallback = semanticBookingFallback;
+        this.geminiChatClient = geminiChatClient;
+        this.publicDataGateway = publicDataGateway;
+        this.clock = clock.withZone(HOTEL_ZONE);
+    }
 
     public String ask(String question) {
         return ask(question, "unknown");
@@ -131,7 +157,8 @@ public class ChatBotService {
         String locale = normalizeLocale(request == null ? null : request.getLocale());
         List<ChatTurnRequest> history = request == null || request.getHistory() == null
                 ? List.of()
-                : request.getHistory().stream().skip(Math.max(0, request.getHistory().size() - MAX_HISTORY_TURNS)).toList();
+                : request.getHistory().stream().filter(Objects::nonNull)
+                        .skip(Math.max(0, request.getHistory().size() - MAX_HISTORY_TURNS)).toList();
 
         // Guard cứng trước khi gọi Gemini để giảm chi phí và tránh abuse.
         if (normalizedQuestion.isBlank()) {
@@ -1482,7 +1509,7 @@ public class ChatBotService {
             ));
         }
 
-        if (checkIn.isBefore(LocalDateTime.now().minusMinutes(5))) {
+        if (checkIn.isBefore(LocalDateTime.now(clock).minusMinutes(5))) {
             return Optional.of(answerOnly(localize(locale,
                     "Thời gian nhận phòng đã ở trong quá khứ. Bạn vui lòng chọn thời gian hiện tại hoặc tương lai.",
                     "The check-in time is in the past. Please choose the current time or a future time.")));
@@ -1529,6 +1556,11 @@ public class ChatBotService {
         LocalDateTime checkIn = existingState == null ? null : existingState.getCheckIn();
         LocalDateTime checkOut = existingState == null ? null : existingState.getCheckOut();
         String normalizedCurrent = normalizeForMatching(currentQuestion);
+        if (hasInvalidCalendarDate(normalizedCurrent)) {
+            return new StayWindowResolution(null, null,
+                    "Ngày bạn nhập không hợp lệ. Vui lòng ghi lại đúng ngày/giờ nhận và trả phòng.",
+                    "The date you entered is invalid. Please provide valid check-in and check-out dates and times.");
+        }
         List<DateTimeMatch> currentMatches = extractDateTimes(normalizedCurrent);
 
         if (currentMatches.size() >= 2) {
@@ -1590,8 +1622,8 @@ public class ChatBotService {
             return new StayWindowResolution(
                     checkIn,
                     checkOut,
-                    "Để kiểm tra và chuẩn bị đặt phòng, bạn vui lòng cho tôi đủ ngày/giờ nhận phòng và ngày/giờ trả phòng. Ví dụ: \"Đặt 1 phòng Deluxe từ 15/08 14:00 đến 17/08 12:00 cho 2 người lớn\".",
-                    "Please provide both check-in and check-out dates and times. Example: \"Book 1 Deluxe room from 15/08/2026 2:00 PM to 17/08/2026 12:00 PM for 2 adults\"."
+                    "Để kiểm tra và chuẩn bị đặt phòng, bạn vui lòng cho tôi đủ ngày/giờ nhận phòng và ngày/giờ trả phòng. Ví dụ: \"Đặt 1 phòng Deluxe từ ngày mai 14:00 đến ngày kia 12:00 cho 2 người lớn\".",
+                    "Please provide both check-in and check-out dates and times. Example: \"Book 1 Deluxe room from tomorrow 2:00 PM to day after tomorrow 12:00 PM for 2 adults\"."
             );
         }
 
@@ -1618,6 +1650,7 @@ public class ChatBotService {
 
     private boolean mentionsCheckinField(String normalized) {
         return normalized.contains("check in")
+                || normalized.contains("check-in")
                 || normalized.contains("checkin")
                 || normalized.contains("nhan phong")
                 || normalized.contains("ngay nhan")
@@ -1628,6 +1661,7 @@ public class ChatBotService {
 
     private boolean mentionsCheckoutField(String normalized) {
         return normalized.contains("check out")
+                || normalized.contains("check-out")
                 || normalized.contains("checkout")
                 || normalized.contains("tra phong")
                 || normalized.contains("ngay tra")
@@ -1712,13 +1746,19 @@ public class ChatBotService {
                 .toList();
 
         List<LocalTime> statedTimes = extractStatedTimes(text);
-        if (orderedMatches.size() >= 2 && statedTimes.size() >= 2) {
+        if (orderedMatches.size() >= 2 && statedTimes.size() < orderedMatches.size()) {
+            // A nearby time can otherwise be borrowed by two different dates.
+            // Ask for explicit times rather than inventing the missing value.
+            return orderedMatches.stream()
+                    .map(match -> new DateTimeMatch(match.date(), null, match.position()))
+                    .toList();
+        }
+        if (orderedMatches.size() >= 2 && statedTimes.size() == orderedMatches.size()) {
             List<DateTimeMatch> completed = new ArrayList<>(orderedMatches);
             for (int i = 0; i < completed.size() && i < statedTimes.size(); i++) {
                 DateTimeMatch current = completed.get(i);
-                if (current.time() == null) {
-                    completed.set(i, new DateTimeMatch(current.date(), statedTimes.get(i), current.position()));
-                }
+                // Pair each stated time once, preserving the order of the stay.
+                completed.set(i, new DateTimeMatch(current.date(), statedTimes.get(i), current.position()));
             }
             return completed;
         }
@@ -1747,9 +1787,9 @@ public class ChatBotService {
             List<DateTimeMatch> matches
     ) {
         LocalDate date = switch (relativeDateText) {
-            case "ngay mai", "mai", "tomorrow" -> LocalDate.now().plusDays(1);
-            case "ngay kia", "day after tomorrow" -> LocalDate.now().plusDays(2);
-            default -> LocalDate.now();
+            case "ngay mai", "mai", "tomorrow" -> LocalDate.now(clock).plusDays(1);
+            case "ngay kia", "day after tomorrow" -> LocalDate.now(clock).plusDays(2);
+            default -> LocalDate.now(clock);
         };
 
         matches.add(new DateTimeMatch(date, findTimeNearDate(source, start, end).orElse(null), start));
@@ -1765,18 +1805,40 @@ public class ChatBotService {
             List<DateTimeMatch> matches
     ) {
         try {
-            int year = resolveYear(yearText);
-            int month = Integer.parseInt(monthText);
-            int day = Integer.parseInt(dayText);
-            LocalDate date = LocalDate.of(year, month, day);
-
-            if (yearText == null && date.isBefore(LocalDate.now())) {
-                date = date.plusYears(1);
-            }
+            LocalDate date = calendarDate(yearText, monthText, dayText);
 
             matches.add(new DateTimeMatch(date, findTimeNearDate(source, start, end).orElse(null), start));
         } catch (Exception ignored) {
             // Ignore invalid date fragments and let the caller ask for clearer input.
+        }
+    }
+
+    private LocalDate calendarDate(String yearText, String monthText, String dayText) {
+        int year = resolveYear(yearText);
+        int month = Integer.parseInt(monthText);
+        int day = Integer.parseInt(dayText);
+        LocalDate date = LocalDate.of(year, month, day);
+        if (yearText == null && date.isBefore(LocalDate.now(clock))) {
+            // LocalDate.plusYears would silently turn 29 February into 28 February.
+            date = LocalDate.of(year + 1, month, day);
+        }
+        return date;
+    }
+
+    private boolean hasInvalidCalendarDate(String text) {
+        try {
+            var iso = ISO_DATE_PATTERN.matcher(text);
+            while (iso.find()) calendarDate(iso.group(1), iso.group(2), iso.group(3));
+            var local = VI_DATE_PATTERN.matcher(text);
+            while (local.find()) calendarDate(local.group(3), local.group(2), local.group(1));
+            var range = VI_DATE_RANGE_WITH_MONTH_PATTERN.matcher(text);
+            while (range.find()) {
+                calendarDate(range.group(4), range.group(3), range.group(1));
+                calendarDate(range.group(4), range.group(3), range.group(2));
+            }
+            return false;
+        } catch (java.time.DateTimeException | NumberFormatException invalidDate) {
+            return true;
         }
     }
 
@@ -1849,7 +1911,7 @@ public class ChatBotService {
 
     private int resolveYear(String yearText) {
         if (yearText == null || yearText.isBlank()) {
-            return LocalDate.now().getYear();
+            return LocalDate.now(clock).getYear();
         }
 
         int year = Integer.parseInt(yearText);
@@ -3006,7 +3068,7 @@ public class ChatBotService {
      * Cache context public để tránh gọi API và gửi prompt lớn cho mỗi câu hỏi FAQ.
      */
     private String getHotelContext() {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         String currentContext = cachedHotelContext;
 
         if (currentContext != null

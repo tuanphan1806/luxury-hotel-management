@@ -3,6 +3,7 @@ package com.hotel.backend.dto.request;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -35,11 +36,11 @@ public class ChatBookingStateRequest {
 
     @Valid
     @Size(max = 12)
-    private List<RoomTypeItemRequest> roomTypes = new ArrayList<>();
+    private List<@NotNull RoomTypeItemRequest> roomTypes = new ArrayList<>();
 
     /** Room types selected in chat but still waiting for an explicit quantity. */
     @Size(max = 12)
-    private List<@Positive Long> pendingRoomTypeIds = new ArrayList<>();
+    private List<@NotNull @Positive Long> pendingRoomTypeIds = new ArrayList<>();
 
     /**
      * Bounded compatibility context for fields that have not become

@@ -155,6 +155,8 @@ jobs:
         run: pnpm run test:e2e:a11y
       - name: Test chatbot customer journey on desktop and mobile
         run: pnpm run test:e2e:chatbot
+      - name: Test public catalog recovery on desktop and mobile
+        run: pnpm run test:e2e:catalog
       - name: Upload browser diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

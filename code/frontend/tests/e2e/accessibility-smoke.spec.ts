@@ -11,6 +11,12 @@ test.describe('public accessibility smoke', () => {
       expect(response!.status(), `Unexpected HTTP status for ${route}`).toBeLessThan(500);
       await expect(page.locator('body')).toBeVisible();
 
+      // Measure rendered colors after entry fades settle, not midway through
+      // their temporary opacity. Infinite loading shimmers need not finish.
+      await expect.poll(() => page.evaluate(() => document.getAnimations()
+        .filter((animation) => animation.effect?.getTiming().iterations !== Infinity
+          && animation.playState !== 'finished').length)).toBe(0);
+
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
         .analyze();

@@ -13,7 +13,7 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
       - key: JAVA_TOOL_OPTIONS
-        value: -Xms64m -Xmx240m -Xss512k -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Ho_Chi_Minh
+        value: -Xms64m -Xmx240m -Xss512k -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Ho_Chi_Minh -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=1
       - key: MALLOC_ARENA_MAX
         value: "2"
       - key: SPRING_DATA_JPA_REPOSITORIES_BOOTSTRAP_MODE
@@ -22,6 +22,11 @@ services:
         value: "5"
       - key: DB_POOL_MIN_IDLE
         value: "0"
+      # Let unused connections close; periodic keepalive consumes Neon Free compute.
+      - key: DB_KEEPALIVE_TIME_MS
+        value: "0"
+      - key: SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT
+        value: "60000"
       - key: DB_CONNECTION_TIMEOUT_MS
         value: "30000"
       - key: AUTH_COOKIE_SECURE
@@ -57,7 +62,9 @@ services:
       - key: WORK_SCHEDULE_AUTO_CHECKOUT_GRACE_MINUTES
         value: "120"
       - key: SEPAY_RECONCILIATION_ENABLED
-        value: "true"
+        # Fresh demo database has no historical bank reconciliation cursor.
+        # Keep polling off until a deliberate cutover boundary is configured.
+        value: "false"
       - key: PRICING_ENGINE_V2_ENABLED
         value: "true"
       - key: PRICING_ENGINE_V2_ROOM_TYPE_CODES
