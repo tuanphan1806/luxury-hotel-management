@@ -19,6 +19,20 @@ function message(index: number): StoredChatMessage {
 }
 
 describe("chat session", () => {
+  it("does not crash when storage reads and cleanup are both denied", () => {
+    const storage = {
+      getItem: () => { throw new DOMException("blocked", "SecurityError"); },
+      removeItem: () => { throw new DOMException("blocked", "SecurityError"); },
+    } as unknown as Storage;
+    expect(loadChatSession(storage)).toBeNull();
+  });
+
+  it("ignores a corrupted conversation identifier instead of sending invalid API input", () => {
+    const storage = {
+      getItem: () => JSON.stringify({ conversationId: { id: "bad" }, messages: [] }),
+    } as unknown as Storage;
+    expect(loadChatSession(storage)).toBeNull();
+  });
   it("sends only the latest bounded conversation turns", () => {
     const history = buildChatHistory([
       { ...message(-1), id: "welcome" },

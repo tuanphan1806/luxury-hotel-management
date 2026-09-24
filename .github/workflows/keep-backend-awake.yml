@@ -1,10 +1,8 @@
-name: Keep Render backend warm
+name: Check Render backend manually
 
 on:
-  schedule:
-    # Render Free sleeps after 15 minutes without inbound traffic.
-    # Offset from the top of the hour to reduce GitHub scheduler congestion.
-    - cron: "3,13,23,33,43,53 * * * *"
+  # Deliberately manual: recurring probes keep Render and its DB jobs awake,
+  # exhausting Neon Free compute even without visitors.
   workflow_dispatch:
 
 permissions:

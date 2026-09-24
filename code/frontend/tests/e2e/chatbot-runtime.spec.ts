@@ -3,6 +3,90 @@ import { expect, test } from '@playwright/test';
 const CHAT_STORAGE_KEY = 'luxury-hotel:chat-session:v2';
 
 test.describe('chatbot customer journey', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/catalog_proxy/**', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: route.request().url().endsWith('/room-types') ? [{
+        id: 2, typeName: 'Deluxe', typeNameEn: 'Deluxe', maxGuests: 3, includedGuests: 2,
+        pricingAvailable: true, overnightPrice: 300000, dailyPrice: 400000,
+      }] : [] }),
+    }));
+  });
+
+  const preparedBooking = {
+    checkIn: '2099-08-20T14:00:00', checkOut: '2099-08-21T10:00:00',
+    adults: 2, children: 0, guestCount: 2,
+    context: 'Đặt 1 phòng Deluxe cho 2 người', roomTypes: [{ roomTypeId: 2, quantity: 1 }],
+  };
+
+  test('invalidates old confirmation after a correction even if the pending state still looks complete', async ({ page }) => {
+    let requests = 0;
+    await page.route('**/backend_proxy/api/chat', (route) => {
+      requests += 1;
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify(requests === 1
+          ? { answer: 'Lịch đã được kiểm tra.', action: 'CREATE_RESERVATION_CONFIRM', payload: preparedBooking }
+          : { answer: 'Bạn muốn sửa ngày nhận hay ngày trả?', action: 'CONTINUE_RESERVATION', payload: preparedBooking }),
+      });
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Mở chat hỗ trợ' }).click();
+    const input = page.getByRole('textbox', { name: 'Câu hỏi cho trợ lý khách sạn' });
+    await input.fill('Đặt 1 phòng Deluxe cho 2 người');
+    await page.getByRole('button', { name: 'Gửi tin nhắn' }).click();
+    await expect(page.getByRole('button', { name: 'Xem giá & tiếp tục' })).toBeVisible();
+    await input.fill('Đổi ngày sang 22/08/2099');
+    await page.getByRole('button', { name: 'Gửi tin nhắn' }).click();
+    await expect(page.getByText('Bạn muốn sửa ngày nhận hay ngày trả?')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Xem giá & tiếp tục' })).toHaveCount(0);
+    await input.fill('ok');
+    await page.getByRole('button', { name: 'Gửi tin nhắn' }).click();
+    await expect.poll(() => requests).toBe(3);
+    await expect(page).not.toHaveURL(/\/booking\?/);
+  });
+
+  test('accepts Vietnamese đồng ý for the current validated booking only', async ({ page }) => {
+    await page.route('**/backend_proxy/api/chat', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({
+        answer: 'Lịch đã được kiểm tra.', action: 'CREATE_RESERVATION_CONFIRM', payload: preparedBooking,
+      }),
+    }));
+    await page.route('**/backend_proxy/api/add-on-services**', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }),
+    }));
+    await page.route('**/backend_proxy/api/user/me', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: null }),
+    }));
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Mở chat hỗ trợ' }).click();
+    const input = page.getByRole('textbox', { name: 'Câu hỏi cho trợ lý khách sạn' });
+    await input.fill('Đặt 1 phòng Deluxe cho 2 người');
+    await page.getByRole('button', { name: 'Gửi tin nhắn' }).click();
+    await expect(page.getByRole('button', { name: 'Xem giá & tiếp tục' })).toBeVisible();
+    await input.fill('đồng ý');
+    await page.getByRole('button', { name: 'Gửi tin nhắn' }).click();
+    await expect(page).toHaveURL(/\/booking\?.*source=chatbot/);
+  });
+
+  test('keeps the chat usable when browser session storage is blocked', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'sessionStorage', {
+        configurable: true,
+        get() { throw new DOMException('Storage blocked', 'SecurityError'); },
+      });
+    });
+    await page.route('**/backend_proxy/api/chat', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ answer: 'Tôi vẫn có thể hỗ trợ bạn.' }),
+    }));
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Mở chat hỗ trợ' }).click();
+    await page.getByRole('textbox', { name: 'Câu hỏi cho trợ lý khách sạn' }).fill('Khách sạn có tiện nghi gì?');
+    await page.getByRole('button', { name: 'Gửi tin nhắn' }).click();
+    await expect(page.getByText('Tôi vẫn có thể hỗ trợ bạn.')).toBeVisible();
+    await page.getByRole('button', { name: 'Xóa cuộc trò chuyện' }).click();
+    await expect(page.getByText('Tôi vẫn có thể hỗ trợ bạn.')).toHaveCount(0);
+  });
+
   test('keeps conversational context and hands a validated selection to the booking page', async ({ page }) => {
     const requests: Array<Record<string, unknown>> = [];
     await page.route('**/backend_proxy/api/add-on-services**', (route) => route.fulfill({

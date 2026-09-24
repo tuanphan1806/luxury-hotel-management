@@ -52,6 +52,14 @@ export function createConversationId(): string {
   return `chat_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+export function getChatStorage(): Storage | undefined {
+  try {
+    return typeof window === "undefined" ? undefined : window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildChatHistory(messages: StoredChatMessage[]) {
   return messages
     .filter((message) => message.id !== "welcome" && message.content.trim())
@@ -68,7 +76,8 @@ export function loadChatSession(storage: Storage | undefined): StoredChatSession
     const raw = storage.getItem(CHAT_SESSION_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredChatSession>;
-    if (!parsed.conversationId || !Array.isArray(parsed.messages)) return null;
+    if (typeof parsed.conversationId !== "string" || !parsed.conversationId.trim()
+      || parsed.conversationId.length > 100 || !Array.isArray(parsed.messages)) return null;
     if (typeof parsed.updatedAt === "number"
       && Date.now() - parsed.updatedAt > CHAT_SESSION_TTL_MS) {
       storage.removeItem(CHAT_SESSION_STORAGE_KEY);
@@ -97,7 +106,7 @@ export function loadChatSession(storage: Storage | undefined): StoredChatSession
       pendingBookingState,
     };
   } catch {
-    storage.removeItem(CHAT_SESSION_STORAGE_KEY);
+    clearChatSession(storage);
     return null;
   }
 }
