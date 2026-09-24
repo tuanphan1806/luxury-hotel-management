@@ -26,6 +26,7 @@ export async function GET(
     const upstream = await fetch(`${backendOrigin}${endpoint}`, {
       headers: { Accept: "application/json" },
       next: { revalidate: 60 },
+      signal: AbortSignal.timeout(12_000),
     });
     const body = await upstream.text();
 
@@ -42,7 +43,7 @@ export async function GET(
   } catch {
     return NextResponse.json(
       { message: "Public catalog is temporarily unavailable" },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
+      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "5" } },
     );
   }
 }

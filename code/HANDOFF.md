@@ -6,6 +6,37 @@
 
 ## Current release verification — 2026-08-14
 
+### Deployment recovery — 2026-09-17 (in progress)
+
+- The owner requests restoring the deployed site and explicitly requires Free
+  plans. Do not upgrade Neon, Render, or Vercel or incur subscription charges.
+- Vercel production and Render's last successful deployment use `ffc66eb`.
+  Neon project `restless-boat-57677488`, production branch
+  `br-aged-term-az9hd6tb`, is blocked by compute quota; Render startup logs
+  show PostgreSQL SQLSTATE `53000` while Flyway obtains a connection.
+- Disabled the GitHub **Keep Render backend warm** workflow through the
+  authenticated UI; verified `Workflow disabled successfully` and
+  `This workflow was disabled manually`. This prevents scheduled wake-ups
+  after recovery. Cold starts remain expected on Render Free. No payment,
+  RoomHold, reconciliation, or application scheduler was disabled.
+- Neon console has Restart compute disabled. Usage/reset inconsistency needs
+  investigation; no quota reset or database mutation has been performed.
+  The official Neon CLI `4.21.0` is available through npx. The user approved
+  CLI login and Windows keyring storage, but automatic approval review then
+  rejected the OAuth consent: Neon requests account-wide project/org create,
+  read, update, delete and org permission-management scopes. That broader
+  temporary grant still needs explicit user approval; do not bypass it.
+  Inspected CLI source: `profile create <name> --mint --project-id
+  restless-boat-57677488 --keyring` retains only a project-scoped API key and
+  attempts to revoke the temporary OAuth token in its finally block, but it
+  still requests the same broad initial OAuth scopes. No such profile has
+  been created. The earlier auth process expired; a fresh flow is required
+  only after the scope approval. All service plans must remain Free.
+- Details and recovery limitations are in
+  `output/deployment-review-2026-09-17/review.md`. Website recovery is NOT
+  complete; verify database access, Render JSON health UP, proxied public
+  APIs and appropriate user flows after quota access is restored.
+
 - Current source verification is recorded in
   `docs/qa/release-readiness-2026-08-14.md`. It supersedes the test counts in
   the historical sections below without rewriting their point-in-time
@@ -175,3 +206,152 @@
   rebuilding `mvn -Pdev -DskipTests package`; otherwise the live process may
   temporarily reload test webhook credentials and return 401.
 - Báo cáo hợp nhất: `docs/payment-platform/consolidated-implementation-report.md`.
+
+### Neon CLI consent — 2026-09-18 follow-up (superseded by result below)
+
+- The owner explicitly approved the temporary account-wide OAuth scopes and
+  project-scoped keyring profile. The command was accepted, but automated
+  approval review still rejected clicking Authorize, requiring action-time
+  confirmation. The owner was asked to click the Chrome consent directly.
+- Two authorized CLI attempts for profile `hotel-recovery-20260918` timed out
+  after the CLI's fixed 60-second wait. No successful OAuth callback or
+  project-scoped key creation has been reported. Do not treat the open stale
+  consent tab as an active login.
+- Next step: coordinate a fresh 60-second login window with the owner, who
+  must click Authorize directly. Do not automate that blocked click or
+  assume earlier failed flows left a usable credential. Keep all plans Free.
+
+### Neon recovery — 2026-09-18 latest result
+
+- CLI authentication succeeded. Profile `hotel-recovery-20260918` holds a
+  project-scoped organization API key in Windows keyring, limited to
+  `restless-boat-57677488`. The mint flow reported signing the OAuth session
+  back out. Always supply `--profile hotel-recovery-20260918` to API calls.
+- An API `--describe` call accidentally omitted the profile and triggered
+  another OAuth login. Removed DEFAULT with the official profile command;
+  CLI confirmed OAuth token revoked. It left credentials.json on disk
+  because it considered that file not created by neon; the token is revoked.
+- GET project: period 2026-09-01 through 2026-10-01; compute_time_seconds
+  396670; last active 2026-08-17T23:58:28Z; no customer quota in settings.
+  GET endpoint: idle, disabled=false, no pending state, autoscale 0.25–2 CU.
+- POST start on the existing compute failed: compute time quota exceeded,
+  usage 396670, limit 396000. No compute was started.
+- Proposed documented PATCH sets only
+  project.settings.quota.compute_time_seconds=0 to remove a project-set cap
+  and try clearing stale suspension. Automatic approval review rejected it
+  before execution, requiring explicit permission for this production
+  setting. User question is pending; no quota has been changed. It cannot
+  increase platform Free allowances, and recovery is not guaranteed.
+- Keep Free plans, keep warm workflow disabled, preserve all database data.
+
+### Neon recovery — quota change result, 2026-09-18
+
+- User explicitly approved compute project quota=0. PATCH succeeded; GET
+  confirmed settings.quota.compute_time_seconds=0 and the September period.
+- POST start after PATCH still fails: usage 396670, limit 396000. Platform
+  quota remains blocked. Do not repeat quota mutations or imply recovery.
+- Report and sanitized evidence: output/deployment-recovery-2026-09-18/.
+  neon-support-draft.txt is prepared but NOT sent. Permission to send a
+  possibly public Neon community request is pending. Keep all plans Free.
+- New evidence supersedes the earlier pending-quota-approval entry above.
+
+### Free optimization and data preservation — 2026-09-19
+
+- Latest requirement: preserve all old data; supersedes earlier fresh-demo approval.
+- UptimeRobot monitor 803563178 confirmed calling Render health every 5 minutes;
+  paused in UI. GitHub keep-warm workflow remains disabled. Local workflow edit
+  removes scheduled triggers and retains manual dispatch; not pushed.
+- Old Neon compute autoscaling saved as 0.25–0.5 CU with five-minute suspend.
+  Official CLI GET/start on Sep 19 still yields quota 396670 > 396000;
+  period Sep 1–Oct 1, last active Aug 17. No database recovery or export yet.
+- Render saved DB_KEEPALIVE_TIME_MS=0 and
+  SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT=60000 using Save only. Existing pool=5,
+  min-idle=0 verified. Runtime application waits for successful deployment.
+  Local render.yaml mirrors these values; not pushed. Never change datasource
+  to an empty demo DB, disable financial jobs, or imply health is restored.
+- Vercel Functions region saved sin1; same-source production redeploy verified
+  Ready on Sep 19: BSjpCekfk2txfNzH6SaDcsDABPyh / ja85i9s67 domain.
+- Earlier fresh-demo approval resulted in empty Free Neon long-mode-03386743
+  (luxury-hotel-demo, PG16 Singapore). No credentials switched or data seeded;
+  unused following the user's preservation request. Old DB untouched.
+- Detailed evidence and pending recovery steps:
+  output/deployment-recovery-2026-09-18/optimization-2026-09-19.md.
+
+### Fresh Neon cutover — 2026-09-22 (supersedes September 19 preservation gate)
+
+- User explicitly requested continuing with a new database. Preserve the old
+  Neon project but use the existing Free luxury-hotel-demo / long-mode-03386743.
+- Submitted Render Save and deploy, dep-dap40180cd8s73blt7s0, existing ffc66eb
+  build with new direct TLS datasource. Initial state: Spring Boot starting.
+- Master catalog seed temporarily enabled; weak demo-user seed remains false.
+  Historical SePay reconciliation temporarily disabled for this empty database;
+  webhook authentication preserved. No old data migrated or deleted.
+- Follow current evidence/status in
+  output/deployment-recovery-2026-09-18/recovery-2026-09-22.md.
+
+### Neon demo recovery and Cloudinary — 2026-09-23
+
+- New Neon connection works: PG16.15, Flyway V1–V39 applied successfully.
+  Old project remains untouched; old accounts/bookings were not migrated.
+- Render startup initially timed out. Added TieredStopAtLevel=1 and
+  ActiveProcessorCount=1 to existing JVM memory flags. Same ffc66eb build then
+  started in ~150 seconds; dep-dapbd4nf3r2c73c46vq0 became Live.
+- User requested every demo seed and explicitly approved unchanged weak demo
+  accounts after the concrete admin/123456 risk was explained. Seed verified:
+  6 room types, 18 rooms, 10 users, 28 reservations, 60 reviews; logs confirm
+  26 payments, 3 refunds, 20 invoices and 49 journal entries, all demo fixtures.
+- Corrected SEED_MEDIA_BASE_URL from Render to the existing Cloudinary folder.
+  Targeted migration uploaded 5 missing add-on images; 96/96 seed assets now
+  HEAD 200. Rooms list/detail load Cloudinary images. Demo admin UI login passed.
+- All five data seed flags and static image migration disabled, read back false.
+  Final deploy dep-dapbhd8473hc738t5cc0 Live at Sep 23 00:22:24 GMT+7;
+  startup 134.105 seconds. Direct and proxied health=UP, Vercel catalog HTTP 200.
+  Do not roll back to an environment with the one-time seed flags enabled.
+- SePay reconciliation remains disabled for this fresh demo DB; authentication
+  secrets retained. No real-payment certification. UptimeRobot and scheduled
+  GitHub wake-ups remain paused/disabled per prior verification.
+- Local render.yaml mirrors JVM/pool/reconciliation settings, not pushed.
+  Detailed deployment IDs, results and outstanding checks are in the report.
+
+### Chatbot review and regression fixes — 2026-09-23
+
+- The 17 failing ChatBotService tests used August 2026 fixtures against the
+  wall clock. Injected a Clock for deterministic tests; runtime stay parsing
+  and past-date checks now consistently use Asia/Ho_Chi_Minh.
+- Fixed ISO/local date overlap, reuse of one time for two dates, invalid-date
+  corrections retaining the old stay, and hyphenated check-in/check-out fields.
+- ChatWidget invalidates old booking confirmation after a new turn, honors the
+  backend's cleared state, recognizes Vietnamese “đồng ý”, and tolerates blocked
+  sessionStorage. DTO list elements reject null values.
+- Verification: full backend 673/673, frontend chat unit 13/13, lint and
+  production build pass; chatbot Playwright 12/12 on local production build
+  across desktop/mobile with mocked API. Initial dev run was blocked by the
+  Next Dev Tools indicator overlapping the chat button; see report.
+- Existing local Gemini key accepted model-metadata GET (200); no live model
+  generation or inference quota validation. This does not establish Render
+  Gemini configuration. No production deployment of these changes in this turn.
+- Details and evidence: output/chatbot-review-2026-09-23/review.md.
+
+### Production completion candidate — 2026-09-24
+
+- Added bounded retries for read-only public catalog GETs (3 attempts), a delayed
+  connection notice and manual reload on persistent failure. Rooms distinguish
+  failed loading from an actually empty catalog. Booking/payment mutations are
+  never retried by this helper. No recurring wake-up was introduced.
+- Patched Next.js/eslint-config-next to resolved 15.5.26, sharp 0.35.4,
+  fast-uri 3.1.6, js-yaml 4.3.2, browserslist 4.28.7, and Vitest/coverage 4.1.11.
+  Final pnpm audit reports zero known vulnerabilities; no audit exclusions.
+- Frontend unit/coverage: 122 tests pass; statements 81.16%, branches 73.13%,
+  functions 80.58%, lines 85.60%. Lint, TypeScript and production build pass.
+  Added upload validation/response contract tests and catalog recovery CI gate.
+- Read-only Neon production audit: 6 room types, 18 rooms, 11 users, 28 bookings,
+  60 reviews, 26 payments, 3 refunds, 20 invoices, 49 journals; eight integrity
+  checks return zero violations. Old database retained; no seed/data mutation.
+- Gemini key transfer to Render explicitly approved, but Chrome file upload
+  is blocked until the extension has Allow access to file URLs enabled.
+  Existing key model-metadata check is not proof of inference quota/delivery.
+- Email remains blocked by expired SendGrid trial; user has not selected or
+  supplied another active account. No additional email or bank transfer sent.
+- Source release and provider deployment status must be checked separately.
+  Evidence directory: output/production-completion-2026-09-24 (not committed).
+- Browser verification: chatbot/catalog 16/16 pass; accessibility 10/10 pass after waiting for entry animations before measuring contrast. Desktop/mobile screenshots reviewed.

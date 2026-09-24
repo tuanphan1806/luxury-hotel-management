@@ -2,6 +2,7 @@ package com.hotel.backend.dto.request;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -24,7 +25,7 @@ public class ChatRequest {
 
     @Valid
     @Size(max = 12)
-    private List<ChatTurnRequest> history = new ArrayList<>();
+    private List<@NotNull ChatTurnRequest> history = new ArrayList<>();
 
     @Size(max = 1500)
     private String bookingContext;

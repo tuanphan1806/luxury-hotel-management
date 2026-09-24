@@ -23,6 +23,9 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,7 +50,8 @@ class ChatBotServiceTest {
             new ChatResponsePolicy(),
             semanticBookingFallback,
             geminiChatClient,
-            publicDataGateway
+            publicDataGateway,
+            Clock.fixed(Instant.parse("2026-08-01T03:00:00Z"), ZoneOffset.UTC)
     );
 
     @Test
@@ -947,6 +951,106 @@ class ChatBotServiceTest {
                 .totalRooms(3)
                 .maxGuestsPerRoom(maxGuests)
                 .build();
+    }
+
+    @Test
+    void isoDatesAreNotParsedAgainAsDayMonthFragments() {
+        when(publicDataGateway.getAvailability(LocalDateTime.of(2026, 8, 9, 14, 0),
+                LocalDateTime.of(2026, 8, 10, 12, 0)))
+                .thenReturn(List.of(deluxeAvailability(2)));
+        ChatResponse response = service.askWithAction(
+                "Book 1 Deluxe room from 2026-08-09 14:00 to 2026-08-10 12:00 for 2 adults", "iso");
+        assertEquals("CREATE_RESERVATION_CONFIRM", response.getAction());
+        ChatReservationPayload payload = (ChatReservationPayload) response.getPayload();
+        assertEquals(LocalDateTime.of(2026, 8, 9, 14, 0), payload.getCheckIn());
+        assertEquals(LocalDateTime.of(2026, 8, 10, 12, 0), payload.getCheckOut());
+    }
+
+    @Test
+    void oneTimeMustNotBeBorrowedForBothStayDates() {
+        ChatResponse response = service.askWithAction(
+                "Book 1 Deluxe room from 15/08/2026 to 17/08/2026 12:00 for 2 adults", "missing-time");
+        assertEquals("CONTINUE_RESERVATION", response.getAction());
+        assertTrue(response.getAnswer().contains("thiếu giờ"));
+        verifyNoInteractions(publicDataGateway, geminiChatClient);
+    }
+
+    @Test
+    void explicitPastCheckInIsRejectedWithoutQueryingAvailabilityOrGemini() {
+        ChatResponse response = service.askWithAction(
+                "Book 1 Deluxe room from 15/07/2026 14:00 to 17/07/2026 12:00 for 2 adults", "past");
+        assertEquals(null, response.getAction());
+        assertTrue(response.getAnswer().contains("quá khứ"));
+        verifyNoInteractions(publicDataGateway, geminiChatClient);
+    }
+
+    @Test
+    void relativeDatesUseHotelDayEvenWhenUtcIsStillThePreviousDay() {
+        ChatBotService hotelService = serviceAt("2026-08-01T18:00:00Z"); // 02/08, 01:00 at hotel
+        when(publicDataGateway.getAvailability(LocalDateTime.of(2026, 8, 2, 14, 0),
+                LocalDateTime.of(2026, 8, 3, 12, 0)))
+                .thenReturn(List.of(deluxeAvailability(2)));
+        ChatResponse response = hotelService.askWithAction(
+                "Book 1 Deluxe room from today 14:00 to tomorrow 12:00 for 2 adults", "hotel-day");
+        assertEquals("CREATE_RESERVATION_CONFIRM", response.getAction());
+        verify(publicDataGateway).getAvailability(LocalDateTime.of(2026, 8, 2, 14, 0),
+                LocalDateTime.of(2026, 8, 3, 12, 0));
+    }
+
+    @Test
+    void yearlessDatesUseHotelYearAtNewYearBoundary() {
+        ChatBotService hotelService = serviceAt("2026-12-31T18:00:00Z"); // 01/01/2027 at hotel
+        when(publicDataGateway.getAvailability(LocalDateTime.of(2027, 1, 2, 14, 0),
+                LocalDateTime.of(2027, 1, 3, 12, 0)))
+                .thenReturn(List.of(deluxeAvailability(2)));
+        ChatResponse response = hotelService.askWithAction(
+                "Book 1 Deluxe room from 02/01 14:00 to 03/01 12:00 for 2 adults", "hotel-year");
+        assertEquals("CREATE_RESERVATION_CONFIRM", response.getAction());
+        verify(publicDataGateway).getAvailability(LocalDateTime.of(2027, 1, 2, 14, 0),
+                LocalDateTime.of(2027, 1, 3, 12, 0));
+    }
+
+    @Test
+    void hyphenatedCheckoutCorrectionKeepsCheckInUnchanged() {
+        when(publicDataGateway.getAvailability(LocalDateTime.of(2026, 8, 20, 14, 0),
+                LocalDateTime.of(2026, 8, 22, 12, 0)))
+                .thenReturn(List.of(deluxeAvailability(2)));
+        ChatRequest request = new ChatRequest();
+        request.setQuestion("Change check-out to 22/08/2026 12:00");
+        request.setBookingState(pendingDeluxeBooking());
+        ChatResponse response = service.askWithAction(request, "hyphen");
+        assertEquals("CREATE_RESERVATION_CONFIRM", response.getAction());
+        assertEquals(LocalDateTime.of(2026, 8, 22, 12, 0),
+                ((ChatReservationPayload) response.getPayload()).getCheckOut());
+    }
+
+    private ChatBotService serviceAt(String instant) {
+        return new ChatBotService(inputPolicy, new ChatIntentClassifier(inputPolicy),
+                new ChatPrivacyRedactor(), new ChatResponsePolicy(), semanticBookingFallback,
+                geminiChatClient, publicDataGateway, Clock.fixed(Instant.parse(instant), ZoneOffset.UTC));
+    }
+
+    @Test
+    void timesBeforeDatesArePairedOnceInStayOrder() {
+        when(publicDataGateway.getAvailability(LocalDateTime.of(2026, 8, 15, 14, 0),
+                LocalDateTime.of(2026, 8, 17, 12, 0)))
+                .thenReturn(List.of(deluxeAvailability(2)));
+        ChatResponse response = service.askWithAction(
+                "Đặt 1 phòng Deluxe từ 14:00 ngày 15/08/2026 đến 12:00 ngày 17/08/2026 cho 2 người lớn", "time-before-date");
+        assertEquals("CREATE_RESERVATION_CONFIRM", response.getAction());
+        verify(publicDataGateway).getAvailability(LocalDateTime.of(2026, 8, 15, 14, 0),
+                LocalDateTime.of(2026, 8, 17, 12, 0));
+    }
+
+    @Test
+    void invalidDateCorrectionNeverReconfirmsThePreviousStay() {
+        ChatRequest request = new ChatRequest();
+        request.setQuestion("Change check-out to 31/02/2027 12:00");
+        request.setBookingState(pendingDeluxeBooking());
+        ChatResponse response = service.askWithAction(request, "invalid-correction");
+        assertEquals("CONTINUE_RESERVATION", response.getAction());
+        assertTrue(response.getAnswer().contains("không hợp lệ"));
+        verifyNoInteractions(publicDataGateway, geminiChatClient);
     }
 
     private AvailabilityResponse suiteAvailability(int maxGuests) {

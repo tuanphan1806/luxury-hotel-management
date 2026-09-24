@@ -12,6 +12,7 @@ import HotelBrand from "@/components/HotelBrand";
 import { apiClient, authSession } from "@/lib/api";
 import { shouldConserveData } from "@/lib/performance";
 import { siteConfig } from "@/lib/siteConfig";
+import CatalogConnectionNotice from "@/components/guest/CatalogConnectionNotice";
 
 const ChatWidget = dynamic(() => import("@/components/ChatWidget"), {
   ssr: false,
@@ -590,7 +591,7 @@ export default function MainSiteShell({ children }: Readonly<{ children: React.R
             />
           ))}
         </div>
-        <div className="relative z-10">{children}</div>
+        <div className="relative z-10"><CatalogConnectionNotice />{children}</div>
       </main>
 
       {showMobileBookingBar && (

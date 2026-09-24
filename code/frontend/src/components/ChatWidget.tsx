@@ -16,6 +16,7 @@ import {
   buildChatHistory,
   clearChatSession,
   createConversationId,
+  getChatStorage,
   loadChatSession,
   MAX_CHAT_INPUT_LENGTH,
   MAX_STORED_CHAT_MESSAGES,
@@ -80,7 +81,7 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
   const isOpenRef = useRef(false);
 
   useEffect(() => {
-    const stored = loadChatSession(window.sessionStorage);
+    const stored = loadChatSession(getChatStorage());
     if (stored) {
       chatSessionIdRef.current = stored.conversationId;
       if (stored.messages.length) setMessages(stored.messages);
@@ -95,7 +96,7 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
     // Không ghi session ở render đầu tiên: state mặc định chỉ có lời chào và
     // sẽ xóa lịch sử cũ trước khi effect hydrate kịp cập nhật state.
     if (!isSessionHydrated || !chatSessionIdRef.current) return;
-    saveChatSession(window.sessionStorage, {
+    saveChatSession(getChatStorage(), {
       conversationId: chatSessionIdRef.current,
       messages,
       pendingBookingState,
@@ -179,6 +180,7 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
     value
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[đĐ]/g, "d")
       .toLowerCase()
       .trim();
 
@@ -211,7 +213,7 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
     setPendingBookingState(null);
     setMessages(nextMessages);
     if (chatSessionIdRef.current) {
-      saveChatSession(window.sessionStorage, {
+      saveChatSession(getChatStorage(), {
         conversationId: chatSessionIdRef.current,
         messages: nextMessages,
         pendingBookingState: null,
@@ -225,7 +227,7 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
     isSendingRef.current = false;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-    clearChatSession(window.sessionStorage);
+    clearChatSession(getChatStorage());
     chatSessionIdRef.current = createConversationId();
     setMessages([{ ...INITIAL_BOT_MESSAGE, content: welcomeMessage }]);
     setPendingBookingState(null);
@@ -316,12 +318,16 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
         return;
       }
 
-      if (isCompleteChatBookingState(pendingBookingState) && isReservationConfirmation(trimmed)) {
+      const hasCurrentConfirmation = messages.some((message) => message.action === "CREATE_RESERVATION_CONFIRM");
+      if (hasCurrentConfirmation && isCompleteChatBookingState(pendingBookingState) && isReservationConfirmation(trimmed)) {
         navigateToCanonicalBooking(pendingBookingState);
         return;
       }
 
       abortControllerRef.current?.abort();
+      // A new turn may change the dates, quantity or validity of the inquiry.
+      // Keep its context, but require a fresh confirmation before handing off.
+      setMessages((current) => clearPendingActions(current));
       controller = new AbortController();
       abortControllerRef.current = controller;
 
@@ -342,7 +348,6 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
 
       if (chatResponse?.action === "CONTINUE_RESERVATION") {
         setPendingBookingState({
-          ...pendingBookingState,
           ...chatResponse.payload,
           context: chatResponse.payload?.context || pendingBookingState?.context || trimmed,
         });
@@ -378,12 +383,11 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
   };
 
   const handleMessageAction = (message: StoredChatMessage, confirmed: boolean) => {
+    if (isSendingRef.current || isLoading) return;
     if (message.action === "CREATE_RESERVATION_CONFIRM") {
       if (!confirmed) {
         setPendingBookingState(null);
-        setMessages((current) => current.map((item) => (
-          item.id === message.id ? { ...item, action: undefined, payload: undefined } : item
-        )));
+        setMessages((current) => clearPendingActions(current));
         appendBotMessage(localize(
           "Mình đã hủy yêu cầu đặt phòng đang chờ. Chưa có đơn hoặc giao dịch nào được tạo.",
           "The pending booking request was cancelled. No booking or transaction was created.",
@@ -529,6 +533,7 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
                       <button
                         type="button"
                         onClick={() => handleMessageAction(msg, false)}
+                        disabled={isLoading}
                         className="min-h-11 rounded-xl border border-[#0F2A43]/20 bg-white px-3 py-2 text-xs font-bold text-[#0F2A43] transition hover:border-[#B8944F] hover:bg-[#F7F1E5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
                       >
                         {localize("Hủy", "Cancel")}
@@ -536,6 +541,7 @@ export default function ChatWidget({ avoidMobileBookingBar = false }: ChatWidget
                       <button
                         type="button"
                         onClick={() => handleMessageAction(msg, true)}
+                        disabled={isLoading}
                         className="min-h-11 rounded-xl bg-[#B8944F] px-3 py-2 text-xs font-bold text-[#0F2A43] transition hover:bg-[#caa45d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F2A43]"
                       >
                         {localize("Xem giá & tiếp tục", "Review price")}

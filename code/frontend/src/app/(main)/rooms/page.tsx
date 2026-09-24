@@ -35,6 +35,7 @@ function RoomsPageContent() {
   const { favoriteRoomIds, favoriteCount, isReady: favoritesReady, isFavorite, toggleFavorite } = useFavorites();
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [guestCountFilter, setGuestCountFilter] = useState("0");
   const [sortBy, setSortBy] = useState<"recommended" | "price-asc" | "price-desc" | "rating">("recommended");
@@ -46,6 +47,7 @@ function RoomsPageContent() {
       .then(setRoomTypes)
       .catch(err => {
         console.error("Error fetching room types:", err);
+        setLoadFailed(true);
         setRoomTypes([]);
       })
       .finally(() => {
@@ -181,6 +183,11 @@ function RoomsPageContent() {
                 </div>
               </div>
             ))}
+          </div>
+        ) : loadFailed ? (
+          <div className="rounded-xl border border-[#0F2A43]/10 bg-[#F1F0EA] px-6 py-12 text-center">
+            <h3 className="font-serif text-2xl font-bold text-primary-navy">{localize("Chưa tải được danh sách phòng", "Room list could not be loaded")}</h3>
+            <p className="mt-3 text-sm text-text-light">{localize("Vui lòng thử tải lại trang sau ít phút. Tình trạng này chưa phản ánh số phòng còn trống.", "Please reload the page shortly. This does not indicate whether rooms are available.")}</p>
           </div>
         ) : roomTypes.length === 0 ? (
           <div className="bg-[#F1F0EA] border border-[#0F2A43]/10 py-16 px-6 text-center rounded-tl-2xl rounded-br-2xl">
