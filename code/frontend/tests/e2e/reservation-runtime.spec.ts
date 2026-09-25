@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { requireIsolation } from '../qa/require-isolation';
+import { openStaffShift } from '../qa/staff-shift';
 
 const QA_API = process.env.E2E_QA_API || "http://localhost:18080";
 const DEMO_PASSWORD = "123456";
@@ -75,6 +77,7 @@ async function login(request: APIRequestContext, username: string) {
 }
 
 test.describe("isolated runtime reservation and cash settlement", () => {
+  test.beforeAll(requireIsolation);
   test.describe.configure({ mode: "serial" });
 
   test.beforeEach(({}, testInfo) => {
@@ -86,6 +89,7 @@ test.describe("isolated runtime reservation and cash settlement", () => {
     const adminToken = await login(request, "admin");
     const staffHeaders = { Authorization: `Bearer ${staffToken}` };
     const adminHeaders = { Authorization: `Bearer ${adminToken}` };
+    const closeStaffShift = await openStaffShift(request, adminToken, staffToken);
 
     const roomsResponse = await request.get(
       qaUrl("/api/rooms/search?status=AVAILABLE&cleaningStatus=CLEAN"),
@@ -289,5 +293,6 @@ test.describe("isolated runtime reservation and cash settlement", () => {
     const releasedRoom = await roomAfterCheckout.json() as Room;
     expect(releasedRoom.status).toBe("AVAILABLE");
     expect(releasedRoom.cleaningStatus).toBe("DIRTY");
+    await closeStaffShift();
   });
 });

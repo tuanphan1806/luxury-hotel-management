@@ -1,9 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import { requireIsolation } from '../qa/require-isolation';
 
 const DEMO_PASSWORD = "123456";
 
 async function loginThroughUi(page: Page, username: string) {
   await page.goto("/login");
+  // Wait for hydration before filling controlled fields after a cold compile.
+  await expect(page.getByText('Đang kiểm tra phương thức đăng nhập...', { exact: true })).toBeHidden({ timeout: 30_000 });
   await page.locator("#login-email").fill(username);
   await page.locator("#login-password").fill(DEMO_PASSWORD);
 
@@ -21,6 +24,7 @@ async function loginThroughUi(page: Page, username: string) {
 }
 
 test.describe("authenticated role and session boundaries", () => {
+  test.beforeAll(requireIsolation);
   test.describe.configure({ mode: "serial" });
 
   test.beforeEach(({}, testInfo) => {
