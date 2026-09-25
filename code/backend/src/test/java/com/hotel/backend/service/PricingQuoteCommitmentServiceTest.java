@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -172,6 +173,64 @@ class PricingQuoteCommitmentServiceTest {
         verify(reservationAddOnService)
                 .quoteBookingTimeForPackageCycles(
                         anyList(), eq(1), eq(1));
+    }
+
+    @Test
+    void acceptsUnchangedBreakdownAfterJsonPersistenceRoundTrip() throws Exception {
+        ReflectionTestUtils.setField(quoteLine, "breakdownJson", objectMapper.readTree(
+                objectMapper.writeValueAsString(quoteLine.getBreakdownJson())));
+        stubValidQuote();
+
+        var commitment = service.validateForReservation(
+                request, Map.of(roomType.getId(), roomType));
+
+        assertMoney("170000", commitment.totalAmount());
+    }
+
+    @Test
+    void rejectsChangedAmountAfterJsonPersistenceRoundTrip() throws Exception {
+        ObjectNode stored = (ObjectNode) objectMapper.readTree(
+                objectMapper.writeValueAsString(quoteLine.getBreakdownJson()));
+        stored.put("roomCharge", new BigDecimal("170000.01"));
+        ReflectionTestUtils.setField(quoteLine, "breakdownJson", stored);
+        stubQuoteBeforeRate();
+        when(rateProfileRepository.findByIdForUpdate(rateProfile.getId()))
+                .thenReturn(Optional.of(rateProfile));
+
+        AppException exception = assertThrows(AppException.class,
+                () -> service.validateForReservation(
+                        request, Map.of(roomType.getId(), roomType)));
+
+        assertEquals(ErrorCode.PRICE_CHANGED, exception.getErrorCode());
+        verifyNoInteractions(reservationAddOnService);
+    }
+
+    @Test
+    void rejectsNumericStringInPersistedBreakdown() throws Exception {
+        ObjectNode stored = (ObjectNode) objectMapper.readTree(
+                objectMapper.writeValueAsString(quoteLine.getBreakdownJson()));
+        stored.put("roomCharge", "170000");
+        assertStoredBreakdownRejected(stored);
+    }
+
+    @Test
+    void rejectsChangedNestedCycleInPersistedBreakdown() throws Exception {
+        ObjectNode stored = (ObjectNode) objectMapper.readTree(
+                objectMapper.writeValueAsString(quoteLine.getBreakdownJson()));
+        ((ObjectNode) stored.path("cycles").get(0)).put("roomChargePerRoom", 1);
+        assertStoredBreakdownRejected(stored);
+    }
+
+    private void assertStoredBreakdownRejected(ObjectNode stored) {
+        ReflectionTestUtils.setField(quoteLine, "breakdownJson", stored);
+        stubQuoteBeforeRate();
+        when(rateProfileRepository.findByIdForUpdate(rateProfile.getId()))
+                .thenReturn(Optional.of(rateProfile));
+        AppException exception = assertThrows(AppException.class,
+                () -> service.validateForReservation(
+                        request, Map.of(roomType.getId(), roomType)));
+        assertEquals(ErrorCode.PRICE_CHANGED, exception.getErrorCode());
+        verifyNoInteractions(reservationAddOnService);
     }
 
     @Test

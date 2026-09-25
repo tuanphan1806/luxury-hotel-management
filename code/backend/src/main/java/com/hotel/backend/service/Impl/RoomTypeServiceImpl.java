@@ -26,6 +26,7 @@ import com.hotel.backend.service.RoomTypeService;
 import com.hotel.backend.service.MediaAssetService;
 import com.hotel.backend.service.ReservationAuditService;
 import com.hotel.backend.service.RoomRateProfileManagementService;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -59,6 +60,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
     private final RoomRepository roomRepository;
     private final ReservationRoomTypeRepository reservationRoomTypeRepository;
     private final PricingQuoteLineRepository pricingQuoteLineRepository;
+    private final EntityManager entityManager;
 
     // ── READ ──────────────────────────────────────────────────────────────────
 
@@ -332,9 +334,14 @@ public class RoomTypeServiceImpl implements RoomTypeService {
                             + "; chỉ được giữ ở trạng thái ngừng hoạt động");
         }
 
-        Map<String, Object> oldValue = roomTypeSnapshot(
-                roomType,
-                loadPublicRates(List.of(roomType)).get(id));
+        RoomRateProfile auditRate = loadPublicRates(List.of(roomType)).get(id);
+        Map<String, Object> oldValue = roomTypeSnapshot(roomType, auditRate);
+        if (auditRate != null) {
+            // PostgreSQL cascades unused rate versions when the parent is deleted.
+            // The audit lookup must not leave a managed child pointing at that
+            // removed parent during Hibernate's pre-flush association checks.
+            entityManager.detach(auditRate);
+        }
         List<String> images = currentImages(roomType);
         roomType.getFacilities().clear();
         roomTypeRepository.delete(roomType);

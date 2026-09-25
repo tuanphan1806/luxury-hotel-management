@@ -292,7 +292,7 @@ public class PricingQuoteCommitmentService {
             PricingQuoteLine quotedLine,
             PricingBreakdown current) {
         return jsonHasher.canonicalTree(current)
-                        .equals(jsonHasher.canonicalTree(
+                        .equals(this::comparePersistedJsonValues, jsonHasher.canonicalTree(
                                 quotedLine.getBreakdownJson()))
                 && moneyEquals(quotedLine.getRoomCharge(), current.roomCharge())
                 && moneyEquals(
@@ -301,6 +301,15 @@ public class PricingQuoteCommitmentService {
                 && moneyEquals(
                         quotedLine.getLineTotalBeforeServices(),
                         current.lineTotalBeforeServices());
+    }
+
+    private int comparePersistedJsonValues(JsonNode left, JsonNode right) {
+        // JSON/JSONB round trips do not preserve Jackson numeric node types.
+        // Compare exact numeric values without changing quote/request hashes.
+        if (left.isNumber() && right.isNumber()) {
+            return left.decimalValue().compareTo(right.decimalValue());
+        }
+        return left.equals(right) ? 0 : 1;
     }
 
     private boolean servicesMatch(
