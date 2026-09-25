@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { requireIsolation } from '../qa/require-isolation';
 
 const DEMO_PASSWORD = "123456";
 const TEST_PNG = Buffer.from(
@@ -53,6 +54,7 @@ async function uploadImage(
 }
 
 test.describe("management CRUD, media ownership, and audit trail", () => {
+  test.beforeAll(requireIsolation);
   test.describe.configure({ mode: "serial" });
 
   test.beforeEach(({}, testInfo) => {
@@ -134,7 +136,12 @@ test.describe("management CRUD, media ownership, and audit trail", () => {
           typeNameEn: `QA Room Type ${suffix}`,
           description: "Loại phòng kiểm thử tạm thời.",
           descriptionEn: "Temporary QA room type.",
-          price: 123456,
+          includedGuests: 2,
+          firstBlockPrice: 70000,
+          extraUnitPrice: 10000,
+          overnightPrice: 160000,
+          dailyPrice: 200000,
+          extraGuestPrice: 20000,
           maxGuests: 3,
           imageUrls: roomTypeImages,
           facilityIds: [facilityId],
@@ -155,7 +162,12 @@ test.describe("management CRUD, media ownership, and audit trail", () => {
           typeNameEn: `Updated QA Room Type ${suffix}`,
           description: "Đã xác minh cập nhật.",
           descriptionEn: "Update verified.",
-          price: 234567,
+          includedGuests: 2,
+          firstBlockPrice: 80000,
+          extraUnitPrice: 15000,
+          overnightPrice: 180000,
+          dailyPrice: 240000,
+          extraGuestPrice: 30000,
           maxGuests: 4,
           imageUrls: roomTypeImages,
           facilityIds: [facilityId],
@@ -187,6 +199,9 @@ test.describe("management CRUD, media ownership, and audit trail", () => {
       });
       expect(updateGallery.status()).toBe(200);
 
+      expect((await request.patch(`/backend_proxy/api/room-types/${roomTypeId}/active`, {
+        headers: adminHeaders, data: { active: false, reason: 'Synthetic QA cleanup' },
+      })).status()).toBe(200);
       expect((await request.delete(`/backend_proxy/api/room-types/${roomTypeId}`, { headers: adminHeaders })).status()).toBe(200);
       expect((await request.delete(`/backend_proxy/api/galleries/${galleryId}`, { headers: adminHeaders })).status()).toBe(200);
       expect((await request.delete(`/backend_proxy/api/facilities/${facilityId}`, { headers: adminHeaders })).status()).toBe(200);
@@ -217,7 +232,10 @@ test.describe("management CRUD, media ownership, and audit trail", () => {
       galleryId = undefined;
       facilityId = undefined;
     } finally {
-      if (roomTypeId) await request.delete(`/backend_proxy/api/room-types/${roomTypeId}`, { headers: adminHeaders });
+      if (roomTypeId) {
+        await request.patch(`/backend_proxy/api/room-types/${roomTypeId}/active`, { headers: adminHeaders, data: { active: false, reason: 'Synthetic QA cleanup' } });
+        await request.delete(`/backend_proxy/api/room-types/${roomTypeId}`, { headers: adminHeaders });
+      }
       if (galleryId) await request.delete(`/backend_proxy/api/galleries/${galleryId}`, { headers: adminHeaders });
       if (facilityId) await request.delete(`/backend_proxy/api/facilities/${facilityId}`, { headers: adminHeaders });
     }

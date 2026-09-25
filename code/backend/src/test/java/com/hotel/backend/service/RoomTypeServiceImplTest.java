@@ -15,6 +15,7 @@ import com.hotel.backend.repository.ReservationRoomTypeRepository;
 import com.hotel.backend.repository.RoomRepository;
 import com.hotel.backend.repository.RoomTypeRepository;
 import com.hotel.backend.service.Impl.RoomTypeServiceImpl;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,6 +51,7 @@ class RoomTypeServiceImplTest {
     @Mock RoomRepository roomRepository;
     @Mock ReservationRoomTypeRepository reservationRoomTypeRepository;
     @Mock PricingQuoteLineRepository pricingQuoteLineRepository;
+    @Mock EntityManager entityManager;
 
     private RoomTypeServiceImpl service;
 
@@ -66,7 +68,8 @@ class RoomTypeServiceImplTest {
                 roomRateProfileManagementService,
                 roomRepository,
                 reservationRoomTypeRepository,
-                pricingQuoteLineRepository);
+                pricingQuoteLineRepository,
+                entityManager);
     }
 
     /**
@@ -244,11 +247,15 @@ class RoomTypeServiceImplTest {
         RoomType inactive = roomType(12L, "DELUXE");
         inactive.setActive(false);
         when(roomTypeRepository.findByIdForUpdate(12L)).thenReturn(java.util.Optional.of(inactive));
+        RoomRateProfile unusedRate = rate(inactive, "70000", "20000", "170000", "300000");
         when(roomRateProfileRepository.findEffectiveByRoomTypeIds(
-                eq(List.of(12L)), any(Instant.class))).thenReturn(List.of());
+                eq(List.of(12L)), any(Instant.class))).thenReturn(List.of(unusedRate));
 
         service.delete(12L);
 
+        var deletionOrder = org.mockito.Mockito.inOrder(entityManager, roomTypeRepository);
+        deletionOrder.verify(entityManager).detach(unusedRate);
+        deletionOrder.verify(roomTypeRepository).delete(inactive);
         verify(roomTypeRepository).delete(inactive);
         verify(roomTypeRepository).flush();
         verify(mediaAssetService).releaseReferences(

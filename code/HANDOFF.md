@@ -355,3 +355,26 @@
 - Source release and provider deployment status must be checked separately.
   Evidence directory: output/production-completion-2026-09-24 (not committed).
 - Browser verification: chatbot/catalog 16/16 pass; accessibility 10/10 pass after waiting for entry animations before measuring contrast. Desktop/mobile screenshots reviewed.
+
+### Runtime recovery verification — 2026-09-25
+
+- Previous release e8471d2 is live on Vercel and Render. Gemini configuration
+  was completed and actual English/Vietnamese model responses were verified.
+  SendGrid remains expired; user explicitly deferred email until another active
+  provider is available. Old Neon data remains preserved, not migrated.
+- Isolated PostgreSQL runtime tests found two defects: persisted JSON numeric
+  node types caused unchanged quotes to fail PRICE_CHANGED; loading a rate for
+  delete-audit left a managed child referencing a removed unused room type.
+  Fixes compare exact numeric values only at commitment validation and detach
+  the audit-only rate before the existing database cascade. Quote hashes,
+  historical-data deletion guards, migrations and financial policy are unchanged.
+- Added compose.qa.yml, guarded Playwright runtime configuration, synthetic
+  staff-shift setup, and a dump/restore verification script. This environment
+  has its own volume, internal backend network and no real provider credentials.
+  See docs/qa/isolated-runtime.md. Never use the ordinary shared Compose DB.
+- Local verification: 677 backend tests and frontend production build pass;
+  PostgreSQL migration/concurrency suite passed 29 tests. Runtime verification
+  and release status are tracked in output/isolated-qa-2026-09-25/.
+- Neon production backup: manual snapshot created 2026-09-25 14:04:38 UTC;
+  console reports no expiry and one snapshot limit on the unchanged Free plan.
+  Branch history restore window is six hours. No production restore performed.

@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { requireIsolation } from '../qa/require-isolation';
 
 const QA_API = process.env.E2E_QA_API || "http://localhost:18080";
 const DEMO_PASSWORD = "123456";
@@ -122,6 +123,11 @@ async function createReservation(
   roomTypeId: number,
   quantity = 1,
 ) {
+  const quoteResponse = await request.post(qaUrl('/api/pricing/quote'), {
+    data: { checkIn, checkOut, guestCount: quantity, rooms: [{ roomTypeId, quantity, lineGuestCount: quantity }] },
+  });
+  expect(quoteResponse.status(), await quoteResponse.text()).toBe(200);
+  const quote = (await quoteResponse.json() as ApiEnvelope<{ quoteId: string; quoteHash: string }>).data;
   const response = await request.post(qaUrl("/api/reservations"), {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -130,10 +136,12 @@ async function createReservation(
     data: {
       checkIn,
       checkOut,
-      guestCount: 1,
+      guestCount: quantity,
       note: `QA online ${plan} ${randomUUID().slice(0, 8)}`,
       paymentPlan: plan,
-      roomTypes: [{ roomTypeId, quantity }],
+      quoteId: quote.quoteId,
+      quoteHash: quote.quoteHash,
+      roomTypes: [{ roomTypeId, quantity, lineGuestCount: quantity }],
     },
   });
   expect(response.status(), await response.text()).toBe(201);
@@ -228,6 +236,7 @@ async function settleThroughSignedWebhook(
 }
 
 test.describe("isolated online reservation, RoomHold and signed SePay webhook", () => {
+  test.beforeAll(requireIsolation);
   test.describe.configure({ mode: "serial" });
 
   test.beforeEach(({}, testInfo) => {
@@ -235,8 +244,8 @@ test.describe("isolated online reservation, RoomHold and signed SePay webhook", 
   });
 
   test("DEPOSIT_50 and PREPAY_100 preserve hold, payment and staff-confirm ordering", async ({ request }) => {
-    expect(WEBHOOK_SECRET, "QA_SEPAY_WEBHOOK_SECRET phải được nạp từ backend .env").not.toBe("");
-    expect(MERCHANT_ACCOUNT, "QA_MERCHANT_BANK_ACCOUNT phải được nạp từ backend .env").not.toBe("");
+    expect(WEBHOOK_SECRET, "QA webhook secret must come from the isolated QA configuration").not.toBe("");
+    expect(MERCHANT_ACCOUNT, "QA merchant must come from the isolated QA configuration").not.toBe("");
 
     const customerToken = await login(request, "customer1");
     const staffToken = await login(request, "staff1");
