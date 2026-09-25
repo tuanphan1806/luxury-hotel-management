@@ -5,9 +5,10 @@ $evidenceDir = Join-Path $qaRoot 'output/isolated-qa-2026-09-25'
 New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
 
 function Docker-Checked {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DockerArgs)
-    $result = & docker @DockerArgs
-    if ($LASTEXITCODE -ne 0) { throw "Docker command failed: $($DockerArgs[0])" }
+    # Keep native flags such as -d/-U out of PowerShell parameter binding.
+    $qaDockerArgs = $args
+    $result = & docker @qaDockerArgs
+    if ($LASTEXITCODE -ne 0) { throw "Docker command failed: $($qaDockerArgs[0])" }
     return $result
 }
 

@@ -373,8 +373,13 @@
   has its own volume, internal backend network and no real provider credentials.
   See docs/qa/isolated-runtime.md. Never use the ordinary shared Compose DB.
 - Local verification: 677 backend tests and frontend production build pass;
-  PostgreSQL migration/concurrency suite passed 29 tests. Runtime verification
-  and release status are tracked in output/isolated-qa-2026-09-25/.
+  PostgreSQL migration/concurrency suite passed 29 tests. All eight isolated
+  runtime tests pass, including signed webhook replay/underpayment/overpayment
+  and outgoing refunds. QA dump/restore matches counts and row digests for all
+  60 public tables; FK/identity/check validation passes. This is synthetic QA,
+  not a real-bank transfer or a measured production recovery time.
+  Release PR: https://github.com/tuanphan1806/luxury-hotel-management/pull/158.
+  Deployment evidence is tracked in output/isolated-qa-2026-09-25/.
 - Neon production backup: manual snapshot created 2026-09-25 14:04:38 UTC;
   console reports no expiry and one snapshot limit on the unchanged Free plan.
   Branch history restore window is six hours. No production restore performed.
