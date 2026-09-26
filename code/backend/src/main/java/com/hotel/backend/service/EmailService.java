@@ -35,7 +35,7 @@ public class EmailService {
     private static final DateTimeFormatter STAY_TIME_FORMAT =
             DateTimeFormatter.ofPattern("HH:mm · dd/MM/yyyy", Locale.forLanguageTag("vi-VN"));
 
-    @Value("${spring.sendgrid.from-email:}")
+    @Value("${app.email.from-email:${spring.sendgrid.from-email:}}")
     private String verificationFrom;
 
     @Value("${app.transactional-email.from-email:${spring.sendgrid.from-email:}}")
@@ -173,7 +173,8 @@ public class EmailService {
         userRepository.save(user);
 
         try {
-            if (templateId != null && !templateId.isBlank()) {
+            if (verificationDeliveryGateway.supportsDynamicTemplates()
+                    && templateId != null && !templateId.isBlank()) {
                 sendVerificationTemplate(to, name, verifyUrl);
             } else {
                 sendHtml(
@@ -184,7 +185,7 @@ public class EmailService {
                         templateRenderer.verification(name, to, verifyUrl, verificationTtlHours),
                         "verification");
             }
-            log.info("Verification email accepted by SendGrid");
+            log.info("Verification email accepted by email provider");
         } catch (IOException | RuntimeException exception) {
             restoreVerificationState(user, previousVerificationCode, previousVerificationExpiry);
             throw exception;
@@ -256,7 +257,7 @@ public class EmailService {
         try {
             sendHtml(transactionalDeliveryGateway, transactionalFrom, to, subject, rendered, purpose);
         } catch (IOException exception) {
-            log.warn("SendGrid transport failed purpose={}: {}", purpose, exception.getMessage());
+            log.warn("Email transport failed purpose={}: {}", purpose, exception.getMessage());
             throw new AppException(ErrorCode.EMAIL_DELIVERY_FAILED);
         }
     }
@@ -270,7 +271,8 @@ public class EmailService {
             HotelEmailTemplateRenderer.RenderedEmail fallback,
             String purpose) {
         try {
-            if (dynamicTemplateId != null && !dynamicTemplateId.isBlank()) {
+            if (transactionalDeliveryGateway.supportsDynamicTemplates()
+                    && dynamicTemplateId != null && !dynamicTemplateId.isBlank()) {
                 sendDynamicTemplate(
                         transactionalDeliveryGateway,
                         transactionalFrom,
@@ -283,7 +285,7 @@ public class EmailService {
                 sendHtml(transactionalDeliveryGateway, transactionalFrom, to, subject, fallback, purpose);
             }
         } catch (IOException exception) {
-            log.warn("SendGrid transport failed purpose={}: {}", purpose, exception.getMessage());
+            log.warn("Email transport failed purpose={}: {}", purpose, exception.getMessage());
             throw new AppException(ErrorCode.EMAIL_DELIVERY_FAILED);
         }
     }

@@ -12,18 +12,13 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import com.hotel.backend.service.EmailDeliveryGateway;
-import com.hotel.backend.service.SendGridEmailDeliveryGateway;
 import com.hotel.backend.service.UserServiceDetail;
-import com.sendgrid.SendGrid;
 
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import static org.springframework.security.config.http.SessionCreationPolicy.STATELESS;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -132,38 +127,6 @@ public SecurityFilterChain securityFilterChain(
         return new ProviderManager(authProvider);
     }
 
-
-    @Value("${spring.sendgrid.api-key:}")
-    private String verificationSendgridApiKey;
-
-    @Value("${app.transactional-email.api-key:}")
-    private String transactionalSendgridApiKey;
-
-    @Bean
-    @Qualifier("verificationSendGrid")
-    public SendGrid verificationSendGrid() {
-        return new SendGrid(verificationSendgridApiKey);
-    }
-
-    @Bean
-    @Qualifier("transactionalSendGrid")
-    public SendGrid transactionalSendGrid() {
-        return new SendGrid(transactionalSendgridApiKey);
-    }
-
-    @Bean
-    @Qualifier("verificationEmailDeliveryGateway")
-    public EmailDeliveryGateway verificationEmailDeliveryGateway(
-            @Qualifier("verificationSendGrid") SendGrid sendGrid) {
-        return new SendGridEmailDeliveryGateway(sendGrid);
-    }
-
-    @Bean
-    @Qualifier("transactionalEmailDeliveryGateway")
-    public EmailDeliveryGateway transactionalEmailDeliveryGateway(
-            @Qualifier("transactionalSendGrid") SendGrid sendGrid) {
-        return new SendGridEmailDeliveryGateway(sendGrid);
-    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {

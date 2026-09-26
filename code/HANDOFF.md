@@ -383,3 +383,20 @@
 - Neon production backup: manual snapshot created 2026-09-25 14:04:38 UTC;
   console reports no expiry and one snapshot limit on the unchanged Free plan.
   Branch history restore window is six hours. No production restore performed.
+
+### Brevo email recovery — 2026-09-26
+
+- User selected the logged-in Brevo Free account to replace expired SendGrid
+  and explicitly approved creating a one-year production API key and storing
+  it in Render. Sender verification was visible in Brevo; no paid upgrade.
+- Added opt-in HTTPS delivery for both email channels, preserving local branded
+  HTML/plain-text templates and ignoring SendGrid template IDs for Brevo.
+  No schema, booking/payment policy, frontend contract or dependencies changed.
+- Default provider remains SendGrid until Render is configured. Brevo requires
+  a key and an HTTP 201 message-id receipt; no automatic resend/failover.
+  Verification delivery failures preserve the previous verification token state.
+- Local backend suite: 696 tests pass, zero failures/errors. Includes provider
+  status/receipt/timeout failures, both channel selection, local template paths
+  and verification-state restoration. CI/deployment and actual delivery remain
+  separate gates. See docs/deployment/BREVO_EMAIL.md and evidence in
+  output/brevo-migration-2026-09-26/ (not committed).

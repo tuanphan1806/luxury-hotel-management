@@ -174,10 +174,14 @@ app:
             api-key: ${CLOUDINARY_API_KEY:}
             api-secret: ${CLOUDINARY_API_SECRET:}
             folder: ${CLOUDINARY_FOLDER:hotel-media}
-    # Dùng chung SendGrid với kênh xác thực; tránh lưu hai bộ credential trùng nhau.
+    email:
+        provider: ${EMAIL_PROVIDER:sendgrid}
+        brevo-api-key: ${BREVO_API_KEY:}
+        from-email: ${EMAIL_FROM_EMAIL:${spring.sendgrid.from-email:}}
+    # Both delivery channels use the selected provider and verified sender.
     transactional-email:
         api-key: ${spring.sendgrid.api-key:}
-        from-email: ${spring.sendgrid.from-email:}
+        from-email: ${app.email.from-email:}
         templates:
             password-reset: ${PASSWORD_RESET_SENDGRID_TEMPLATE_ID:}
             booking-confirmation: ${BOOKING_CONFIRMATION_SENDGRID_TEMPLATE_ID:}
