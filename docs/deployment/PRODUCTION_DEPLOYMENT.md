@@ -268,6 +268,10 @@ Không cần chuyển ảnh và không cần upload lại ảnh cũ.
 
 ### Email/audit
 
+Brevo HTTPS is also supported through `EMAIL_PROVIDER=brevo`; follow
+[the Brevo activation and rollback runbook](BREVO_EMAIL.md). The variables below
+are for the default SendGrid provider. Provider keys belong only on Render.
+
 ```dotenv
 VERIFICATION_SENDGRID_API_KEY=<sendgrid-key>
 VERIFICATION_SENDGRID_FROM_EMAIL=<verified-sender>

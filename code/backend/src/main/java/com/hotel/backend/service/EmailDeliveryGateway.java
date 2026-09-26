@@ -8,6 +8,10 @@ import java.util.Map;
  */
 public interface EmailDeliveryGateway {
 
+    default boolean supportsDynamicTemplates() {
+        return true;
+    }
+
     void sendDynamicTemplate(
             String from,
             String replyTo,

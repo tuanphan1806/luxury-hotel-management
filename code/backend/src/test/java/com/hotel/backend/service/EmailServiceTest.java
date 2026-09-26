@@ -43,6 +43,8 @@ class EmailServiceTest {
     private UserRepository userRepository;
     @Mock
     private ReservationRepository reservationRepository;
+    @Mock
+    private EmailDeliveryGateway renderedGateway;
 
     private EmailService emailService;
     private HotelEmailTemplateRenderer templateRenderer;
@@ -73,6 +75,75 @@ class EmailServiceTest {
         ReflectionTestUtils.setField(emailService, "hotelName", "Luxury Hotel");
         ReflectionTestUtils.setField(emailService, "hotelEmail", "support@example.com");
         ReflectionTestUtils.setField(emailService, "verificationTtlHours", 48L);
+    }
+
+    @Test
+    void brevoStyleProviderUsesLocalVerificationDespiteLegacyTemplateId() throws Exception {
+        useRenderedGateway();
+        User user = User.builder().email("guest@example.com").fullName("Guest").build();
+        when(userRepository.findByEmail("guest@example.com")).thenReturn(Optional.of(user));
+
+        emailService.emailVerification("guest@example.com", "Guest");
+
+        var rendered = org.mockito.ArgumentCaptor.forClass(HotelEmailTemplateRenderer.RenderedEmail.class);
+        verify(renderedGateway).sendHtml(eq("verify@example.com"), eq("support@example.com"),
+                eq("Luxury Hotel"), eq("guest@example.com"), any(), rendered.capture(), eq("verification"));
+        assertThat(rendered.getValue().html()).contains("/auth/confirm-email?secretCode=");
+        assertThat(user.getVerificationCode()).hasSize(64);
+        verify(renderedGateway, never()).sendDynamicTemplate(any(), any(), any(), any(), any(), any(), any(), any());
+        verify(verificationSendGrid, never()).api(any(Request.class));
+    }
+
+    @Test
+    void brevoStyleProviderRendersTransactionalTemplatesLocally() throws Exception {
+        useRenderedGateway();
+        emailService.sendPasswordReset("guest@example.com", "Guest", "https://hotel.example/reset?token=test", 30);
+        emailService.sendContactReply("guest@example.com", "Guest", "Support", "Test reply");
+        emailService.sendAuditAlert("admin@example.com", "Audit", "Test alert");
+        var rendered = org.mockito.ArgumentCaptor.forClass(HotelEmailTemplateRenderer.RenderedEmail.class);
+        verify(renderedGateway, times(3)).sendHtml(eq("contact@example.com"), eq("support@example.com"),
+                eq("Luxury Hotel"), any(), any(), rendered.capture(), any());
+        assertThat(rendered.getAllValues().get(0).html()).contains("https://hotel.example/reset?token=test");
+        assertThat(rendered.getAllValues().get(1).plainText()).contains("Test reply");
+        assertThat(rendered.getAllValues().get(2).plainText()).contains("Test alert");
+        verify(renderedGateway, never()).sendDynamicTemplate(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void brevoStyleProviderRendersBookingWithGuestLookupLink() throws Exception {
+        useRenderedGateway();
+        Reservation reservation = Reservation.builder().reservationCode("QA-EMAIL")
+                .customerProfile(CustomerProfile.builder().fullName("Guest").build())
+                .checkIn(LocalDateTime.of(2027, 1, 1, 14, 0))
+                .checkOut(LocalDateTime.of(2027, 1, 2, 12, 0))
+                .totalAmount(new BigDecimal("300000")).roomTypes(Set.of()).build();
+        when(reservationRepository.findByIdWithDetails(91L)).thenReturn(Optional.of(reservation));
+        emailService.sendGuestBookingConfirmation("guest@example.com", 91L, "test-guest-token");
+        var rendered = org.mockito.ArgumentCaptor.forClass(HotelEmailTemplateRenderer.RenderedEmail.class);
+        verify(renderedGateway).sendHtml(any(), any(), any(), eq("guest@example.com"), any(),
+                rendered.capture(), eq("booking_confirmation"));
+        assertThat(rendered.getValue().html()).contains("QA-EMAIL", "/booking/lookup#token=test-guest-token");
+        verify(renderedGateway, never()).sendDynamicTemplate(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void localVerificationDeliveryFailureRestoresPreviousCode() throws Exception {
+        useRenderedGateway();
+        LocalDateTime previousExpiry = LocalDateTime.now().plusHours(1);
+        User user = User.builder().email("guest@example.com").fullName("Guest")
+                .verificationCode("previous-hash").verificationExpiresAt(previousExpiry).build();
+        when(userRepository.findByEmail("guest@example.com")).thenReturn(Optional.of(user));
+        org.mockito.Mockito.doThrow(new java.io.IOException("Brevo rejected email with HTTP 429"))
+                .when(renderedGateway).sendHtml(any(), any(), any(), any(), any(), any(), any());
+        assertThatThrownBy(() -> emailService.emailVerification("guest@example.com", "Guest"))
+                .isInstanceOf(java.io.IOException.class);
+        assertThat(user.getVerificationCode()).isEqualTo("previous-hash");
+        assertThat(user.getVerificationExpiresAt()).isEqualTo(previousExpiry);
+    }
+
+    private void useRenderedGateway() {
+        ReflectionTestUtils.setField(emailService, "verificationDeliveryGateway", renderedGateway);
+        ReflectionTestUtils.setField(emailService, "transactionalDeliveryGateway", renderedGateway);
     }
 
     @Test

@@ -9,8 +9,8 @@ spring:
     username: ${DATABASE_USERNAME}
     password: ${DATABASE_PASSWORD}
   sendgrid:
-    api-key: ${VERIFICATION_SENDGRID_API_KEY}
-    from-email: ${VERIFICATION_SENDGRID_FROM_EMAIL}
+    api-key: ${VERIFICATION_SENDGRID_API_KEY:}
+    from-email: ${VERIFICATION_SENDGRID_FROM_EMAIL:}
     # Optional: EmailService falls back to the versioned local HTML template.
     templateId: ${VERIFICATION_SENDGRID_TEMPLATE_ID:}
   jpa:
