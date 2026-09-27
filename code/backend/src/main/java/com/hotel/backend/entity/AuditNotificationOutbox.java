@@ -25,9 +25,37 @@ public class AuditNotificationOutbox {
     @Column(nullable = false)
     private Long version;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "audit_log_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "audit_log_id")
     private ReservationAuditLog auditLog;
+
+    @Column(name = "reservation_id", unique = true)
+    private Long reservationId;
+
+    @Column(name = "encrypted_message", columnDefinition = "text")
+    private String encryptedMessage;
+
+    @Column(name = "idempotency_key", length = 36)
+    private String idempotencyKey;
+
+    @Column(name = "delivery_scope", length = 128)
+    private String deliveryScope;
+
+    @Column(name = "first_attempt_at_utc")
+    private Instant firstAttemptAtUtc;
+
+    @Builder.Default
+    @Column(name = "acceptance_uncertain", nullable = false)
+    private boolean acceptanceUncertain = false;
+
+    @Column(name = "provider_message_id", length = 512)
+    private String providerMessageId;
+
+    @Column(name = "delivery_status", length = 24)
+    private String deliveryStatus;
+
+    @Column(name = "delivery_event_at_utc")
+    private Instant deliveryEventAtUtc;
 
     @Column(name = "notification_type", nullable = false, length = 32)
     private String notificationType;

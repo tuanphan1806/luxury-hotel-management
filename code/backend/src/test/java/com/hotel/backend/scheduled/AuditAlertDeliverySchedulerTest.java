@@ -1,60 +1,51 @@
 package com.hotel.backend.scheduled;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hotel.backend.service.AuditNotificationOutboxStore;
-import com.hotel.backend.service.BusinessMetricService;
-import com.hotel.backend.service.EmailService;
+import com.hotel.backend.service.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
 import java.util.List;
-
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class AuditAlertDeliverySchedulerTest {
     @Mock AuditNotificationOutboxStore outboxStore;
     @Mock EmailService emailService;
     @Mock BusinessMetricService businessMetrics;
+    AuditAlertDeliveryScheduler scheduler;
+    final AuditNotificationOutboxStore.Delivery delivery =
+            new AuditNotificationOutboxStore.Delivery(41L, 1, "stable-key", false, null);
 
-    private AuditAlertDeliveryScheduler scheduler;
-
-    @BeforeEach
-    void setUp() {
-        scheduler = new AuditAlertDeliveryScheduler(
-                outboxStore, emailService, businessMetrics);
+    @BeforeEach void setup() {
+        scheduler = new AuditAlertDeliveryScheduler(outboxStore, emailService, businessMetrics);
+        when(outboxStore.dueIds(0)).thenReturn(List.of(41L));
+        when(outboxStore.claim(41L)).thenReturn(delivery);
     }
 
-    @Test
-    void sendGridFailureMarksOutboxForRetryWithoutEscapingScheduler() {
-        var payload = new ObjectMapper().createObjectNode()
-                .put("action", "USER_ROLE_CHANGED")
-                .put("riskLevel", "HIGH")
-                .put("targetType", "USER")
-                .put("targetId", "7");
-        when(outboxStore.stuckIds(0, 0)).thenReturn(List.of());
-        when(outboxStore.dueIds(0)).thenReturn(List.of(41L));
-        when(outboxStore.claim(41L)).thenReturn(
-                new AuditNotificationOutboxStore.Delivery(
-                        41L, "admin@example.com", payload, 1));
-        doThrow(new RuntimeException("SendGrid unavailable"))
-                .when(emailService).sendAuditAlert(anyString(), anyString(), anyString());
-
+    @Test void timeoutIsUncertainRatherThanDefinitelyRejected() throws Exception {
+        when(emailService.sendQueued(null, "stable-key")).thenThrow(
+                new EmailDeliveryException(EmailDeliveryException.Kind.AMBIGUOUS, "timeout"));
         scheduler.deliver();
+        verify(outboxStore).markFailed(delivery, EmailDeliveryException.Kind.AMBIGUOUS);
+        verify(outboxStore, never()).markSent(any(), any());
+    }
 
-        verify(outboxStore).markFailed(41L, "SendGrid unavailable");
-        verify(outboxStore, never()).markSent(anyLong());
-        verify(businessMetrics).increment(
-                "hotel.audit.alert.delivery", "result", "failed");
-        verify(businessMetrics).increment(
-                "hotel.scheduler.failures", "job", "audit_alert_delivery");
+    @Test void persistenceFailureAfterAcceptanceDoesNotBecomeAnotherSendFailure() throws Exception {
+        var receipt = new EmailDeliveryGateway.Receipt("provider-message-id", false);
+        when(emailService.sendQueued(null, "stable-key")).thenReturn(receipt);
+        doThrow(new IllegalStateException("DB unavailable")).when(outboxStore).markSent(delivery, receipt);
+        scheduler.deliver();
+        verify(outboxStore, never()).markFailed(any(), any());
+        verify(emailService, times(1)).sendQueued(null, "stable-key");
+    }
+
+    @Test void permanentRejectionIsClassifiedForTheStore() throws Exception {
+        when(emailService.sendQueued(null, "stable-key")).thenThrow(
+                new EmailDeliveryException(EmailDeliveryException.Kind.PERMANENT, "unauthorized"));
+        scheduler.deliver();
+        verify(outboxStore).markFailed(delivery, EmailDeliveryException.Kind.PERMANENT);
     }
 }

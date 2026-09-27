@@ -17,6 +17,14 @@ import java.util.Optional;
 public interface AuditNotificationOutboxRepository
         extends JpaRepository<AuditNotificationOutbox, Long> {
 
+    boolean existsByReservationId(Long reservationId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM AuditNotificationOutbox o WHERE o.idempotencyKey = :key")
+    Optional<AuditNotificationOutbox> findByDeliveryKeyForUpdate(@Param("key") String key);
+
+    long countByDeliveryStatusIn(Collection<String> statuses);
+
     boolean existsByAuditLogIdAndNotificationTypeAndRecipientEmail(
             Long auditLogId,
             String notificationType,
@@ -33,7 +41,7 @@ public interface AuditNotificationOutboxRepository
             Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT o FROM AuditNotificationOutbox o JOIN FETCH o.auditLog WHERE o.id = :id")
+    @Query("SELECT o FROM AuditNotificationOutbox o WHERE o.id = :id")
     Optional<AuditNotificationOutbox> findByIdForUpdate(@Param("id") Long id);
 
     @Query("""
