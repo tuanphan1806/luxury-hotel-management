@@ -71,6 +71,7 @@ public SecurityFilterChain securityFilterChain(
             .requestMatchers(HttpMethod.POST, "/api/chat").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/contact-messages").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/payments/sepay/webhook").permitAll()
+            .requestMatchers(HttpMethod.POST, "/api/email/brevo/webhook").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/payments/result/*").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/payments/result/*/abandon").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/payments/cash").hasAnyRole("ADMIN", "STAFF")

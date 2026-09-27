@@ -150,7 +150,10 @@ public class BusinessMonitoringService {
                 .pendingEmailAlerts(
                         outboxRepository.countByStatus(AuditNotificationStatus.PENDING)
                                 + outboxRepository.countByStatus(AuditNotificationStatus.PROCESSING))
-                .failedEmailAlerts(outboxRepository.countByStatus(AuditNotificationStatus.FAILED))
+                .failedEmailAlerts(outboxRepository.countByStatus(AuditNotificationStatus.FAILED)
+                        + outboxRepository.countByStatus(AuditNotificationStatus.PERMANENT_FAILURE)
+                        + outboxRepository.countByStatus(AuditNotificationStatus.REVIEW_REQUIRED)
+                        + outboxRepository.countByDeliveryStatusIn(List.of("HARD_BOUNCE", "BLOCKED", "INVALID_EMAIL", "SPAM", "ERROR")))
                 .staleEmailAlerts(outboxRepository.countByStatusInAndCreatedAtUtcBefore(
                         List.of(AuditNotificationStatus.PENDING, AuditNotificationStatus.PROCESSING),
                         staleEmailCutoff))

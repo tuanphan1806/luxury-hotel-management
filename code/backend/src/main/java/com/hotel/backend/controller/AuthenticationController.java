@@ -153,7 +153,13 @@ public class AuthenticationController {
                 5,
                 Duration.ofHours(1));
         authRateLimitService.check("forgot-ip:" + clientIp, 20, Duration.ofHours(1));
-        passwordResetService.requestReset(request.getEmail());
+        try {
+            passwordResetService.requestReset(request.getEmail());
+        } catch (com.hotel.backend.exception.AppException exception) {
+            if (exception.getErrorCode() != com.hotel.backend.exception.ErrorCode.EMAIL_DELIVERY_FAILED) throw exception;
+            // Catch outside the service transaction so failed token changes roll back.
+            log.warn("Password reset delivery unavailable");
+        }
         return ApiResponse.success("Nếu email tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi");
     }
 

@@ -86,6 +86,43 @@ class BrevoEmailDeliveryGatewayTest {
                 .hasMessageContaining("BREVO_API_KEY");
     }
 
+    @Test
+    void queuedSendIncludesStableKeyAndReturnsProviderReceipt() throws Exception {
+        server.expect(requestTo(BrevoEmailDeliveryGateway.ENDPOINT))
+                .andExpect(jsonPath("$.headers.idempotencyKey").value("stable-test-key"))
+                .andRespond(withStatus(HttpStatusCode.valueOf(201)).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"messageId\":\"provider-id\"}"));
+        assertThat(sendTracked()).isEqualTo(new EmailDeliveryGateway.Receipt("provider-id", false));
+        server.verify();
+    }
+
+    @Test
+    void acknowledgedDuplicateKeyDoesNotResend() throws Exception {
+        server.expect(requestTo(BrevoEmailDeliveryGateway.ENDPOINT))
+                .andRespond(withBadRequest().contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":\"duplicate_parameter\",\"message\":\"Email for the idempotency key already processed\"}"));
+        assertThat(sendTracked().deduplicated()).isTrue();
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {400, 401, 403, 429, 500, 503})
+    void distinguishesPermanentRateLimitedAndUncertainResponses(int status) {
+        server.expect(requestTo(BrevoEmailDeliveryGateway.ENDPOINT))
+                .andRespond(withStatus(HttpStatusCode.valueOf(status)).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"code\":\"invalid_parameter\",\"message\":\"private body\"}"));
+        var kind = status == 429 ? EmailDeliveryException.Kind.RETRYABLE : status < 500
+                ? EmailDeliveryException.Kind.PERMANENT : EmailDeliveryException.Kind.AMBIGUOUS;
+        assertThatThrownBy(this::sendTracked).isInstanceOfSatisfying(EmailDeliveryException.class,
+                failure -> assertThat(failure.kind()).isEqualTo(kind)).hasMessageNotContaining("private body");
+        server.verify();
+    }
+
+    private EmailDeliveryGateway.Receipt sendTracked() throws IOException {
+        return gateway.sendTrackedHtml("sender@example.com", "support@example.com", "Hotel", "guest@example.com",
+                "Test", new HotelEmailTemplateRenderer.RenderedEmail("text", "html"), "booking_confirmation", "stable-test-key");
+    }
+
     private void send() throws IOException {
         gateway.sendHtml("sender@example.com", "support@example.com", "Luxury Hotel",
                 "guest@example.com", "Xác thực tài khoản",

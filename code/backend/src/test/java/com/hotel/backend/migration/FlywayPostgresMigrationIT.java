@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class FlywayPostgresMigrationIT {
 
-    private static final String LATEST_VERSION = "39";
+    private static final String LATEST_VERSION = "40";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -1946,6 +1946,45 @@ class FlywayPostgresMigrationIT {
                 return resultSet.getString(1);
             }
         }
+    }
+
+    @Test
+    void v40PreservesPendingAndSentButQuarantinesLegacyUncertainAttempts() throws Exception {
+        Flyway previous = flyway("39");
+        previous.clean();
+        previous.migrate();
+        try (Connection connection = POSTGRES.createConnection(""); var statement = connection.createStatement()) {
+            statement.execute("""
+                    WITH audit AS (
+                        INSERT INTO reservation_audit_logs (action, action_code, actor_name, actor_role, details, occurred_at_utc)
+                        VALUES ('CANCEL', 'CANCEL', 'test', 'ADMIN', 'email migration', CURRENT_TIMESTAMP) RETURNING id
+                    )
+                    INSERT INTO audit_notification_outbox (audit_log_id, notification_type, recipient_email, status, payload_json)
+                    SELECT audit.id, 'HIGH_RISK_AUDIT', s.status || '@example.test', s.status, '{}'::jsonb
+                    FROM audit CROSS JOIN (VALUES ('PENDING'), ('SENT'), ('FAILED'), ('PROCESSING')) s(status)
+                    """);
+        }
+        flyway().migrate();
+        try (Connection connection = POSTGRES.createConnection(""); var statement = connection.createStatement()) {
+            try (var rows = statement.executeQuery("SELECT recipient_email, status, acceptance_uncertain FROM audit_notification_outbox")) {
+                int count = 0;
+                while (rows.next()) {
+                    String before = rows.getString(1).split("@")[0];
+                    boolean uncertain = before.equals("FAILED") || before.equals("PROCESSING");
+                    assertThat(rows.getString(2)).isEqualTo(uncertain ? "REVIEW_REQUIRED" : before);
+                    assertThat(rows.getBoolean(3)).isEqualTo(uncertain);
+                    count++;
+                }
+                assertThat(count).isEqualTo(4);
+            }
+            assertThatThrownBy(() -> statement.execute("""
+                    INSERT INTO audit_notification_outbox (notification_type, recipient_email, payload_json)
+                    VALUES ('BOOKING_CONFIRMATION', 'guest@example.test', '{}'::jsonb)
+                    """)).isInstanceOf(SQLException.class).hasMessageContaining("chk_email_origin");
+            assertColumn(connection, "audit_notification_outbox", "encrypted_message");
+            assertColumn(connection, "audit_notification_outbox", "provider_message_id");
+        }
+        assertHibernateSchemaValidation();
     }
 
     private Flyway flyway() {

@@ -177,6 +177,7 @@ public class CustomizeRequestFilter extends OncePerRequestFilter {
         if (method.equals("GET") && uri.equals("/auth/confirm-email")) return true;
         if (method.equals("POST") && uri.equals("/api/contact-messages")) return true;
         if (method.equals("POST") && uri.equals("/api/payments/sepay/webhook")) return true;
+        if (method.equals("POST") && uri.equals("/api/email/brevo/webhook")) return true;
         if (method.equals("POST") && (
                 uri.equals("/api/reservations/lookup")
                         || uri.equals("/api/pricing/quote")
