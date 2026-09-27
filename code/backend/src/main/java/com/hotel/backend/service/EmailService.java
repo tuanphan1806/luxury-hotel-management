@@ -193,6 +193,45 @@ public class EmailService {
     }
 
     public void sendGuestBookingConfirmation(String to, Long reservationId, String guestToken) throws IOException {
+        BookingContent content = bookingContent(reservationId, guestToken);
+        sendTransactionalTemplate(to, content.guestName(), content.subject(), bookingConfirmationTemplateId,
+                content.dynamicData(), content.rendered(), "booking_confirmation");
+    }
+
+    public QueuedEmail prepareGuestBooking(String to, Long reservationId, String guestToken) {
+        BookingContent content = bookingContent(reservationId, guestToken);
+        return queued(to, content.subject(), content.rendered(), "booking_confirmation");
+    }
+
+    public QueuedEmail prepareAuditAlert(String to, String subject, String body) {
+        return queued(to, normalizeSubject(subject, "Cảnh báo vận hành"),
+                templateRenderer.auditAlert(body), "audit_alert");
+    }
+
+    private QueuedEmail queued(String to, String subject,
+            HotelEmailTemplateRenderer.RenderedEmail rendered, String purpose) {
+        return new QueuedEmail(transactionalFrom, replyToAddress(), hotelName, to, subject,
+                rendered.plainText(), rendered.html(), purpose);
+    }
+
+    public EmailDeliveryGateway.Receipt sendQueued(QueuedEmail message, String key) throws IOException {
+        return transactionalDeliveryGateway.sendTrackedHtml(message.from(), message.replyTo(),
+                message.hotelName(), message.to(), message.subject(),
+                new HotelEmailTemplateRenderer.RenderedEmail(message.plainText(), message.html()),
+                message.purpose(), key);
+    }
+
+    public String queuedDeliveryScope() { return transactionalDeliveryGateway.idempotencyScope(); }
+
+    public record QueuedEmail(String from, String replyTo, String hotelName, String to,
+            String subject, String plainText, String html, String purpose) {
+        @Override public String toString() { return "QueuedEmail[redacted]"; }
+    }
+
+    private record BookingContent(String guestName, String subject, Map<String, Object> dynamicData,
+            HotelEmailTemplateRenderer.RenderedEmail rendered) {}
+
+    private BookingContent bookingContent(Long reservationId, String guestToken) {
         var reservation = reservationRepository.findByIdWithDetails(reservationId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_NOT_FOUND));
 
@@ -236,17 +275,14 @@ public class EmailService {
         dynamicData.put("total_amount", vnd.format(reservation.getTotalAmount()));
         dynamicData.put("lookup_link", lookupLink);
 
-        sendTransactionalTemplate(
-                to,
+        return new BookingContent(
                 guestName,
                 "Xác nhận đặt phòng " + reservation.getReservationCode(),
-                bookingConfirmationTemplateId,
                 dynamicData,
                 templateRenderer.bookingConfirmation(
                         guestName,
                         details,
-                        lookupLink),
-                "booking_confirmation");
+                        lookupLink));
     }
 
     private void sendTransactional(

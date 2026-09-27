@@ -337,7 +337,9 @@ public class UserServiceImpl implements UserService {
         try {
             emailService.emailVerification(user.getEmail(), user.getFullName());
         } catch (Exception e) {
-            throw new InvalidDataException("Không thể gửi email xác thực. Vui lòng thử lại sau");
+            // Same public response as an unknown/already verified address.
+            // EmailService owns the transaction and restores/rolls back the token.
+            log.warn("Verification resend delivery unavailable");
         }
     }
 

@@ -8,6 +8,20 @@ import java.util.Map;
  */
 public interface EmailDeliveryGateway {
 
+    record Receipt(String messageId, boolean deduplicated) { }
+
+    default Receipt sendTrackedHtml(String from, String replyTo, String hotelName,
+            String to, String subject, HotelEmailTemplateRenderer.RenderedEmail rendered,
+            String purpose, String idempotencyKey) throws IOException {
+        sendHtml(from, replyTo, hotelName, to, subject, rendered, purpose);
+        return new Receipt(null, false);
+    }
+
+    default boolean supportsIdempotency() { return false; }
+
+    /** Null means retries after uncertain acceptance require manual review. */
+    default String idempotencyScope() { return null; }
+
     default boolean supportsDynamicTemplates() {
         return true;
     }

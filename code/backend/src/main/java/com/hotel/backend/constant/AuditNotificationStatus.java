@@ -4,5 +4,7 @@ public enum AuditNotificationStatus {
     PENDING,
     PROCESSING,
     SENT,
-    FAILED
+    FAILED,
+    PERMANENT_FAILURE,
+    REVIEW_REQUIRED
 }

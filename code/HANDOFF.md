@@ -400,3 +400,30 @@
   and verification-state restoration. CI/deployment and actual delivery remain
   separate gates. See docs/deployment/BREVO_EMAIL.md and evidence in
   output/brevo-migration-2026-09-26/ (not committed).
+
+### Durable email delivery — 2026-09-27
+
+- Branch: `hotfix/email-delivery-reliability-20260927`, based on production
+  `74cf801`. Deployment evidence is recorded separately from local verification.
+- Forgot-password and resend-verification preserve their generic success
+  response on provider failure, with token rollback verified through MockMvc.
+- Additive V40 extends the audit outbox to encrypted booking snapshots, saved
+  BEFORE_COMMIT with the reservation event. Retries retain the payload/key,
+  classify 4xx/429/uncertain failures, cap attempts and fence stale workers.
+  Uncertain acceptance outside the safe window goes to operator review.
+- Receipts persist provider message IDs. Optional authenticated Brevo webhook
+  tracks delivery/bounce, including a callback arriving before markSent;
+  no business/financial state is changed by these callbacks.
+- Verification: full backend suite 725/725 and PostgreSQL 16 migration/concurrency
+  suite 31/31 passed; frontend production build passed. After callback ordering
+  hardening and adding Bearer Token authentication for the current Brevo UI,
+  the final 12-test HTTP/webhook suite passed at 12:10 Asia/Ho_Chi_Minh.
+- Optional webhook setup: name `luxury-hotel-email-delivery`, backend endpoint
+  `/api/email/brevo/webhook`, individual transactional events, Token authentication.
+  Blank BREVO_WEBHOOK_SECRET disables the endpoint. Creating/distributing the
+  separate credential requires specific confirmation; no API key reuse.
+- Release gates: read-only production preflight/backup evidence, required PR CI,
+  V40/backend deployment and production smoke checks. Do not send real email or
+  mutate payments without controlled-test authorization. Evidence is under
+  `output/email-reliability-2026-09-27/`; operations policy is in
+  `docs/deployment/BREVO_EMAIL.md`.

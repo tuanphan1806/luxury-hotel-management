@@ -177,6 +177,7 @@ app:
     email:
         provider: ${EMAIL_PROVIDER:sendgrid}
         brevo-api-key: ${BREVO_API_KEY:}
+        brevo-webhook-secret: ${BREVO_WEBHOOK_SECRET:}
         from-email: ${EMAIL_FROM_EMAIL:${spring.sendgrid.from-email:}}
     # Both delivery channels use the selected provider and verified sender.
     transactional-email:
@@ -191,7 +192,7 @@ app:
         recipients: ${AUDIT_ALERT_RECIPIENTS:}
         batch-size: ${AUDIT_ALERT_BATCH_SIZE:25}
         delivery-interval-ms: ${AUDIT_ALERT_DELIVERY_INTERVAL_MS:30000}
-        processing-timeout-minutes: ${AUDIT_ALERT_PROCESSING_TIMEOUT_MINUTES:10}
+        processing-timeout-minutes: ${AUDIT_ALERT_PROCESSING_TIMEOUT_MINUTES:2}
     monitoring:
         refund-pending-threshold-minutes: ${MONITORING_REFUND_PENDING_THRESHOLD_MINUTES:60}
         reconciliation-stale-threshold-minutes: ${MONITORING_RECONCILIATION_STALE_THRESHOLD_MINUTES:15}

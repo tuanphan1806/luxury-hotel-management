@@ -46,6 +46,15 @@ public final class BrevoEmailDeliveryGateway implements EmailDeliveryGateway {
     }
 
     @Override
+    public boolean supportsIdempotency() { return true; }
+
+    @Override
+    public String idempotencyScope() {
+        // A provider/account/key change must not silently bypass deduplication.
+        return "brevo:" + com.hotel.backend.util.SecurityTokenHasher.sha256(apiKey);
+    }
+
+    @Override
     public void sendDynamicTemplate(String from, String replyTo, String hotelName,
             String to, String recipientName, String dynamicTemplateId,
             Map<String, Object> dynamicData, String purpose) throws IOException {
@@ -56,16 +65,27 @@ public final class BrevoEmailDeliveryGateway implements EmailDeliveryGateway {
     public void sendHtml(String from, String replyTo, String hotelName,
             String to, String subject, HotelEmailTemplateRenderer.RenderedEmail rendered,
             String purpose) throws IOException {
+        sendTrackedHtml(from, replyTo, hotelName, to, subject, rendered, purpose, null);
+    }
+
+    @Override
+    public Receipt sendTrackedHtml(String from, String replyTo, String hotelName,
+            String to, String subject, HotelEmailTemplateRenderer.RenderedEmail rendered,
+            String purpose, String idempotencyKey) throws IOException {
         requireAddress(from);
         requireAddress(to);
         requireAddress(replyTo);
-        var payload = Map.of(
+        var payload = new java.util.LinkedHashMap<String, Object>(Map.of(
                 "sender", Map.of("email", from.trim(), "name", hotelName),
                 "to", List.of(Map.of("email", to.trim())),
                 "replyTo", Map.of("email", replyTo.trim()),
                 "subject", subject,
                 "htmlContent", rendered.html(),
-                "textContent", rendered.plainText());
+                "textContent", rendered.plainText()));
+        if (idempotencyKey != null) {
+            payload.put("headers", Map.of("idempotencyKey", idempotencyKey,
+                    "X-Mailin-custom", "hotel-email-key:" + idempotencyKey));
+        }
         try {
             DeliveryReceipt receipt = client.post().uri(ENDPOINT)
                     .header("api-key", apiKey)
@@ -75,21 +95,31 @@ public final class BrevoEmailDeliveryGateway implements EmailDeliveryGateway {
                     .exchange((request, response) -> {
                         int status = response.getStatusCode().value();
                         return new DeliveryReceipt(status,
-                                status == 201 ? response.bodyTo(JsonNode.class) : null);
+                                status == 201 || status == 400 ? response.bodyTo(JsonNode.class) : null);
                     });
             if (receipt == null || receipt.status() != 201) {
+                if (receipt != null && receipt.status() == 400 && idempotencyKey != null
+                        && receipt.body() != null
+                        && "duplicate_parameter".equals(receipt.body().path("code").asText())
+                        && receipt.body().path("message").asText().toLowerCase(java.util.Locale.ROOT).contains("idempotency")) {
+                    return new Receipt(null, true);
+                }
                 // Never include provider bodies, recipients or tokens in diagnostics.
-                throw new IOException("Brevo rejected email with HTTP "
+                var kind = receipt != null && receipt.status() == 429 ? EmailDeliveryException.Kind.RETRYABLE
+                        : receipt != null && receipt.status() >= 400 && receipt.status() < 500
+                        ? EmailDeliveryException.Kind.PERMANENT : EmailDeliveryException.Kind.AMBIGUOUS;
+                throw new EmailDeliveryException(kind, "Brevo rejected email with HTTP "
                         + (receipt == null ? "unknown" : receipt.status()));
             }
             JsonNode body = receipt.body();
             if (body == null || !body.path("messageId").isTextual()
                     || body.path("messageId").asText().isBlank()) {
-                throw new IOException("Brevo returned no message id");
+                throw new EmailDeliveryException(EmailDeliveryException.Kind.AMBIGUOUS, "Brevo returned no message id");
             }
+            return new Receipt(body.path("messageId").asText(), false);
         } catch (RestClientException exception) {
             // A transport failure may occur after acceptance. Do not retry here.
-            throw new IOException("Brevo email transport failed", exception);
+            throw new EmailDeliveryException(EmailDeliveryException.Kind.AMBIGUOUS, "Brevo email transport failed");
         }
     }
 
@@ -98,7 +128,7 @@ public final class BrevoEmailDeliveryGateway implements EmailDeliveryGateway {
     private static void requireAddress(String address) throws IOException {
         if (address == null || address.isBlank() || !address.contains("@")
                 || address.contains("\r") || address.contains("\n")) {
-            throw new IOException("Invalid email address configuration or recipient");
+            throw new EmailDeliveryException(EmailDeliveryException.Kind.PERMANENT, "Invalid email address configuration or recipient");
         }
     }
 }
