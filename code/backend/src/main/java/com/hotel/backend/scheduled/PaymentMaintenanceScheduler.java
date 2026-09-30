@@ -27,11 +27,14 @@ public class PaymentMaintenanceScheduler {
     private final PaymentSessionExpiryService paymentSessionExpiryService;
     private final ReservationRepository reservationRepository;
     private final BusinessMetricService businessMetrics;
+    private final MaintenancePollGate pollGate;
 
     @Scheduled(
             fixedDelayString = "${app.maintenance.payment-interval-ms:300000}",
             initialDelayString = "${app.maintenance.startup-delay-ms:60000}")
     public void expirePrePaymentReservations() {
+        var permit = pollGate.begin(MaintenancePollGate.Task.PRE_PAYMENT);
+        if (permit.isEmpty()) return;
         LocalDateTime now = LocalDateTime.now();
         int minutes = Math.max(1, prePaymentSessionMinutes());
         LocalDateTime cutoff = now.minusMinutes(minutes);
@@ -52,6 +55,8 @@ public class PaymentMaintenanceScheduler {
         }
         if (expired > 0) log.info("Expired {} stale pre-payment reservations", expired);
         businessMetrics.increment("hotel.scheduler.runs", "job", "pre_payment_expiry");
+        pollGate.complete(permit.get(), reservationRepository.existsByStatus(
+                com.hotel.backend.constant.ReservationStatus.PAYMENT_PENDING));
     }
 
     @org.springframework.beans.factory.annotation.Value(
@@ -66,6 +71,8 @@ public class PaymentMaintenanceScheduler {
             fixedDelayString = "${app.maintenance.payment-interval-ms:300000}",
             initialDelayString = "${app.maintenance.startup-delay-ms:60000}")
     public void expirePendingTransactions() {
+        var permit = pollGate.begin(MaintenancePollGate.Task.PAYMENT);
+        if (permit.isEmpty()) return;
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime legacyCutoff = now.minusMinutes(LEGACY_PENDING_TIMEOUT_MINUTES);
         List<String> candidates = paymentTransactionRepository.findExpiredPendingIds(
@@ -90,6 +97,7 @@ public class PaymentMaintenanceScheduler {
             log.info("Marked {} stale pending payment transactions as CANCELLED", expired);
         }
         businessMetrics.increment("hotel.scheduler.runs", "job", "payment_expiry");
+        pollGate.complete(permit.get(), paymentTransactionRepository.existsByStatus(PaymentStatus.PENDING));
     }
 
     @Scheduled(cron = "0 0 8 * * *")

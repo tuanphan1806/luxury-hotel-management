@@ -49,7 +49,9 @@ class ReservationAuditServiceTest {
     @BeforeEach
     void setUp() {
         service = new ReservationAuditService(
-                auditRepository, outboxRepository, userRepository, new ObjectMapper());
+                auditRepository, outboxRepository,
+                new com.hotel.backend.scheduled.MaintenancePollGate(true, 900000),
+                userRepository, new ObjectMapper());
         ReflectionTestUtils.setField(service, "configuredAlertRecipients", "ops@example.com");
         User admin = User.builder()
                 .fullName("Admin audit")

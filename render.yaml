@@ -7,7 +7,9 @@ services:
     rootDir: code/backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /actuator/health
+    # Application readiness does not open a Neon connection.
+    # Aggregate /actuator/health remains available for on-demand DB diagnostics.
+    healthCheckPath: /actuator/health/readiness
     autoDeployTrigger: checksPass
     envVars:
       - key: SPRING_PROFILES_ACTIVE

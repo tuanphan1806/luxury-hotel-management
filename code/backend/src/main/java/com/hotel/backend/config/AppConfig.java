@@ -63,7 +63,7 @@ public SecurityFilterChain securityFilterChain(
        
             .requestMatchers(HttpMethod.POST, "/auth/logout").authenticated()
             .requestMatchers("/auth/**").permitAll()
-            .requestMatchers("/actuator/health", "/actuator/info", "/v3/**", "/swagger-ui*/*swagger-initializer*", "/swagger-ui*/**", "/favicon.ico").permitAll()
+            .requestMatchers("/actuator/health", "/actuator/health/readiness", "/actuator/info", "/v3/**", "/swagger-ui*/*swagger-initializer*", "/swagger-ui*/**", "/favicon.ico").permitAll()
             .requestMatchers("/actuator/**").hasRole("ADMIN")
             .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/facilities/**", "/room_types/**", "/galeries/**",

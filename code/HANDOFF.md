@@ -1,5 +1,29 @@
 ## Task handoff
 
+### Neon idle-compute hotfix — 2026-09-30
+
+- Branch `hotfix/neon-idle-compute-20260930`, based on deployed main `86df23a`.
+- Render blueprint health path is now `/actuator/health/readiness`; only this
+  additional probe is public, with no dependency details. Aggregate health still
+  diagnoses PostgreSQL on demand. Readiness integration test verifies repeated
+  requests borrow zero DataSource connections; other actuator routes stay protected.
+- Production empty-queue polling backs off into shared 15-minute recovery windows.
+  Email pending/failed/processing work, active holds and pending payment sessions
+  preserve existing scheduler cadence. Completed HTTP business requests and
+  committed email enqueue wake polling; failed probes never cache an empty result.
+  No schema, ledger, deadline, retry-window or API payload changes.
+- Local verification: 41 targeted tests passed; complete
+  `mvnw -B -ntp -Ppostgres-migration-test,release-audit verify` passed on Java 21,
+  with PostgreSQL 16.14 Testcontainers, all coverage checks and SBOM generation.
+  Frontend unchanged; repository CI performs frontend and Java 17 checks before merge.
+- Rollout still pending when this note was written. Deploy code before manually
+  changing a pre-existing Render health path; verify readiness 200, catalog data,
+  then inspect Neon idle behavior without generating business requests.
+- Rollback flag: `MAINTENANCE_IDLE_POLLING_ENABLED=false`. When reverting to older
+  code without the public readiness route, restore health path `/actuator/health`.
+- Keep Free plans and keep-awake monitors disabled. Pending work or an open
+  operational screen can still legitimately consume compute.
+
 - Khi bắt đầu phiên mới, hãy đọc file `HANDOFF.md` nếu tồn tại.
 - Trước khi kết thúc một tác vụ dài, hãy cập nhật `HANDOFF.md`.
 - Không xóa nội dung bàn giao khi công việc chưa hoàn thành.
