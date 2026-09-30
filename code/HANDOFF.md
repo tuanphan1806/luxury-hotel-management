@@ -20,7 +20,10 @@
   frontend overrides/lockfile: fast-uri 3.1.8, brace-expansion 1.1.21 and 5.0.12.
   `pnpm audit --audit-level=moderate` reports no known vulnerabilities; lint,
   typecheck, 122 frontend coverage tests and production build pass locally.
-  CI rerun pending.
+- CI backend tests/container build passed, but Trivy found CVE-2026-68497 in
+  Jackson and CVE-2026-84782 in base-image OpenSSL. Set Jackson BOM 2.21.6 and
+  explicitly refresh openssl/libssl3 from Ubuntu repositories in the runtime
+  Docker stage. Full backend verification and container scan rerun pending.
 - Rollout still pending when this note was written. Deploy code before manually
   changing a pre-existing Render health path; verify readiness 200, catalog data,
   then inspect Neon idle behavior without generating business requests.
