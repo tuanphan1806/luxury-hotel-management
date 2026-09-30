@@ -19,6 +19,7 @@ public interface RoomHoldRepository extends JpaRepository<RoomHold, Long> {
     Optional<RoomHold> findByReservationRoomTypeId(Long reservationRoomTypeId);
 
     List<RoomHold> findByStatus(HoldStatus status);
+    boolean existsByStatus(HoldStatus status);
 
     @Query("""
         SELECT DISTINCT r.id

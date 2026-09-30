@@ -124,7 +124,8 @@ class SchedulerRegressionTest {
     @Test
     void roomHoldExpiryIsolatesOneAggregateFailureAndCompletesTheRun() {
         RoomHoldExpiryScheduler scheduler = new RoomHoldExpiryScheduler(
-                roomHoldRepository, paymentSessionExpiryService, businessMetrics);
+                roomHoldRepository, paymentSessionExpiryService, businessMetrics,
+                new MaintenancePollGate(true, 900000));
         when(roomHoldRepository.findReservationIdsWithExpiredActiveHolds(
                 any(LocalDateTime.class))).thenReturn(List.of(21L, 22L));
         when(paymentSessionExpiryService.timeoutDepositReservation(21L))
@@ -273,7 +274,7 @@ class SchedulerRegressionTest {
                 paymentTransactionRepository,
                 paymentSessionExpiryService,
                 reservationRepository,
-                businessMetrics);
+                businessMetrics, new MaintenancePollGate(true, 900000));
     }
 
     private SePayReconciliationScheduler reconciliationScheduler() {

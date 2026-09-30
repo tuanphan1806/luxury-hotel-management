@@ -19,6 +19,7 @@ public class RoomHoldExpiryScheduler {
     private final RoomHoldRepository roomHoldRepository;
     private final PaymentSessionExpiryService paymentSessionExpiryService;
     private final BusinessMetricService businessMetrics;
+    private final MaintenancePollGate pollGate;
 
     /**
      * Chạy mỗi 2 phút, expire hold đã hết hạn
@@ -29,6 +30,8 @@ public class RoomHoldExpiryScheduler {
             fixedDelayString = "${app.maintenance.room-hold-interval-ms:120000}",
             initialDelayString = "${app.maintenance.startup-delay-ms:60000}")
     public void expireHolds() {
+        var permit = pollGate.begin(MaintenancePollGate.Task.HOLDS);
+        if (permit.isEmpty()) return;
         LocalDateTime now = LocalDateTime.now();
         int cancelledReservations = 0;
 
@@ -54,5 +57,7 @@ public class RoomHoldExpiryScheduler {
             log.info("Expired {} unpaid deposit aggregates", cancelledReservations);
         }
         businessMetrics.increment("hotel.scheduler.runs", "job", "room_hold_expiry");
+        pollGate.complete(permit.get(), roomHoldRepository.existsByStatus(
+                com.hotel.backend.constant.HoldStatus.ACTIVE));
     }
 }

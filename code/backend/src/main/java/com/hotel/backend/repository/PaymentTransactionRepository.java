@@ -20,6 +20,8 @@ import java.util.Collection;
 @Repository
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, String> {
 
+    boolean existsByStatus(PaymentStatus status);
+
     Optional<PaymentTransaction> findByTxnRef(String txnRef);
 
     @Query("SELECT pt.reservation.id FROM PaymentTransaction pt WHERE pt.txnRef = :txnRef")

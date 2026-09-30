@@ -34,6 +34,9 @@ springdoc:
     enabled: false
 
 app:
+  maintenance:
+    idle-polling-enabled: ${MAINTENANCE_IDLE_POLLING_ENABLED:true}
+    idle-poll-interval-ms: ${MAINTENANCE_IDLE_POLL_INTERVAL_MS:900000}
   frontend-base-url: ${FRONTEND_BASE_URL}
   seed:
     master-data-enabled: ${APP_SEED_MASTER_DATA_ENABLED:false}

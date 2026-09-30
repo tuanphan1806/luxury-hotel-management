@@ -134,6 +134,34 @@ chỉ ở backend.
 
 ## 4. Tạo backend Render Free
 
+### Giảm compute Neon khi demo không có người dùng
+
+- Dùng `/actuator/health/readiness` làm **Health Check Path** trên Render. Probe này
+  kiểm tra trạng thái ứng dụng, không mượn kết nối PostgreSQL. `/actuator/health`
+  vẫn kiểm tra database khi cần chẩn đoán; không dùng endpoint tổng hợp để ping giữ ấm.
+- Giữ `DB_POOL_MIN_IDLE=0`, `DB_KEEPALIVE_TIME_MS=0` và
+  `SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT=60000`. Không bật monitor giữ backend thức.
+- Profile `prod` bật `MAINTENANCE_IDLE_POLLING_ENABLED=true`. Các job email,
+  giữ phòng và hết hạn thanh toán chỉ nghỉ sau khi database xác nhận không còn
+  công việc tương ứng. Email retry trong tương lai và trạng thái PROCESSING vẫn
+  giữ nhịp xử lý bình thường, kể cả khi không có HTTP request.
+- Request nghiệp vụ kết thúc hoặc email được enqueue sau commit sẽ đánh thức
+  việc quét ở lần chạy scheduler tiếp theo. Không cache trạng thái rỗng khi truy
+  vấn thất bại; restart luôn kiểm tra lại. Quét dự phòng theo cửa sổ 15 phút dùng
+  chung để phát hiện thay đổi ngoài process. Thay đổi trực tiếp bằng SQL hoặc từ
+  instance khác có thể được phát hiện ở cửa sổ kế tiếp cộng nhịp scheduler.
+- `MAINTENANCE_IDLE_POLL_INTERVAL_MS` mặc định 900000, giới hạn 600000–900000.
+  Có thể rollback riêng tối ưu bằng `MAINTENANCE_IDLE_POLLING_ENABLED=false`.
+  Không tắt toàn bộ scheduler, không thay deadline thanh toán hay cửa sổ retry.
+- Blueprint chỉ có tác dụng nếu đã được đồng bộ: kiểm tra lại Health Check Path
+  trong Render sau release. Khi rollback code cũ chưa public readiness, đồng thời
+  đổi health path về `/actuator/health`.
+- Kiểm chứng sau deploy: readiness 200, API dữ liệu hoạt động; đóng màn hình
+  dashboard tự làm mới, không gọi API trong một khoảng idle, kiểm tra compute Neon
+  có chuyển Idle. Sau đó truy cập lại và xác nhận dữ liệu phục hồi. Công việc chờ,
+  dashboard đang mở và các job định kỳ vẫn tiêu thụ compute hợp lệ; đây không phải
+  cam kết không bao giờ vượt quota Free.
+
 Repository có `render.yaml` tại root. Trong Render:
 
 1. Chọn **New → Blueprint**.

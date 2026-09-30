@@ -27,6 +27,7 @@ public class AuditNotificationOutboxStore {
     private final AuditNotificationOutboxRepository repository;
     private final EmailService emailService;
     private final EmailOutboxCodec codec;
+    private final com.hotel.backend.scheduled.MaintenancePollGate pollGate;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void enqueueBooking(GuestBookingCreatedEvent event) {
@@ -39,6 +40,7 @@ public class AuditNotificationOutboxStore {
                 .encryptedMessage(codec.encode(emailService.prepareGuestBooking(
                         event.email(), event.reservationId(), event.guestToken())))
                 .nextAttemptAtUtc(now).createdAtUtc(now).updatedAtUtc(now).build());
+        pollGate.wakeAfterCommit();
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +56,13 @@ public class AuditNotificationOutboxStore {
     }
 
     private PageRequest page(int size) { return PageRequest.of(0, Math.max(1, Math.min(size, 100))); }
+
+    @Transactional(readOnly = true)
+    public boolean hasPendingWork() {
+        // Include future retries and in-flight attempts, not only currently due messages.
+        return repository.existsByStatusIn(EnumSet.of(AuditNotificationStatus.PENDING,
+                AuditNotificationStatus.FAILED, AuditNotificationStatus.PROCESSING));
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Delivery claim(Long id) {

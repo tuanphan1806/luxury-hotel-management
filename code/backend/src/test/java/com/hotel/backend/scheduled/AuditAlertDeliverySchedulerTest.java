@@ -20,7 +20,8 @@ class AuditAlertDeliverySchedulerTest {
             new AuditNotificationOutboxStore.Delivery(41L, 1, "stable-key", false, null);
 
     @BeforeEach void setup() {
-        scheduler = new AuditAlertDeliveryScheduler(outboxStore, emailService, businessMetrics);
+        scheduler = new AuditAlertDeliveryScheduler(outboxStore, emailService, businessMetrics,
+                new MaintenancePollGate(true, 900000));
         when(outboxStore.dueIds(0)).thenReturn(List.of(41L));
         when(outboxStore.claim(41L)).thenReturn(delivery);
     }
