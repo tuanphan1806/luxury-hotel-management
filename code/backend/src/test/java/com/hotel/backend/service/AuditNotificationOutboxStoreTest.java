@@ -25,7 +25,8 @@ class AuditNotificationOutboxStoreTest {
             "Hotel", "guest@example.com", "Booking", "Secret token", "<p>Secret token</p>", "booking_confirmation");
 
     @BeforeEach void setup() {
-        store = new AuditNotificationOutboxStore(repository, emails, codec);
+        store = new AuditNotificationOutboxStore(repository, emails, codec,
+                new com.hotel.backend.scheduled.MaintenancePollGate(true, 900000));
         row = AuditNotificationOutbox.builder().id(1L).attempts(0).recipientEmail("guest@example.com")
                 .reservationId(7L).encryptedMessage("encrypted").nextAttemptAtUtc(Instant.now().minusSeconds(1)).build();
         when(repository.findByIdForUpdate(1L)).thenReturn(Optional.of(row));

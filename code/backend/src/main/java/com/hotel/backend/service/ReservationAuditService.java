@@ -52,6 +52,7 @@ public class ReservationAuditService {
 
     private final ReservationAuditLogRepository repository;
     private final AuditNotificationOutboxRepository outboxRepository;
+    private final com.hotel.backend.scheduled.MaintenancePollGate pollGate;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
@@ -217,6 +218,7 @@ public class ReservationAuditService {
                     .createdAtUtc(now)
                     .updatedAtUtc(now)
                     .build());
+            pollGate.wakeAfterCommit();
         }
     }
 

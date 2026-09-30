@@ -1,5 +1,37 @@
 ## Task handoff
 
+### Neon idle-compute hotfix — 2026-09-30
+
+- Branch `hotfix/neon-idle-compute-20260930`, based on deployed main `86df23a`.
+- Render blueprint health path is now `/actuator/health/readiness`; only this
+  additional probe is public, with no dependency details. Aggregate health still
+  diagnoses PostgreSQL on demand. Readiness integration test verifies repeated
+  requests borrow zero DataSource connections; other actuator routes stay protected.
+- Production empty-queue polling backs off into shared 15-minute recovery windows.
+  Email pending/failed/processing work, active holds and pending payment sessions
+  preserve existing scheduler cadence. Completed HTTP business requests and
+  committed email enqueue wake polling; failed probes never cache an empty result.
+  No schema, ledger, deadline, retry-window or API payload changes.
+- Local verification: 41 targeted tests passed; complete
+  `mvnw -B -ntp -Ppostgres-migration-test,release-audit verify` passed on Java 21,
+  with PostgreSQL 16.14 Testcontainers, all coverage checks and SBOM generation.
+  Backend total: 772 tests passed. Repository CI performs Java 17 checks before merge.
+- PR #164 initially detected newly published dependency advisories. Updated only
+  frontend overrides/lockfile: fast-uri 3.1.8, brace-expansion 1.1.21 and 5.0.12.
+  `pnpm audit --audit-level=moderate` reports no known vulnerabilities; lint,
+  typecheck, 122 frontend coverage tests and production build pass locally.
+- CI backend tests/container build passed, but Trivy found CVE-2026-68497 in
+  Jackson and CVE-2026-84782 in base-image OpenSSL. Set Jackson BOM 2.21.6 and
+  explicitly refresh openssl/libssl3 from Ubuntu repositories in the runtime
+  Docker stage. Full backend verification and container scan rerun pending.
+- Rollout still pending when this note was written. Deploy code before manually
+  changing a pre-existing Render health path; verify readiness 200, catalog data,
+  then inspect Neon idle behavior without generating business requests.
+- Rollback flag: `MAINTENANCE_IDLE_POLLING_ENABLED=false`. When reverting to older
+  code without the public readiness route, restore health path `/actuator/health`.
+- Keep Free plans and keep-awake monitors disabled. Pending work or an open
+  operational screen can still legitimately consume compute.
+
 - Khi bắt đầu phiên mới, hãy đọc file `HANDOFF.md` nếu tồn tại.
 - Trước khi kết thúc một tác vụ dài, hãy cập nhật `HANDOFF.md`.
 - Không xóa nội dung bàn giao khi công việc chưa hoàn thành.

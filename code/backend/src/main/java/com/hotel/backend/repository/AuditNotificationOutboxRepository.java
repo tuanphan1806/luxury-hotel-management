@@ -18,6 +18,7 @@ public interface AuditNotificationOutboxRepository
         extends JpaRepository<AuditNotificationOutbox, Long> {
 
     boolean existsByReservationId(Long reservationId);
+    boolean existsByStatusIn(Collection<AuditNotificationStatus> statuses);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM AuditNotificationOutbox o WHERE o.idempotencyKey = :key")

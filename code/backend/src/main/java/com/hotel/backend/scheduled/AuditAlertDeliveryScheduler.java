@@ -19,6 +19,7 @@ public class AuditAlertDeliveryScheduler {
     private final AuditNotificationOutboxStore outboxStore;
     private final EmailService emailService;
     private final BusinessMetricService businessMetrics;
+    private final MaintenancePollGate pollGate;
 
     @Value("${app.audit-alert.batch-size:25}")
     private int batchSize;
@@ -28,6 +29,8 @@ public class AuditAlertDeliveryScheduler {
     @Scheduled(fixedDelayString = "${app.audit-alert.delivery-interval-ms:30000}",
             initialDelayString = "${app.maintenance.startup-delay-ms:60000}")
     public void deliver() {
+        var permit = pollGate.begin(MaintenancePollGate.Task.EMAIL);
+        if (permit.isEmpty()) return;
         for (Long id : outboxStore.stuckIds(batchSize, processingTimeoutMinutes)) {
             try { outboxStore.requeueStuck(id, processingTimeoutMinutes); }
             catch (RuntimeException exception) { log.warn("Email recovery could not persist outboxId={}", id); }
@@ -41,6 +44,7 @@ public class AuditAlertDeliveryScheduler {
             }
         }
         businessMetrics.increment("hotel.scheduler.runs", "job", "audit_alert_delivery");
+        pollGate.complete(permit.get(), outboxStore.hasPendingWork());
     }
 
     private void deliverOne(Long id) {

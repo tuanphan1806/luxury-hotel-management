@@ -60,6 +60,8 @@ spring:
 management:
     endpoint:
         health:
+            probes:
+                enabled: true
             # Keep credentials and dependency details out of the public probe.
             show-details: never
     endpoints:

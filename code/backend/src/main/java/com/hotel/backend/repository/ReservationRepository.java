@@ -50,6 +50,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findByLinkedUserIdOrderByCreatedAtDesc(@Param("userId") Long userId);
 
     List<Reservation> findByStatus(ReservationStatus status);
+    boolean existsByStatus(ReservationStatus status);
 
     @Query("""
         SELECT r.id FROM Reservation r

@@ -19,8 +19,9 @@ RUN --mount=type=cache,target=/root/.m2 \
     && cp target/backend-*.jar /workspace/backend.jar
 
 FROM eclipse-temurin:17-jre-jammy AS runtime
+# Refresh OpenSSL even when the base image predates Ubuntu security patches.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends curl \
+    && apt-get install --yes --no-install-recommends curl openssl libssl3 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system hotel \
     && useradd --system --gid hotel --home-dir /app --shell /usr/sbin/nologin hotel
