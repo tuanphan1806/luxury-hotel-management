@@ -15,7 +15,12 @@
 - Local verification: 41 targeted tests passed; complete
   `mvnw -B -ntp -Ppostgres-migration-test,release-audit verify` passed on Java 21,
   with PostgreSQL 16.14 Testcontainers, all coverage checks and SBOM generation.
-  Frontend unchanged; repository CI performs frontend and Java 17 checks before merge.
+  Backend total: 772 tests passed. Repository CI performs Java 17 checks before merge.
+- PR #164 initially detected newly published dependency advisories. Updated only
+  frontend overrides/lockfile: fast-uri 3.1.8, brace-expansion 1.1.21 and 5.0.12.
+  `pnpm audit --audit-level=moderate` reports no known vulnerabilities; lint,
+  typecheck, 122 frontend coverage tests and production build pass locally.
+  CI rerun pending.
 - Rollout still pending when this note was written. Deploy code before manually
   changing a pre-existing Render health path; verify readiness 200, catalog data,
   then inspect Neon idle behavior without generating business requests.
