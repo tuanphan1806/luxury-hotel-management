@@ -1,5 +1,18 @@
 ## Task handoff
 
+### Deployment follow-up — 2026-09-30 23:36 ICT
+
+- Neon/health/security hotfix PRs #164 and #165 passed 12 checks and merged into
+  main `34a2dfc` and develop `871cdff`. Final Jackson local backend verify passed.
+- A later main CI scan newly reports Axios advisories, blocking Render rollout.
+  Follow-up branch `hotfix/axios-security-20260930` updates Axios to 1.20.0 only;
+  local frontend gates and fresh CI are required before merging.
+- Render blueprint Auto Sync is temporarily No for safe sequencing. Restore Yes
+  after compatible backend deploy, public readiness 200 and health-path update.
+  Production still runs the previous backend pending successful release gates.
+- User reports slow pages. Initial public probes observed a Render cold start;
+  compare warm request timings after rollout. No keep-awake monitor enabled.
+
 ### Neon idle-compute hotfix — 2026-09-30
 
 - Branch `hotfix/neon-idle-compute-20260930`, based on deployed main `86df23a`.
