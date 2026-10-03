@@ -1,0 +1,8 @@
+# Upstream still reports all braces <=3.0.3 as affected. The pinned pnpm patch
+# guards the parser and each recursive AST walker; required frontend CI checks
+# the exact transitive copy with adversarial inputs. See patches/README.md.
+# This single-advisory exception applies only beside this frontend lockfile.
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2026-10-17
+reason = "Locally remediated by mandatory patches/braces@3.0.3.patch; parser and AST recursion capped at 100, verified by src/lib/braces-security.test.ts. Dev-only Next lint dependency. Recheck upstream by 2026-10-17; all other advisories remain enforced."

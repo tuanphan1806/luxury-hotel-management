@@ -17,3 +17,10 @@ overrides:
   'brace-expansion@1.1.15': 1.1.21
   'brace-expansion@5.0.6': 5.0.12
   nanoid: 3.3.18
+patchedDependencies:
+  braces@3.0.3: patches/braces@3.0.3.patch
+# Version-only audit cannot recognize the applied depth guard. The regression
+# suite also enforces the 2026-10-17 review deadline; see patches/README.md.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm
