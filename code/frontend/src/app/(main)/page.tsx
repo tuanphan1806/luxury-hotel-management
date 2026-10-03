@@ -223,29 +223,30 @@ export default function HomePage() {
 
   return (
     <div className="home-color-story text-[#0F2A43]">
-      <section className="relative flex flex-col overflow-hidden bg-[#091E30] lg:block lg:min-h-[780px]">
-        <div className="relative order-2 mb-16 aspect-video w-full lg:absolute lg:inset-x-0 lg:bottom-0 lg:top-20 lg:mb-0 lg:aspect-auto">
+      <section className="relative flex flex-col overflow-hidden bg-[#091E30] lg:mx-auto lg:mt-20 lg:block lg:aspect-video lg:w-full lg:max-w-7xl">
+        <div className="relative order-2 mb-16 aspect-video w-full lg:absolute lg:inset-0 lg:mb-0">
           <ProgressiveImage
             src={HOME_CONTENT.hero.bg}
             alt={localize("Khách sạn và hồ bơi ngoài trời lúc hoàng hôn", "Hotel and outdoor pool at dusk")}
             fill
             priority
             quality={82}
-            sizes="100vw"
-            className="object-contain lg:object-cover lg:object-[center_70%]"
+            sizes="(min-width: 1280px) 1280px, 100vw"
+            className="object-contain"
             loaderClassName="hero-image-loading-surface"
           />
+          <div aria-hidden="true" className="absolute inset-0 hidden bg-black/10 lg:block" />
           <div className="absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-[#091E30] to-transparent lg:hidden" />
         </div>
 
-        <div className="relative z-10 order-1 mx-auto flex w-full max-w-7xl flex-col px-5 pb-6 pt-28 sm:px-6 sm:pb-10 sm:pt-36 lg:min-h-[780px] lg:justify-center lg:px-10 lg:pb-28">
+        <div className="relative z-10 order-1 mx-auto flex w-full max-w-7xl flex-col px-5 pb-6 pt-28 sm:px-6 sm:pb-10 sm:pt-36 lg:absolute lg:inset-0 lg:justify-center lg:px-10 lg:py-10">
           <div className="max-w-3xl">
             <div className="mb-5 flex flex-wrap items-center gap-3 text-xs font-semibold text-[#FFF3CF] drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]">
               <span className="uppercase tracking-[0.26em]">{localize("Đặt phòng trực tiếp", "Book direct")}</span>
               <span aria-hidden="true" className="h-px w-8 bg-[#B8944F]/70" />
               <span className="hidden items-center gap-2 text-white sm:flex"><span className="h-2 w-2 rounded-full bg-emerald-400" /> {localize("Thanh toán QR", "QR payment")}</span>
             </div>
-            <h1 className="font-serif text-[2.25rem] font-bold leading-[1.14] text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.65)] sm:text-5xl lg:text-7xl">
+            <h1 className="font-serif text-[2.25rem] font-bold leading-[1.14] text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.65)] sm:text-5xl xl:text-7xl">
               {localize("Nghỉ ngơi thư thái, tận hưởng trọn vẹn.", "Unwind in comfort. Enjoy every moment.")}
             </h1>
             <p className="mt-6 max-w-xl text-base font-medium leading-8 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] md:text-lg">
@@ -261,7 +262,7 @@ export default function HomePage() {
               </Link>
             </div>
 
-            <dl data-testid="home-hero-features" className="mt-9 hidden max-w-2xl grid-cols-3 divide-x divide-white/28 overflow-hidden rounded-xl border border-white/18 bg-[#091E30]/26 px-2 py-4 shadow-[0_14px_38px_rgba(3,12,28,0.16)] backdrop-blur-[2px] lg:grid">
+            <dl data-testid="home-hero-features" className="mt-9 hidden max-w-2xl grid-cols-3 divide-x divide-white/28 overflow-hidden rounded-xl border border-white/18 bg-[#091E30]/26 px-2 py-4 shadow-[0_14px_38px_rgba(3,12,28,0.16)] backdrop-blur-[2px] xl:grid">
               {[
                 [localize("Rõ ràng", "Transparent"), localize("Lịch trống và giá", "Availability and pricing")],
                 [localize("Linh hoạt", "Flexible"), localize("Khung giờ lưu trú", "Stay time windows")],
@@ -278,7 +279,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <div data-testid="home-availability-shell" className="relative z-20 mx-auto -mt-10 w-full max-w-7xl px-5 sm:-mt-12 sm:px-6 lg:px-10">
+      <div data-testid="home-availability-shell" className="relative z-20 mx-auto -mt-10 w-full max-w-7xl px-5 sm:-mt-12 sm:px-6 lg:mt-5 lg:px-10">
         <form
           data-testid="home-availability-form"
           onSubmit={handleQuickSearch}
