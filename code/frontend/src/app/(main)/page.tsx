@@ -223,20 +223,22 @@ export default function HomePage() {
 
   return (
     <div className="home-color-story text-[#0F2A43]">
-      <section className="relative min-h-[100dvh] overflow-hidden bg-[#E5E9ED] lg:min-h-[780px]">
-        <ProgressiveImage
-          src={HOME_CONTENT.hero.bg}
-          alt={localize("Không gian sảnh Luxury Hotel", "Luxury Hotel lobby")}
-          fill
-          priority
-          quality={82}
-          sizes="100vw"
-          className="object-cover"
-          loaderClassName="hero-image-loading-surface"
-        />
-        <div className="absolute inset-0 bg-[#091E30]/8" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#091E30]/64 via-[#0F2A43]/20 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#091E30]/18 to-transparent" />
+      <section className="relative min-h-[100dvh] overflow-hidden bg-[#091E30] lg:min-h-[780px]">
+        <div className="absolute inset-x-0 bottom-0 top-20">
+          <ProgressiveImage
+            src={HOME_CONTENT.hero.bg}
+            alt={localize("Khách sạn và hồ bơi ngoài trời lúc hoàng hôn", "Hotel and outdoor pool at dusk")}
+            fill
+            priority
+            quality={82}
+            sizes="100vw"
+            className="object-cover object-[58%_15%]"
+            loaderClassName="hero-image-loading-surface"
+          />
+          <div className="absolute inset-0 bg-[#091E30]/8" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#091E30]/75 via-[#0F2A43]/35 to-[#091E30]/10 lg:from-[#091E30]/64 lg:via-[#0F2A43]/20 lg:to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#091E30]/18 to-transparent" />
+        </div>
 
         <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-7xl flex-col px-5 pb-20 pt-32 sm:px-6 sm:pb-24 sm:pt-36 lg:min-h-[760px] lg:justify-center lg:px-10 lg:pb-28">
           <div className="max-w-3xl">
@@ -246,7 +248,7 @@ export default function HomePage() {
               <span className="flex items-center gap-2 text-white/76"><span className="h-2 w-2 rounded-full bg-emerald-400" /> {localize("Thanh toán QR", "QR payment")}</span>
             </div>
             <h1 className="font-serif text-[2.55rem] font-bold leading-[1.14] text-white sm:text-5xl lg:text-7xl">
-              {localize("Một kỳ nghỉ được chuẩn bị chỉn chu từ trước.", "A stay thoughtfully prepared before you arrive.")}
+              {localize("Nghỉ ngơi thư thái, tận hưởng trọn vẹn.", "Unwind in comfort. Enjoy every moment.")}
             </h1>
             <p className="mt-6 max-w-xl text-base leading-8 text-[#F5F1E8]/94 drop-shadow-[0_1px_8px_rgba(0,0,0,0.32)] md:text-lg">
               {localize("Xem đúng số phòng còn trống, chọn nhiều hạng phòng trong một đơn và theo dõi rõ từng bước thanh toán, nhận phòng, lưu trú và trả phòng.", "See live availability, combine room types in one booking, and follow every step from payment to check-in and checkout.")}

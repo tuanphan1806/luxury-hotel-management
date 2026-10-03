@@ -5,7 +5,7 @@ const galleryAsset = (filename: string) => `/media/heroes/${filename.replace(/\.
  * prevents a remote fallback swap and avoids proxying multi-megabyte originals.
  */
 export const GALLERY_HERO_IMAGES = {
-  home: galleryAsset('g-1.jpg'),
+  home: galleryAsset('hotel-pool-dusk.jpg'),
   rooms: galleryAsset('g-5.jpg'),
   reservation: galleryAsset('g-3.jpg'),
   facilities: galleryAsset('g-6.jpg'),
