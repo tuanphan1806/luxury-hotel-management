@@ -223,39 +223,37 @@ export default function HomePage() {
 
   return (
     <div className="home-color-story text-[#0F2A43]">
-      <section className="relative min-h-[100dvh] overflow-hidden bg-[#E5E9ED] lg:min-h-[780px]">
-        <ProgressiveImage
-          src={HOME_CONTENT.hero.bg}
-          alt={localize("Không gian sảnh Luxury Hotel", "Luxury Hotel lobby")}
-          fill
-          priority
-          quality={82}
-          sizes="100vw"
-          className="object-cover"
-          loaderClassName="hero-image-loading-surface"
-        />
-        <div className="absolute inset-0 bg-[#091E30]/8" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#091E30]/64 via-[#0F2A43]/20 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#091E30]/18 to-transparent" />
+      <section className="relative min-h-[100dvh] overflow-hidden lg:min-h-[780px]">
+        <div className="absolute inset-0">
+          <ProgressiveImage
+            src={HOME_CONTENT.hero.bg}
+            alt={localize("Khách sạn và hồ bơi ngoài trời lúc hoàng hôn", "Hotel and outdoor pool at dusk")}
+            fill
+            priority
+            quality={82}
+            sizes="(min-width: 1024px) 100vw, 178vh"
+            className="object-cover object-[58%_15%] lg:object-fill"
+          />
+        </div>
 
-        <div className="relative z-10 mx-auto flex min-h-[100dvh] max-w-7xl flex-col px-5 pb-20 pt-32 sm:px-6 sm:pb-24 sm:pt-36 lg:min-h-[760px] lg:justify-center lg:px-10 lg:pb-28">
+        <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-7xl flex-col px-5 pb-20 pt-32 sm:px-6 sm:pb-24 sm:pt-36 lg:min-h-[780px] lg:justify-center lg:px-10 lg:pb-28">
           <div className="max-w-3xl">
-            <div className="mb-5 flex flex-wrap items-center gap-3 text-xs font-semibold text-[#D8C398]">
+            <div className="mb-5 flex flex-wrap items-center gap-3 text-xs font-semibold text-[#FFF3CF] drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]">
               <span className="uppercase tracking-[0.26em]">{localize("Đặt phòng trực tiếp", "Book direct")}</span>
               <span aria-hidden="true" className="h-px w-8 bg-[#B8944F]/70" />
-              <span className="flex items-center gap-2 text-white/76"><span className="h-2 w-2 rounded-full bg-emerald-400" /> {localize("Thanh toán QR", "QR payment")}</span>
+              <span className="flex items-center gap-2 text-white"><span className="h-2 w-2 rounded-full bg-emerald-400" /> {localize("Thanh toán QR", "QR payment")}</span>
             </div>
-            <h1 className="font-serif text-[2.55rem] font-bold leading-[1.14] text-white sm:text-5xl lg:text-7xl">
-              {localize("Một kỳ nghỉ được chuẩn bị chỉn chu từ trước.", "A stay thoughtfully prepared before you arrive.")}
+            <h1 className="font-serif text-[2.55rem] font-bold leading-[1.14] text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.65)] sm:text-5xl lg:text-7xl">
+              {localize("Nghỉ ngơi thư thái, tận hưởng trọn vẹn.", "Unwind in comfort. Enjoy every moment.")}
             </h1>
-            <p className="mt-6 max-w-xl text-base leading-8 text-[#F5F1E8]/94 drop-shadow-[0_1px_8px_rgba(0,0,0,0.32)] md:text-lg">
+            <p className="mt-6 max-w-xl text-base font-medium leading-8 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] md:text-lg">
               {localize("Xem đúng số phòng còn trống, chọn nhiều hạng phòng trong một đơn và theo dõi rõ từng bước thanh toán, nhận phòng, lưu trú và trả phòng.", "See live availability, combine room types in one booking, and follow every step from payment to check-in and checkout.")}
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link href="/reservation" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#FBFAF6] px-6 text-sm font-bold text-[#0F2A43] transition hover:-translate-y-0.5 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C398] focus-visible:ring-offset-2 focus-visible:ring-offset-[#091E30]">
                 {localize("Kiểm tra phòng trống", "Check availability")}
               </Link>
-              <Link href="/rooms" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/35 bg-white/5 px-6 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:border-[#D8C398]/70 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C398] focus-visible:ring-offset-2 focus-visible:ring-offset-[#091E30]">
+              <Link href="/rooms" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/55 bg-[#091E30]/70 px-6 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:border-[#D8C398]/70 hover:bg-[#091E30]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D8C398] focus-visible:ring-offset-2 focus-visible:ring-offset-[#091E30]">
                 {localize("Khám phá hạng phòng", "Explore room types")}
               </Link>
             </div>
