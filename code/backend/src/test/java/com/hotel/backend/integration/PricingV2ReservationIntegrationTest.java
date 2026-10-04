@@ -46,6 +46,8 @@ import com.hotel.backend.service.ReservationInvoiceSnapshotService;
 import com.hotel.backend.service.ReservationService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -289,6 +291,12 @@ class PricingV2ReservationIntegrationTest {
 
     @Test
     void checkInAcceptsActualExtraGuestOnChosenRoomTypeAndCheckoutExplainsCharge() {
+        try (MockedStatic<LocalDateTime> ignored = freezeGuestAdjustmentTime()) {
+            assertCheckInExtraGuestCharge();
+        }
+    }
+
+    private void assertCheckInExtraGuestCharge() {
         RoomType standard = roomTypeRepository.findByCode("STANDARD")
                 .orElseThrow();
         RoomType deluxe = roomTypeRepository.findByCode("DELUXE")
@@ -468,6 +476,12 @@ class PricingV2ReservationIntegrationTest {
 
     @Test
     void addingStayGuestsRecordsIncludedCapacityAndRejectsBeyondCommittedMaximum() {
+        try (MockedStatic<LocalDateTime> ignored = freezeGuestAdjustmentTime()) {
+            assertAddedGuestCapacityAndCharge();
+        }
+    }
+
+    private void assertAddedGuestCapacityAndCharge() {
         RoomType standard = roomTypeRepository.findByCode("STANDARD")
                 .orElseThrow();
         Room standardRoom = availableRoom(standard);
@@ -573,6 +587,12 @@ class PricingV2ReservationIntegrationTest {
 
     @Test
     void movingGuestBetweenRoomTypesRepricesOnlyPersistedDistribution() {
+        try (MockedStatic<LocalDateTime> ignored = freezeGuestAdjustmentTime()) {
+            assertMovedGuestDistributionAndCharge();
+        }
+    }
+
+    private void assertMovedGuestDistributionAndCharge() {
         RoomType standard = roomTypeRepository.findByCode("STANDARD")
                 .orElseThrow();
         RoomType deluxe = roomTypeRepository.findByCode("DELUXE")
@@ -1678,6 +1698,17 @@ class PricingV2ReservationIntegrationTest {
             Long reservationId,
             com.hotel.backend.entity.ReservationRoom reservationRoom,
             Room room) {
+    }
+
+    private MockedStatic<LocalDateTime> freezeGuestAdjustmentTime() {
+        // These scenarios isolate guest distribution. Crossing the overnight
+        // cutoff between actual arrival and the quote's five-minute lead time
+        // legitimately changes the room charge and must not affect this test.
+        LocalDateTime frozenNow = LocalDateTime.of(2026, 10, 4, 14, 0);
+        MockedStatic<LocalDateTime> mocked = Mockito.mockStatic(
+                LocalDateTime.class, Mockito.CALLS_REAL_METHODS);
+        mocked.when(LocalDateTime::now).thenReturn(frozenNow);
+        return mocked;
     }
 
     private Room availableRoom(RoomType roomType) {
