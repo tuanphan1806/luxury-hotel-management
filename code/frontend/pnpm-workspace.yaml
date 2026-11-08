@@ -15,6 +15,10 @@ overrides:
   source-map-js: 1.2.2
   follow-redirects: 1.16.2
   'vite@7': 7.3.7
+  # Preserve legacy ESLint glob@7/minimatch@3 APIs; compatibility of the modern
+  # Sentry and TypeScript ESLint callers is covered by dependency-globs tests.
+  'glob@13': 14.0.2
+  'minimatch@>=10': 11.0.1
   js-yaml: 4.3.2
   browserslist: 4.28.7
   'brace-expansion@1.1.15': 1.1.21
