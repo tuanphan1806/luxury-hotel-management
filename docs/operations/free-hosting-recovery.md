@@ -22,6 +22,18 @@ readers share requests. Permanent errors fail immediately; a prolonged outage
 offers a manual reload. Booking, payment and authentication writes are not
 automatically repeated by this recovery logic.
 
+On a visible browser visit, a separate request reaches
+`/backend_proxy/actuator/health/readiness` with `cache: no-store` and without
+credentials. This also runs on pages served entirely from the frontend or
+catalog cache. It retries transient responses for at most 210 seconds, stops
+as soon as readiness returns JSON `UP`, and aborts when the tab is hidden or
+unmounted. Returning to a hidden tab after at least 15 minutes starts another
+bounded check. There is no scheduled keep-awake ping after success.
+
+This ensures a visitor actually requests a live backend. It cannot guarantee
+that Render provisions a healthy instance, or repair a platform-side failure
+to spin up. Catalog cache hits remain separate from live backend health.
+
 ## Recover a stuck Render service
 
 1. Compare the latest service logs with the reported deployment status. Check
