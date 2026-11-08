@@ -1,0 +1,5 @@
+# Apply only after the mandatory SpringWebExposureIntegrationTest passes.
+# This file does not change severity thresholds or ignore any unrelated CVE.
+vulnerability:
+  vex:
+    - code/backend/spring-web.openvex.json

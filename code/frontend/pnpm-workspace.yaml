@@ -10,8 +10,15 @@ ignoredBuiltDependencies:
   - unrs-resolver
 overrides:
   postcss: 8.5.23
-  sharp: 0.35.4
-  fast-uri: 3.1.8
+  sharp: 0.35.5
+  fast-uri: 3.1.9
+  source-map-js: 1.2.2
+  follow-redirects: 1.16.2
+  'vite@7': 7.3.7
+  # Preserve legacy ESLint glob@7/minimatch@3 APIs; compatibility of the modern
+  # Sentry and TypeScript ESLint callers is covered by dependency-globs tests.
+  'glob@13': 14.0.2
+  'minimatch@>=10': 11.0.1
   js-yaml: 4.3.2
   browserslist: 4.28.7
   'brace-expansion@1.1.15': 1.1.21
@@ -19,8 +26,3 @@ overrides:
   nanoid: 3.3.18
 patchedDependencies:
   braces@3.0.3: patches/braces@3.0.3.patch
-# Version-only audit cannot recognize the applied depth guard. The regression
-# suite also enforces the 2026-10-17 review deadline; see patches/README.md.
-auditConfig:
-  ignoreGhsas:
-    - GHSA-vfj7-8cjw-p6xm

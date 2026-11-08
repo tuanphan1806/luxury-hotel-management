@@ -1,5 +1,34 @@
 ## Task handoff
 
+### Visitor-triggered backend wakeup — 2026-11-09 (in progress)
+
+- Added a browser-only readiness request on visible visits, independent of
+  static/catalog caches. It uses the existing same-origin backend proxy,
+  no credentials and no cache; stops on JSON UP, hides/unmounts, or a bounded
+  210-second retry window. A visitor returning after 15 minutes can trigger
+  another check. There is no periodic keep-awake monitor or automatic write retry.
+- Local frontend lint, production build and all 153 unit tests passed;
+  coverage gates passed. Chrome against the production build and a local
+  read-only backend fixture issued four readiness requests at 0/5/15/30s,
+  then stopped after UP; no new browser errors were observed. Backend
+  source, schema, secrets, integrations and Free plans are unchanged.
+- This fixes a missing live request when frontend content comes from cache.
+  It is not yet a confirmed fix for Render failing to wake a spun-down service.
+- Browser log access recovered after the owner requested another attempt.
+  Main backend logs show normal shutdown at 00:26 and a closed Hikari pool;
+  no subsequent successful cold startup was visible in that observation.
+- Main service was temporarily redeployed at 00:45:17 on e517297,
+  dep-dbobabajnfac73ed9310. At 00:49, readiness/database health were UP and
+  direct catalog returned six room types. This is temporary recovery only.
+- Separate Free recovery service is testing Render's default TCP health check
+  instead of HTTP readiness, on the same code and previously tested lazy-init
+  setting. Scheduler/seeds remain off. Deploy dep-dboba2rm8hqs7382v82g passed
+  warm checks; last public request ended 00:47:57 ICT. Do not contact this
+  trial service again before 01:03:58 except for Render's non-waking robots.txt
+  check. No production routing or webhook cutover is authorized before the
+  idle/wake gate succeeds.
+- The owner declined contacting Render support; no support message was sent.
+
 ### Deployment follow-up — 2026-09-30 23:36 ICT
 
 - Neon/health/security hotfix PRs #164 and #165 passed 12 checks and merged into

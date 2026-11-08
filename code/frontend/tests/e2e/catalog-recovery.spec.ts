@@ -25,13 +25,15 @@ test('distinguishes a failed catalog from no rooms and permits a manual reload',
   let requests = 0;
   await page.route('**/catalog_proxy/room-types', (route) => {
     requests += 1;
-    return route.fulfill({ status: 503, body: '{}' });
+    // Permanent errors fail immediately; the bounded cold-start recovery
+    // window is exercised with fake timers in public-catalog.test.ts.
+    return route.fulfill({ status: 400, body: '{}' });
   });
   await page.goto('/rooms');
   await expect(page.getByRole('heading', { name: 'Chưa tải được danh sách phòng' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: 'Tải lại trang', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Chưa có loại phòng', exact: true })).toHaveCount(0);
-  expect(requests).toBe(3);
+  expect(requests).toBe(1);
   await page.screenshot({ path: testInfo.outputPath('catalog-unavailable.png'), fullPage: false });
   await page.route('**/catalog_proxy/room-types', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }),

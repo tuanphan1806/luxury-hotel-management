@@ -5,6 +5,7 @@ import { LanguageProvider } from "@/components/i18n/LanguageProvider";
 import { FavoritesProvider } from "@/components/favorites/FavoritesProvider";
 import { AccessibilityProvider } from "@/components/accessibility/AccessibilityProvider";
 import BackToTopButton from "@/components/UI/BackToTopButton";
+import BackendWakeup from "@/components/BackendWakeup";
 import { siteConfig } from "@/lib/siteConfig";
 import viMessages from "@/i18n/messages/vi.json";
 
@@ -66,6 +67,7 @@ export default function RootLayout({
   return (
     <html lang="vi" className="scroll-smooth" data-scroll-behavior="smooth">
       <body suppressHydrationWarning className={`${beVietnam.variable} ${playfair.variable} bg-[#F1F0EA] font-sans text-text-dark antialiased`}>
+        <BackendWakeup />
         <AccessibilityProvider>
           <LanguageProvider initialLocale="vi" messages={viMessages}>
             <FavoritesProvider>
