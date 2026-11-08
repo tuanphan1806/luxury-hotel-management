@@ -1,10 +1,9 @@
 # braces 3.0.3 depth guard
 
-GHSA-vfj7-8cjw-p6xm (CVE-2026-93687) allows deeply nested patterns to exhaust
-the call stack. On 2026-10-03 the npm registry still lists 3.0.3 as latest, and
-the latest Next lint plugin still depends on fast-glob -> micromatch -> braces.
-In this project this chain comes only from the eslint-config-next devDependency;
-application code does not import it or accept user-provided glob patterns.
+Reviewed on 2026-11-08: GitHub withdrew GHSA-vfj7-8cjw-p6xm on 2026-10-23
+because it is not a practically exploitable vulnerability. The expired
+2026-10-17 exceptions in pnpm and OSV have been removed, together with their
+calendar-only expiry test. No advisory is suppressed for this patch.
 
 `pnpm patchedDependencies` applies `braces@3.0.3.patch` on every install and pins
 its hash in the lockfile. It caps parser nesting (braces and parentheses) and
@@ -17,18 +16,13 @@ lint plugin. Regression coverage checks 4096 nested braces, mixed parentheses,
 all string APIs, direct deep AST input, and ordinary glob behavior. Removing
 or failing to apply the patch causes the regression tests to fail.
 
-OSV reads the unmodified package version, not its patched implementation. The
-adjacent `osv-scanner.toml` therefore suppresses only this remediated advisory
-for this frontend lockfile until 2026-10-17; it does not exempt this package from
-other advisories, dependency/license review, or frontend tests. This is not an
-upstream fixed release. Replace the patch with an upstream fix when available,
-remove the exception, then rerun lint, tests, build and security checks.
-
-pnpm audit has the same version-only limitation and reports a hypothetical
-fixed version >=3.0.4, but querying braces@3.0.4 on 2026-10-03 returns no matching
-release. `auditConfig.ignoreGhsas` therefore lists the same single patched ID.
-The required regression suite fails after 2026-10-17T00:00Z, enforcing the same
-review deadline for pnpm's exception, which has no native expiry field.
+The behavioral tests remain mandatory. pnpm audit, OSV and dependency/license
+review continue to cover this package and all other dependencies without a
+version-only exception. The patch is retained as defensive hardening, not an
+upstream fixed release. Application code does not import braces or accept
+user-supplied glob patterns. When replacing the patch with an upstream
+implementation, verify the same behavioral cases and rerun lint, tests, build
+and security checks.
 
 References:
 - https://github.com/advisories/GHSA-vfj7-8cjw-p6xm

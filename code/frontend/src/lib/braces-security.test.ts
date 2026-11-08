@@ -19,13 +19,8 @@ type Braces = {
 const braces = micromatch('braces') as Braces;
 const depthError = 'Nesting depth exceeds safety limit (100)';
 
-describe('braces security patch (GHSA-vfj7-8cjw-p6xm)', () => {
+describe('braces depth guard regression', () => {
   const nested = '{'.repeat(4096) + 'a,b' + '}'.repeat(4096);
-
-  it('expires the temporary version-only audit exception on 2026-10-17', () => {
-    expect(Date.now(), 'Review the upstream fix and remove/renew the documented patch exception')
-      .toBeLessThan(Date.parse('2026-10-17T00:00:00Z'));
-  });
 
   it.each(['parse', 'compile', 'expand', 'stringify'] as const)(
     '%s rejects excessive string nesting with a controlled syntax error',
