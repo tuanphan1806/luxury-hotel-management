@@ -1,0 +1,33 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/tuanphan1806/luxury-hotel-management/blob/main/code/backend/spring-web.openvex.json",
+  "author": "https://github.com/tuanphan1806/luxury-hotel-management",
+  "timestamp": "2026-11-08T14:35:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": { "name": "CVE-2026-47884" },
+      "products": [{ "@id": "pkg:maven/org.springframework/spring-webmvc@6.2.19" }],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "Only for this backend: no XsltView, XsltViewResolver or implicit view-rendering application controllers exist. Application mappings are RestController response-body endpoints. SpringWebExposureIntegrationTest guards these conditions before this VEX is applied. Vendor conditions: https://spring.io/security/cve-2026-47884/. This does not claim the dependency is patched."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-47890" },
+      "products": [
+        { "@id": "pkg:maven/org.springframework/spring-webmvc@6.2.19" },
+        { "@id": "pkg:maven/org.springframework/spring-webflux@6.2.19" }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "Only for this backend: the application does not render view fragments or stream them over SSE. Its chatbot returns ordinary JSON. SpringWebExposureIntegrationTest guards application mappings and response types. Vendor conditions: https://spring.io/security/cve-2026-47890/. This does not claim the dependency is patched."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-47892" },
+      "products": [{ "@id": "pkg:maven/org.springframework/spring-webflux@6.2.19" }],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "Only for this backend: WebFlux supplies WebClient for outbound requests; no WebFlux or MVC functional RouterFunction server beans are installed. SpringWebExposureIntegrationTest checks both types. The vendor requires functional WebFlux server endpoints: https://spring.io/security/cve-2026-47892/. This does not claim the dependency is patched."
+    }
+  ]
+}

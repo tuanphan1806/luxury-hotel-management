@@ -19,9 +19,10 @@ RUN --mount=type=cache,target=/root/.m2 \
     && cp target/backend-*.jar /workspace/backend.jar
 
 FROM eclipse-temurin:17-jre-jammy AS runtime
-# Refresh OpenSSL even when the base image predates Ubuntu security patches.
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends curl openssl libssl3 \
+# Refresh APT/OpenSSL even when the base image predates Ubuntu security patches.
+# No retries while bootstrapping the APT fix (CVE-2026-109518).
+RUN apt-get -o Acquire::Retries=0 update \
+    && apt-get -o Acquire::Retries=0 install --yes --no-install-recommends apt libapt-pkg6.0 curl openssl libssl3 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system hotel \
     && useradd --system --gid hotel --home-dir /app --shell /usr/sbin/nologin hotel
