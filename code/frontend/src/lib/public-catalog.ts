@@ -1,4 +1,9 @@
 const CATALOG_TTL_MS = 30_000;
+// A Free backend can take over two minutes to wake. Keep readers pending long
+// enough to recover, without polling forever or retrying any write operation.
+const CATALOG_RECOVERY_WINDOW_MS = 210_000;
+const CATALOG_REQUEST_TIMEOUT_MS = 15_000;
+const RETRYABLE_STATUSES = new Set([408, 429, 502, 503, 504]);
 const catalogCache = new Map<string, { expiresAt: number; data: unknown[] }>();
 const catalogRequestsInFlight = new Map<string, Promise<unknown[]>>();
 const pendingRequests = new Set<string>();
@@ -24,30 +29,43 @@ function publishConnectionState() {
 async function fetchCatalog(url: string): Promise<unknown[]> {
   // Only these read-only catalog requests are retried. Never retry a booking
   // or payment mutation when the server's response is uncertain.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const deadline = Date.now() + CATALOG_RECOVERY_WINDOW_MS;
+  for (let attempt = 0; ; attempt += 1) {
+    let failure: unknown;
+    let retryAfterMs = 0;
     try {
       const response = await fetch(url, {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(CATALOG_REQUEST_TIMEOUT_MS, deadline - Date.now()))),
       });
       if (!response.ok) {
-        if (attempt < 2 && [408, 502, 503, 504].includes(response.status)) {
-          await new Promise((resolve) => setTimeout(resolve, 5_000));
-          continue;
+        failure = new Error(`Public catalog request failed with status ${response.status}`);
+        if (!RETRYABLE_STATUSES.has(response.status)) throw failure;
+        const retryAfter = response.headers?.get("Retry-After");
+        if (retryAfter) {
+          retryAfterMs = /^\d+$/.test(retryAfter)
+            ? Number(retryAfter) * 1_000
+            : Math.max(0, Date.parse(retryAfter) - Date.now());
+          if (!Number.isFinite(retryAfterMs)) retryAfterMs = 0;
         }
-        throw new Error(`Public catalog request failed with status ${response.status}`);
+      } else {
+        const payload = await response.json() as { data?: unknown };
+        if (!Array.isArray(payload?.data)) throw new Error("Invalid public catalog response");
+        return payload.data;
       }
-      const payload = await response.json() as { data?: unknown };
-      if (!Array.isArray(payload?.data)) throw new Error("Invalid public catalog response");
-      return payload.data;
     } catch (error) {
       const transient = error instanceof TypeError || (error instanceof DOMException
         && ["TimeoutError", "AbortError"].includes(error.name));
-      if (attempt === 2 || !transient) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      if (!transient) throw error;
+      failure = error;
     }
+
+    const delayMs = Math.max(Math.min((attempt + 1) * 5_000, 20_000), retryAfterMs);
+    if (Date.now() + delayMs >= deadline) throw failure;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    // A background tab may resume long after its timer was scheduled.
+    if (Date.now() >= deadline) throw failure;
   }
-  throw new Error("Public catalog is temporarily unavailable");
 }
 
 const getPublicList = async <T>(url: string): Promise<T[]> => {
