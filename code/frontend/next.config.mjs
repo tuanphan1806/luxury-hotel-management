@@ -74,6 +74,7 @@ const nextConfig = {
   ...(standaloneOutputEnabled ? { output: 'standalone' } : {}),
   poweredByHeader: false,
   compress: true,
+  ...(process.env.VERCEL ? { staticPageGenerationTimeout: 300 } : {}),
   distDir: process.env.NEXT_DIST_DIR
     || (process.env.NODE_ENV === 'development' ? '.next-dev' : '.next'),
   outputFileTracingRoot: __dirname,
@@ -88,10 +89,8 @@ const nextConfig = {
   },
   async rewrites() {
     return [
-      {
-        source: '/backend_proxy/:path*',
-        destination: `${backendOrigin}/:path*`,
-      },
+      { source: '/backend_proxy/api/room-types/:parts*', destination: '/api/room-types/:parts*' },
+      { source: '/backend_proxy/:path*', destination: `${backendOrigin}/:path*` },
     ];
   },
   async headers() {

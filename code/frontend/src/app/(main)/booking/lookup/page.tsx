@@ -75,7 +75,7 @@ const formatDateTime = (value?: string) => {
 function GuestBookingLookupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const legacyToken = searchParams.get("token") || "";
+  const legacyToken = searchParams?.get("token") || "";
   const [token, setToken] = useState("");
   const [tokenResolved, setTokenResolved] = useState(false);
   const [reservation, setReservation] = useState<Reservation | null>(null);

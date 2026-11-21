@@ -66,7 +66,7 @@ function OAuthCallbackContent() {
   const [verificationSent, setVerificationSent] = useState(false);
 
   useEffect(() => {
-    if (hasStarted.current) return;
+    if (!searchParams || hasStarted.current) return;
     hasStarted.current = true;
 
     const finishAuthentication = async () => {

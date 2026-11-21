@@ -1,7 +1,9 @@
+import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal, waitForBackendReadyOrTimeout } from "./backend-readiness";
+
 const CATALOG_TTL_MS = 30_000;
+const ROOM_TYPES_URL = "/catalog_proxy/room-types";
 // A Free backend can take over two minutes to wake. Keep readers pending long
 // enough to recover, without polling forever or retrying any write operation.
-const CATALOG_RECOVERY_WINDOW_MS = 210_000;
 const CATALOG_REQUEST_TIMEOUT_MS = 15_000;
 const RETRYABLE_STATUSES = new Set([408, 429, 502, 503, 504]);
 const catalogCache = new Map<string, { expiresAt: number; data: unknown[] }>();
@@ -29,8 +31,9 @@ function publishConnectionState() {
 async function fetchCatalog(url: string): Promise<unknown[]> {
   // Only these read-only catalog requests are retried. Never retry a booking
   // or payment mutation when the server's response is uncertain.
-  const deadline = Date.now() + CATALOG_RECOVERY_WINDOW_MS;
+  const deadline = Date.now() + BACKEND_RECOVERY_WINDOW_MS;
   for (let attempt = 0; ; attempt += 1) {
+    const readySignal = nextBackendReadySignal();
     let failure: unknown;
     let retryAfterMs = 0;
     try {
@@ -49,8 +52,8 @@ async function fetchCatalog(url: string): Promise<unknown[]> {
           if (!Number.isFinite(retryAfterMs)) retryAfterMs = 0;
         }
       } else {
-        const payload = await response.json() as { data?: unknown };
-        if (!Array.isArray(payload?.data)) throw new Error("Invalid public catalog response");
+        const payload = await response.json() as { success?: boolean; data?: unknown };
+        if (payload?.success === false || !Array.isArray(payload?.data)) throw new Error("Invalid public catalog response");
         return payload.data;
       }
     } catch (error) {
@@ -62,7 +65,9 @@ async function fetchCatalog(url: string): Promise<unknown[]> {
 
     const delayMs = Math.max(Math.min((attempt + 1) * 5_000, 20_000), retryAfterMs);
     if (Date.now() + delayMs >= deadline) throw failure;
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    // Readiness may interrupt our own backoff, but never the origin's Retry-After.
+    if (retryAfterMs) await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+    await waitForBackendReadyOrTimeout(readySignal, delayMs - retryAfterMs);
     // A background tab may resume long after its timer was scheduled.
     if (Date.now() >= deadline) throw failure;
   }
@@ -80,14 +85,17 @@ const getPublicList = async <T>(url: string): Promise<T[]> => {
   publishConnectionState();
   const request = fetchCatalog(url)
     .then((data) => {
-      catalogCache.set(url, { data, expiresAt: Date.now() + CATALOG_TTL_MS });
+      if (catalogRequestsInFlight.get(url) === request) {
+        catalogCache.set(url, { data, expiresAt: Date.now() + CATALOG_TTL_MS });
+      }
       return data;
     })
     .catch((error: unknown) => {
-      failedRequests.add(url);
+      if (catalogRequestsInFlight.get(url) === request) failedRequests.add(url);
       throw error;
     })
     .finally(() => {
+      if (catalogRequestsInFlight.get(url) !== request) return;
       catalogRequestsInFlight.delete(url);
       pendingRequests.delete(url);
       publishConnectionState();
@@ -102,8 +110,16 @@ const getPublicList = async <T>(url: string): Promise<T[]> => {
  * Việc giữ promise đang chạy cũng chặn request kép do React Strict Mode ở dev.
  */
 export const getPublicRoomTypes = async <T>(): Promise<T[]> => {
-  return getPublicList<T>("/catalog_proxy/room-types");
+  return getPublicList<T>(ROOM_TYPES_URL);
 };
+
+export function invalidatePublicRoomTypes() {
+  catalogCache.delete(ROOM_TYPES_URL);
+  catalogRequestsInFlight.delete(ROOM_TYPES_URL);
+  pendingRequests.delete(ROOM_TYPES_URL);
+  failedRequests.delete(ROOM_TYPES_URL);
+  publishConnectionState();
+}
 
 export const getPublicFacilities = <T>() => getPublicList<T>("/catalog_proxy/facilities");
 
