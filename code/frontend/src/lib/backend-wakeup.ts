@@ -1,4 +1,5 @@
-const RECOVERY_WINDOW_MS = 210_000;
+import { BACKEND_RECOVERY_WINDOW_MS, notifyBackendReady } from "./backend-readiness";
+
 const REQUEST_TIMEOUT_MS = 12_000;
 const IDLE_WINDOW_MS = 15 * 60_000;
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -83,6 +84,7 @@ export function watchBackendWakeup(visibility: Visibility): () => void {
     activeRequest = undefined;
     if (ready || permanentFailure) {
       completed = true;
+      if (ready) notifyBackendReady();
       return;
     }
     attempt += 1;
@@ -97,7 +99,7 @@ export function watchBackendWakeup(visibility: Visibility): () => void {
     }
     const now = Date.now();
     if (!deadline || now - lastRequestAt >= IDLE_WINDOW_MS) {
-      deadline = now + RECOVERY_WINDOW_MS;
+      deadline = now + BACKEND_RECOVERY_WINDOW_MS;
       nextRequestAt = now;
       attempt = 0;
       completed = false;

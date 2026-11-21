@@ -17,7 +17,7 @@ const { minimatch } = estree("minimatch") as {
 
 describe("patched build dependency compatibility", () => {
   it("preserves Sentry's absolute file discovery and ignore options", async () => {
-    const files = await glob(["src/lib/*catalog*.ts"], {
+    const files = await glob(["src/lib/public-catalog*.ts"], {
       cwd: process.cwd(), absolute: true, nodir: true, ignore: ["**/*.test.ts"],
     });
     expect(files.map((file) => resolve(file))).toEqual([resolve("src/lib/public-catalog.ts")]);

@@ -9,7 +9,7 @@ import { useLanguage } from "@/components/i18n/LanguageProvider";
 export default function ResetPasswordForm() {
   const { localize } = useLanguage();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token")?.trim() ?? "";
+  const token = searchParams?.get("token")?.trim() ?? "";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);

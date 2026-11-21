@@ -1,5 +1,6 @@
 import axios, { AxiosError, type AxiosRequestConfig, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { deleteCookie } from './cookie-helper';
+import { invalidatePublicRoomTypes } from './public-catalog';
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/backend_proxy';
 let accessToken: string | null = null;
@@ -199,7 +200,10 @@ const refreshAccessToken = async () => {
 apiClient.interceptors.response.use(
   (response) => {
     const method = String(response.config.method || 'get').toLowerCase();
-    if (!['get', 'head', 'options'].includes(method)) invalidateGetCache();
+    if (!['get', 'head', 'options'].includes(method)) {
+      invalidateGetCache();
+      if (/^\/api\/room-types(?:\/|$)/.test(response.config.url ?? '')) invalidatePublicRoomTypes();
+    }
     return response;
   },
   async (error: AxiosError) => {

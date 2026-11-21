@@ -195,12 +195,12 @@ function BookingFormContent() {
   const router = useRouter();
   const { localeTag, localize } = useLanguage();
 
-  const roomId = searchParams.get("roomId");
-  const roomTypesParam = searchParams.get("roomTypes");
-  const checkIn = searchParams.get("checkIn");
-  const checkOut = searchParams.get("checkOut");
-  const adults = searchParams.get("adults") || "2";
-  const childrenVal = searchParams.get("children") || "0";
+  const roomId = searchParams?.get("roomId") ?? null;
+  const roomTypesParam = searchParams?.get("roomTypes") ?? null;
+  const checkIn = searchParams?.get("checkIn") ?? null;
+  const checkOut = searchParams?.get("checkOut") ?? null;
+  const adults = searchParams?.get("adults") || "2";
+  const childrenVal = searchParams?.get("children") || "0";
 
   const [step] = useState(2); // Step 2 is active on this page
   const [bookingData, setBookingData] = useState<BookingData | null>(null);

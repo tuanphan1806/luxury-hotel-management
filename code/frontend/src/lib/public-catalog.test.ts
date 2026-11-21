@@ -46,6 +46,60 @@ describe("public catalog cache", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("cannot repopulate the cache with an old read after a room is hidden", async () => {
+    let finish!: (response: Response) => void;
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }))
+      .mockResolvedValueOnce(Response.json({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const catalog = await import("./public-catalog");
+    const old = catalog.getPublicRoomTypes();
+    catalog.invalidatePublicRoomTypes();
+    expect(await catalog.getPublicRoomTypes()).toEqual([]);
+    finish(Response.json({ data: [{ id: 1 }] }));
+    await old;
+    expect(await catalog.getPublicRoomTypes()).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries waiting readers once as soon as the visitor's readiness probe confirms UP", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce(Response.json({ status: "UP" }))
+      .mockResolvedValueOnce(Response.json({ data: [{ id: 1 }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { watchBackendWakeup } = await import("./backend-wakeup");
+    const catalog = await import("./public-catalog");
+    const readers = Promise.all([catalog.getPublicRoomTypes(), catalog.getPublicRoomTypes()]);
+    await vi.advanceTimersByTimeAsync(100);
+    const visibility = Object.assign(new EventTarget(), { visibilityState: "visible" as const });
+    const stop = watchBackendWakeup(visibility);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await readers).toEqual([[{ id: 1 }], [{ id: 1 }]]);
+      await vi.advanceTimersByTimeAsync(25_000);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally { stop(); }
+  });
+
+  it("remembers a wake during the request and still honors the server's retry floor", async () => {
+    vi.useFakeTimers();
+    let finish!: (response: Response) => void;
+    const fetchMock = vi.fn().mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }))
+      .mockResolvedValueOnce(Response.json({ data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { notifyBackendReady } = await import("./backend-readiness");
+    const { getPublicRoomTypes } = await import("./public-catalog");
+    const rooms = getPublicRoomTypes();
+    notifyBackendReady();
+    finish(new Response(null, { status: 429, headers: { "Retry-After": "2" } }));
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await rooms).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("retries a transient failure once for concurrent readers and clears the connection notice", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()

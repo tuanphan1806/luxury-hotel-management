@@ -75,7 +75,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const router = useRouter();
   const { t, localize } = useLanguage();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
