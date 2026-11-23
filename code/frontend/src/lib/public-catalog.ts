@@ -1,4 +1,4 @@
-import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal, waitForBackendReadyOrTimeout } from "./backend-readiness";
+import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal, retryAfterMs, waitForBackendReadyOrTimeout } from "./backend-readiness";
 
 const CATALOG_TTL_MS = 30_000;
 const ROOM_TYPES_URL = "/catalog_proxy/room-types";
@@ -35,7 +35,7 @@ async function fetchCatalog(url: string): Promise<unknown[]> {
   for (let attempt = 0; ; attempt += 1) {
     const readySignal = nextBackendReadySignal();
     let failure: unknown;
-    let retryAfterMs = 0;
+    let serverDelay = 0;
     try {
       const response = await fetch(url, {
         headers: { Accept: "application/json" },
@@ -44,13 +44,7 @@ async function fetchCatalog(url: string): Promise<unknown[]> {
       if (!response.ok) {
         failure = new Error(`Public catalog request failed with status ${response.status}`);
         if (!RETRYABLE_STATUSES.has(response.status)) throw failure;
-        const retryAfter = response.headers?.get("Retry-After");
-        if (retryAfter) {
-          retryAfterMs = /^\d+$/.test(retryAfter)
-            ? Number(retryAfter) * 1_000
-            : Math.max(0, Date.parse(retryAfter) - Date.now());
-          if (!Number.isFinite(retryAfterMs)) retryAfterMs = 0;
-        }
+        serverDelay = retryAfterMs(response.headers?.get("Retry-After"));
       } else {
         const payload = await response.json() as { success?: boolean; data?: unknown };
         if (payload?.success === false || !Array.isArray(payload?.data)) throw new Error("Invalid public catalog response");
@@ -63,11 +57,11 @@ async function fetchCatalog(url: string): Promise<unknown[]> {
       failure = error;
     }
 
-    const delayMs = Math.max(Math.min((attempt + 1) * 5_000, 20_000), retryAfterMs);
+    const delayMs = Math.max(Math.min((attempt + 1) * 5_000, 20_000), serverDelay);
     if (Date.now() + delayMs >= deadline) throw failure;
     // Readiness may interrupt our own backoff, but never the origin's Retry-After.
-    if (retryAfterMs) await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
-    await waitForBackendReadyOrTimeout(readySignal, delayMs - retryAfterMs);
+    if (serverDelay) await new Promise((resolve) => setTimeout(resolve, serverDelay));
+    await waitForBackendReadyOrTimeout(readySignal, delayMs - serverDelay);
     // A background tab may resume long after its timer was scheduled.
     if (Date.now() >= deadline) throw failure;
   }

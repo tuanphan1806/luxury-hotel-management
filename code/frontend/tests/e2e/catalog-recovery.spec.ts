@@ -97,25 +97,36 @@ test('retries the same stay after an outage while optional catalog details are s
   await expect(results.getByRole('combobox', { name: 'Số phòng Phòng trống theo ngày', exact: true })).toHaveValue('1');
 });
 
-test('a confirmed wake retries an interrupted availability read without another click', async ({ page }) => {
-  let ready!: () => void;
-  const wake = new Promise<void>((resolve) => { ready = resolve; });
-  await page.route('**/actuator/health/readiness', async (route) => {
-    await wake;
-    await route.fulfill({ json: { status: 'UP' } });
+const availabilityFailures: { label: string; status: number; headers: Record<string, string>; body: string }[] = [
+  { label: 'gateway error', status: 503, headers: {}, body: '{}' },
+  { label: 'provider retry floor', status: 503, headers: { 'Retry-After': '1' }, body: '{}' },
+  { label: 'startup HTML', status: 200, headers: { 'Content-Type': 'text/html' }, body: '<html>Starting</html>' },
+];
+for (const first of availabilityFailures) {
+  test(`a confirmed wake recovers availability after ${first.label}`, async ({ page }) => {
+    let ready!: () => void;
+    const wake = new Promise<void>((resolve) => { ready = resolve; });
+    await page.route('**/actuator/health/readiness', async (route) => {
+      await wake;
+      await route.fulfill({ json: { status: 'UP' } });
+    });
+    const attempts: { url: string; at: number }[] = [];
+    await page.route('**/backend_proxy/api/reservations/availability?**', (route) => {
+      attempts.push({ url: route.request().url(), at: Date.now() });
+      return attempts.length === 1
+        ? route.fulfill({ status: first.status, headers: first.headers, body: first.body })
+        : route.fulfill({ json: { data: [] } });
+    });
+    await page.goto('/reservation');
+    const results = page.locator('#availability-results');
+    await expect(results.getByRole('button', { name: 'Thử lại' })).toBeVisible();
+    ready();
+    await expect(results.getByRole('heading', { name: 'Chưa có phòng phù hợp' })).toBeVisible();
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1].url).toBe(attempts[0].url);
+    if (first.headers['Retry-After']) expect(attempts[1].at - attempts[0].at).toBeGreaterThanOrEqual(1000);
   });
-  let attempts = 0;
-  await page.route('**/backend_proxy/api/reservations/availability?**', (route) => {
-    attempts++;
-    return attempts === 1 ? route.fulfill({ status: 503, body: '{}' }) : route.fulfill({ json: { data: [] } });
-  });
-  await page.goto('/reservation');
-  const results = page.locator('#availability-results');
-  await expect(results.getByRole('button', { name: 'Thử lại' })).toBeVisible();
-  ready();
-  await expect(results.getByRole('heading', { name: 'Chưa có phòng phù hợp' })).toBeVisible();
-  expect(attempts).toBe(2);
-});
+}
 
 test('a swipe beginning on a gallery photo can scroll the page or the photo strip', async ({ page, isMobile, context }) => {
   test.skip(!isMobile, 'Touch gestures are exercised on the mobile Chrome project.');

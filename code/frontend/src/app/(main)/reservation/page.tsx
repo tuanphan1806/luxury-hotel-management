@@ -12,7 +12,7 @@ import GuestPageHero from "@/components/guest/GuestPageHero";
 import ReservationRoomQuickViewModal, { type ReservationRoomQuickViewItem } from "@/components/guest/ReservationRoomQuickViewModal";
 import { GALLERY_HERO_IMAGES } from "@/constants/content";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
-import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal } from "@/lib/backend-readiness";
+import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal, retryAfterMs } from "@/lib/backend-readiness";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 import { RoomRateCompact } from "@/components/guest/RoomRateDisplay";
@@ -101,6 +101,8 @@ const mapAvailabilityOptions = (
   });
 };
 
+class AvailabilityStartupPage extends Error {}
+
 const loadAvailabilityOptions = async (
   checkIn: string,
   checkOut: string,
@@ -111,6 +113,9 @@ const loadAvailabilityOptions = async (
     signal,
     timeout: 20_000,
   });
+  if (typeof response.data === "string" && String(response.headers["content-type"]).includes("text/html")) {
+    throw new AvailabilityStartupPage("Received a startup page while loading availability");
+  }
   if (response.data?.success === false || !Array.isArray(response.data?.data)
     || !response.data.data.every((room) => room && Number.isSafeInteger(room.roomTypeId) && room.roomTypeName)) {
     throw new Error("Invalid availability response");
@@ -118,10 +123,12 @@ const loadAvailabilityOptions = async (
   return response.data.data;
 };
 
-function isTransientAvailabilityError(error: unknown) {
-  if (!axios.isAxiosError(error) || axios.isCancel(error)) return false;
-  if (!error.response) return true;
-  return !error.response.headers["retry-after"] && [408, 502, 503, 504].includes(error.response.status);
+function availabilityRetryDelay(error: unknown): number | null {
+  if (error instanceof AvailabilityStartupPage) return 0;
+  if (!axios.isAxiosError(error) || axios.isCancel(error)) return null;
+  if (!error.response) return 0;
+  if (![408, 425, 429, 502, 503, 504].includes(error.response.status)) return null;
+  return retryAfterMs(error.response.headers["retry-after"]);
 }
 
 const formatDateTimeLocal = (date: Date) => {
@@ -300,7 +307,8 @@ export default function ReservationPage() {
     setToast(null);
 
     const controller = new AbortController();
-    const startedAt = Date.now();
+    const deadline = Date.now() + BACKEND_RECOVERY_WINDOW_MS;
+    let retryTimer: number | undefined;
     async function search(retryOnWake: boolean) {
       if (controller.signal.aborted) return;
       const ready = nextBackendReadySignal();
@@ -319,13 +327,17 @@ export default function ReservationPage() {
       } catch (error) {
         if (controller.signal.aborted) return;
         setFailedAvailabilityKey(currentAvailabilityKey);
-        if (retryOnWake && isTransientAvailabilityError(error)) {
-          const retry = () => {
-            if (Date.now() - startedAt < BACKEND_RECOVERY_WINDOW_MS) void search(false);
-          };
-          if (ready.aborted) queueMicrotask(retry);
-          else ready.addEventListener("abort", retry, { once: true, signal: controller.signal });
-        }
+        const delay = availabilityRetryDelay(error);
+        if (!retryOnWake || delay === null) return;
+        const notBefore = Date.now() + delay;
+        if (notBefore >= deadline) return;
+        const retryAfterWake = () => {
+          retryTimer = window.setTimeout(() => {
+            if (!controller.signal.aborted && Date.now() < deadline) void search(false);
+          }, Math.max(0, notBefore - Date.now()));
+        };
+        if (ready.aborted) retryAfterWake();
+        else ready.addEventListener("abort", retryAfterWake, { once: true, signal: controller.signal });
       } finally {
         if (!controller.signal.aborted) setIsLoading(false);
       }
@@ -333,6 +345,7 @@ export default function ReservationPage() {
     const timer = window.setTimeout(() => void search(true), manual ? 0 : 700);
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [checkIn, checkOut, currentAvailabilityKey, isFormReady, manualSearchCount, preferredRoomTypeId, stayValidationIssue]);

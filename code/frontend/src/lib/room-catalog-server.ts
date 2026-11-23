@@ -10,9 +10,7 @@ export class RoomCatalogError extends Error {
   }
 }
 
-// Both eager page regeneration and the public JSON route read the same entry.
-// A committed admin edit refreshes the cards and their short-lived live details together.
-export const readPublicRoomCatalog = unstable_cache(async () => {
+async function fetchRoomCatalog() {
   const response = await fetch(`${catalogOrigin}/api/room-types`, {
     headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(12_000),
   });
@@ -23,7 +21,24 @@ export const readPublicRoomCatalog = unstable_cache(async () => {
     readAt: Date.now(),
     payload: { ...payload, data: payload.data.filter((room: { active?: boolean }) => room.active !== false) },
   };
-}, ["public-room-list-v1", catalogOrigin], { revalidate: 60 });
+}
+
+// Next can start revalidation before returning an older entry to the route.
+// Readers that need fresh rates can join that origin request until it settles.
+let pendingOriginRead: ReturnType<typeof fetchRoomCatalog> | undefined;
+function refreshRoomCatalog() {
+  pendingOriginRead ??= fetchRoomCatalog().finally(() => { pendingOriginRead = undefined; });
+  return pendingOriginRead;
+}
+
+const readCachedRoomCatalog = unstable_cache(refreshRoomCatalog, ["public-room-list-v1", catalogOrigin], { revalidate: 60 });
+const MAX_RATE_AGE_MS = 6 * 60_000;
+
+export async function readPublicRoomCatalog() {
+  const cached = await readCachedRoomCatalog();
+  if (Date.now() - cached.readAt <= MAX_RATE_AGE_MS) return cached.payload;
+  return (await refreshRoomCatalog()).payload;
+}
 
 const readRoomPreviews = unstable_cache(async () => {
   // The first production build can wake Render before publishing the new HTML.
@@ -33,7 +48,7 @@ const readRoomPreviews = unstable_cache(async () => {
   const deadline = Date.now() + budget;
   for (;;) {
     try {
-      return projectRoomPreviews((await readPublicRoomCatalog()).payload);
+      return projectRoomPreviews((await readCachedRoomCatalog()).payload);
     } catch (error) {
       if (!coldBuild) throw error;
       let delay = 5_000;

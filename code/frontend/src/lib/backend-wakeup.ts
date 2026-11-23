@@ -1,4 +1,4 @@
-import { BACKEND_RECOVERY_WINDOW_MS, notifyBackendReady } from "./backend-readiness";
+import { BACKEND_RECOVERY_WINDOW_MS, notifyBackendReady, retryAfterMs } from "./backend-readiness";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const IDLE_WINDOW_MS = 15 * 60_000;
@@ -51,7 +51,7 @@ export function watchBackendWakeup(visibility: Visibility): () => void {
     const timeout = setTimeout(() => controller.abort(), Math.min(REQUEST_TIMEOUT_MS, deadline - Date.now()));
     let ready = false;
     let permanentFailure = false;
-    let retryAfterMs = 0;
+    let serverDelay = 0;
 
     try {
       const response = await fetch("/backend_proxy/actuator/health/readiness", {
@@ -66,11 +66,7 @@ export function watchBackendWakeup(visibility: Visibility): () => void {
         ready = typeof body === "object" && body !== null && "status" in body && body.status === "UP";
       } else {
         permanentFailure = !RETRYABLE_STATUSES.has(response.status);
-        const header = response.headers.get("Retry-After");
-        if (header) {
-          const parsed = /^\d+$/.test(header) ? Number(header) * 1_000 : Date.parse(header) - Date.now();
-          if (Number.isFinite(parsed)) retryAfterMs = Math.max(0, parsed);
-        }
+        serverDelay = retryAfterMs(response.headers.get("Retry-After"));
       }
     } catch {
       // Network errors, aborted cold requests and a platform's HTML loading
@@ -88,7 +84,12 @@ export function watchBackendWakeup(visibility: Visibility): () => void {
       return;
     }
     attempt += 1;
-    nextRequestAt = Date.now() + Math.max(Math.min(attempt * 5_000, 20_000), retryAfterMs);
+    // Count time spent waiting on the last probe toward the interval.
+    // Retry-After starts when the response arrives.
+    nextRequestAt = Math.max(
+      lastRequestAt + Math.min(attempt * 5_000, 20_000),
+      Date.now() + Math.max(serverDelay, 1_000),
+    );
     schedule();
   }
 

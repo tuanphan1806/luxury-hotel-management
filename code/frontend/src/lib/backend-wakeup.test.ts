@@ -73,6 +73,25 @@ describe("visitor-triggered backend wakeup", () => {
     expect(fetchMock).toHaveBeenCalledTimes(attempts);
   });
 
+  it("counts a slow probe toward backoff but waits for Retry-After from receipt", async () => {
+    const started = Date.now();
+    const times: number[] = [];
+    const fetchMock = vi.fn(() => {
+      times.push(Date.now() - started);
+      if (times.length === 3) return Promise.resolve(up());
+      const headers = times.length === 2 ? { "Retry-After": "4" } : undefined;
+      return new Promise<Response>((resolve) => setTimeout(() => {
+        resolve(new Response(null, { status: 503, headers }));
+      }, 9_000));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    stop = watchBackendWakeup(new Visibility());
+    await vi.advanceTimersByTimeAsync(23_000);
+    expect(times).toEqual([0, 10_000, 23_000]);
+    await vi.advanceTimersByTimeAsync(210_000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("aborts an unresponsive request and the current request when the visitor leaves", async () => {
     const signals: AbortSignal[] = [];
     vi.stubGlobal("fetch", vi.fn().mockImplementation((_url, init: RequestInit) => new Promise((_resolve, reject) => {

@@ -4,6 +4,14 @@ let nextReady = new AbortController();
 
 export const nextBackendReadySignal = () => nextReady.signal;
 
+export function retryAfterMs(header: unknown) {
+  if (typeof header !== "string" || !header.trim()) return 0;
+  const value = header.trim();
+  if (/^\d+$/.test(value)) return Number(value) * 1000;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
 export function notifyBackendReady() {
   const waiting = nextReady;
   nextReady = new AbortController();
