@@ -32,7 +32,9 @@ public class PricingQuoteAggregates {
                     .filter(value -> value.isAfter(plannedCheckout))
                     .orElse(plannedCheckout);
         }
-        return entitlementEnd.plusMinutes(policy.getTurnoverBufferMinutes());
+        // Housekeeping releases the physical room by marking it clean after checkout.
+        // Only the guest's stay entitlement belongs on the booking calendar.
+        return entitlementEnd;
     }
 
     /**

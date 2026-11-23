@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -1252,7 +1253,7 @@ export default function ReservationsManagement() {
   }, [pendingRefunds, reservations]);
 
   const filteredReservations = useMemo(() => {
-    const keyword = searchQuery.trim().toLowerCase();
+    const matchesText = createSearchMatcher(searchQuery);
     const selectedDayStart = stayDate ? new Date(`${stayDate}T00:00:00`).getTime() : null;
     const selectedDayEnd = selectedDayStart === null ? null : new Date(`${stayDate}T00:00:00`).setDate(new Date(`${stayDate}T00:00:00`).getDate() + 1);
     const matched = reservations.filter((reservation) => {
@@ -1273,12 +1274,10 @@ export default function ReservationsManagement() {
       const matchesStayDate = selectedDayStart === null || selectedDayEnd === null
         || (checkInTime < selectedDayEnd && checkOutTime > selectedDayStart);
       const matchesTimeScope = matchesIntervalTimeScope(reservation.checkIn, reservation.checkOut, timeScope);
-      const matchesSearch =
-        !keyword ||
-        reservation.reservationCode?.toLowerCase().includes(keyword) ||
-        reservation.customerName?.toLowerCase().includes(keyword) ||
-        reservation.rooms?.some((room) => room.roomName?.toLowerCase().includes(keyword)) ||
-        String(reservation.id).includes(keyword);
+      const matchesSearch = matchesText(
+        reservation.reservationCode, reservation.customerName, reservation.id,
+        ...(reservation.rooms || []).map((room) => room.roomName),
+      );
       const matchesLinkedReservation = !linkedReservationCode
         || reservation.reservationCode?.toLowerCase() === linkedReservationCode.toLowerCase();
       const hasPendingOperationalService = isOperationalServiceQueueReservation(

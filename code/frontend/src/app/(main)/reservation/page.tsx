@@ -12,7 +12,7 @@ import GuestPageHero from "@/components/guest/GuestPageHero";
 import ReservationRoomQuickViewModal, { type ReservationRoomQuickViewItem } from "@/components/guest/ReservationRoomQuickViewModal";
 import { GALLERY_HERO_IMAGES } from "@/constants/content";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
-import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal } from "@/lib/backend-readiness";
+import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal, retryAfterMs } from "@/lib/backend-readiness";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 import { RoomRateCompact } from "@/components/guest/RoomRateDisplay";
@@ -42,7 +42,7 @@ interface AvailabilityRoomOption {
   includedGuestsPerRoom?: number;
   maxGuestsPerRoom?: number;
   extraGuestPrice?: number;
-  availableRooms?: number;
+  availableRooms: number;
 }
 
 interface RoomTypeFacilityOption {
@@ -101,6 +101,8 @@ const mapAvailabilityOptions = (
   });
 };
 
+class AvailabilityStartupPage extends Error {}
+
 const loadAvailabilityOptions = async (
   checkIn: string,
   checkOut: string,
@@ -111,17 +113,23 @@ const loadAvailabilityOptions = async (
     signal,
     timeout: 20_000,
   });
+  if (typeof response.data === "string" && String(response.headers["content-type"]).includes("text/html")) {
+    throw new AvailabilityStartupPage("Received a startup page while loading availability");
+  }
   if (response.data?.success === false || !Array.isArray(response.data?.data)
-    || !response.data.data.every((room) => room && Number.isSafeInteger(room.roomTypeId) && room.roomTypeName)) {
+    || !response.data.data.every((room) => room && Number.isSafeInteger(room.roomTypeId) && room.roomTypeName
+      && Number.isSafeInteger(room.availableRooms) && room.availableRooms >= 0)) {
     throw new Error("Invalid availability response");
   }
-  return response.data.data;
+  return response.data.data.filter((room) => room.availableRooms > 0);
 };
 
-function isTransientAvailabilityError(error: unknown) {
-  if (!axios.isAxiosError(error) || axios.isCancel(error)) return false;
-  if (!error.response) return true;
-  return !error.response.headers["retry-after"] && [408, 502, 503, 504].includes(error.response.status);
+function availabilityRetryDelay(error: unknown): number | null {
+  if (error instanceof AvailabilityStartupPage) return 0;
+  if (!axios.isAxiosError(error) || axios.isCancel(error)) return null;
+  if (!error.response) return 0;
+  if (![408, 425, 429, 502, 503, 504].includes(error.response.status)) return null;
+  return retryAfterMs(error.response.headers["retry-after"]);
 }
 
 const formatDateTimeLocal = (date: Date) => {
@@ -300,7 +308,8 @@ export default function ReservationPage() {
     setToast(null);
 
     const controller = new AbortController();
-    const startedAt = Date.now();
+    const deadline = Date.now() + BACKEND_RECOVERY_WINDOW_MS;
+    let retryTimer: number | undefined;
     async function search(retryOnWake: boolean) {
       if (controller.signal.aborted) return;
       const ready = nextBackendReadySignal();
@@ -319,13 +328,17 @@ export default function ReservationPage() {
       } catch (error) {
         if (controller.signal.aborted) return;
         setFailedAvailabilityKey(currentAvailabilityKey);
-        if (retryOnWake && isTransientAvailabilityError(error)) {
-          const retry = () => {
-            if (Date.now() - startedAt < BACKEND_RECOVERY_WINDOW_MS) void search(false);
-          };
-          if (ready.aborted) queueMicrotask(retry);
-          else ready.addEventListener("abort", retry, { once: true, signal: controller.signal });
-        }
+        const delay = availabilityRetryDelay(error);
+        if (!retryOnWake || delay === null) return;
+        const notBefore = Date.now() + delay;
+        if (notBefore >= deadline) return;
+        const retryAfterWake = () => {
+          retryTimer = window.setTimeout(() => {
+            if (!controller.signal.aborted && Date.now() < deadline) void search(false);
+          }, Math.max(0, notBefore - Date.now()));
+        };
+        if (ready.aborted) retryAfterWake();
+        else ready.addEventListener("abort", retryAfterWake, { once: true, signal: controller.signal });
       } finally {
         if (!controller.signal.aborted) setIsLoading(false);
       }
@@ -333,6 +346,7 @@ export default function ReservationPage() {
     const timer = window.setTimeout(() => void search(true), manual ? 0 : 700);
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
       controller.abort();
     };
   }, [checkIn, checkOut, currentAvailabilityKey, isFormReady, manualSearchCount, preferredRoomTypeId, stayValidationIssue]);
@@ -355,7 +369,7 @@ export default function ReservationPage() {
   };
 
   const updateQuantity = (room: ReservationRoomOption, quantity: number) => {
-    const safeQuantity = Math.max(0, Math.min(quantity, room.availableRooms ?? 99));
+    const safeQuantity = Math.max(0, Math.min(quantity, room.availableRooms ?? 0));
     setSelectedRooms((current) => {
       const next = { ...current };
       if (safeQuantity === 0) delete next[room.id];
@@ -531,7 +545,7 @@ export default function ReservationPage() {
         ) : rooms.length === 0 ? (
           <div className="rounded-[2rem] border border-[#0F2A43]/10 bg-white px-6 py-16 text-center">
             <h3 className="font-serif text-3xl font-bold text-[#0F2A43]">{localize("Chưa có phòng phù hợp", "No suitable rooms found")}</h3>
-            <p className="mt-3 text-sm text-[#66727C]">{localize("Thử đổi thời gian lưu trú hoặc giảm số lượng khách.", "Try changing the stay time or reducing the guest count.")}</p>
+            <p className="mt-3 text-sm text-[#66727C]">{localize("Thử đổi ngày hoặc giờ lưu trú để tìm phòng trống.", "Try different dates or times to find an available room.")}</p>
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -600,7 +614,7 @@ export default function ReservationPage() {
                       onChange={(event) => updateQuantity(room, Number(event.target.value))}
                       className="h-10 w-20 rounded-xl border border-[#0F2A43]/10 bg-white px-3 text-center font-bold outline-none focus:border-[#B8944F]"
                     >
-                      {Array.from({ length: Math.min(room.availableRooms ?? 10, 20) + 1 }, (_, index) => index).map((value) => <option key={value} value={value}>{value}</option>)}
+                      {Array.from({ length: Math.min(room.availableRooms ?? 0, 20) + 1 }, (_, index) => index).map((value) => <option key={value} value={value}>{value}</option>)}
                     </select>
                 </div>
               </article>

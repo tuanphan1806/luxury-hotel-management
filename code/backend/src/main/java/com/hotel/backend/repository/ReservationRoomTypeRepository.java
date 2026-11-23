@@ -67,56 +67,28 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
         @Param("reservationIds") Collection<Long> reservationIds
     );
 
-    // Đếm số phòng đã được confirm/check-in trong khoảng ngày (dùng cho availability check)
     @Query("""
-        SELECT COALESCE(SUM(rrt.quantity), 0)
-        FROM ReservationRoomType rrt
-        JOIN rrt.reservation r
-        WHERE rrt.roomType.id = :roomTypeId
-        AND r.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
-        AND r.checkIn < :checkOut
-        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
-    """)
-    int countBookedQuantity(
-        @Param("roomTypeId") Long roomTypeId,
-        @Param("checkIn")    LocalDateTime checkIn,
-        @Param("checkOut")   LocalDateTime checkOut
-    );
-
-    /**
-     * Batch variant used when displaying every room type on the public
-     * availability screen.
-     */
-    @Query("""
-        SELECT rrt.roomType.id AS roomTypeId,
-               COALESCE(SUM(rrt.quantity), 0) AS quantity
-        FROM ReservationRoomType rrt
-        JOIN rrt.reservation r
-        WHERE r.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
-          AND r.checkIn < :checkOut
-          AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
-        GROUP BY rrt.roomType.id
-    """)
-    List<RoomTypeQuantityProjection> countBookedQuantitiesGroupedByType(
-        @Param("checkIn") LocalDateTime checkIn,
-        @Param("checkOut") LocalDateTime checkOut
-    );
-
-    // Đếm số phòng đã được confirm/check-in, trừ reservation hiện tại (dùng khi update)
-    @Query("""
-        SELECT COALESCE(SUM(rrt.quantity), 0)
-        FROM ReservationRoomType rrt
-        JOIN rrt.reservation r
-        WHERE rrt.roomType.id  = :roomTypeId
-        AND r.id              != :excludeReservationId
-        AND r.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
-        AND r.checkIn < :checkOut
-        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
-    """)
-    int countBookedQuantityExcluding(
-        @Param("roomTypeId")           Long roomTypeId,
+        SELECT DISTINCT line.id AS lineId, line.roomType.id AS roomTypeId,
+               assigned.room.id AS assignedRoomId, line.quantity AS quantity, r.status AS reservationStatus,
+               CASE WHEN r.actualCheckIn < r.checkIn THEN r.actualCheckIn ELSE r.checkIn END AS startsAt,
+               COALESCE(r.inventoryProtectedUntil, r.checkOut) AS endsAt
+        FROM ReservationRoomType line JOIN line.reservation r
+        LEFT JOIN line.roomHold hold
+        LEFT JOIN line.rooms assigned ON assigned.status = 'ASSIGNED' AND assigned.room IS NOT NULL
+        WHERE line.roomType.id IN :roomTypeIds
+          AND (:excludeReservationId IS NULL OR r.id <> :excludeReservationId)
+          AND (r.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
+               OR (r.status = 'PAYMENT_PENDING' AND hold.status = 'ACTIVE' AND hold.expiresAt > :now))
+          AND (r.checkIn < :checkOut OR r.actualCheckIn < :checkOut)
+          AND (COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
+               OR (r.status = 'CHECKED_IN' AND COALESCE(r.inventoryProtectedUntil, r.checkOut) <= :overdueAsOf))
+        """)
+    List<RoomDemandPeriod> findInventoryPeriods(
+        @Param("roomTypeIds") Collection<Long> roomTypeIds,
         @Param("excludeReservationId") Long excludeReservationId,
-        @Param("checkIn")              LocalDateTime checkIn,
-        @Param("checkOut")             LocalDateTime checkOut
+        @Param("checkIn") LocalDateTime checkIn,
+        @Param("checkOut") LocalDateTime checkOut,
+        @Param("now") LocalDateTime now,
+        @Param("overdueAsOf") LocalDateTime overdueAsOf
     );
 }

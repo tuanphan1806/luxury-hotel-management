@@ -70,6 +70,23 @@ test.describe("authenticated role and session boundaries", () => {
     await expect(page).toHaveURL(/\/account$/, { timeout: 15_000 });
   });
 
+  test("front desk searches seeded facilities with accented and unaccented Vietnamese", async ({ page }) => {
+    await loginThroughUi(page, "staff1");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.goto("/dashboard/facilities");
+    const search = page.locator("#facility-search");
+    const pool = page.getByRole("heading", { name: "Hồ bơi", exact: true });
+    await expect(pool).toBeVisible();
+    for (const keyword of ["hồ bơi", "  HO  BOI  "]) {
+      await search.fill(keyword);
+      await expect(pool).toBeVisible();
+    }
+    await search.fill("no-matching-qa-facility");
+    await expect(pool).toHaveCount(0);
+    await search.fill("");
+    await expect(pool).toBeVisible();
+  });
+
   test("a second ADMIN login invalidates the first device token", async ({ request }) => {
     const firstLogin = await request.post("/backend_proxy/auth/login", {
       data: { username: "admin", password: DEMO_PASSWORD },

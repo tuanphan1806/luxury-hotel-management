@@ -19,10 +19,7 @@ export async function GET(
 
   try {
     if (resource === "room-types") {
-      const { payload, readAt } = await readPublicRoomCatalog();
-      // Only the descriptive HTML has a long lifetime. Suppress old published
-      // rates while the short-lived data cache refreshes in the background.
-      if (Date.now() - readAt > 360_000) throw new RoomCatalogError(503, "5");
+      const payload = await readPublicRoomCatalog();
       return NextResponse.json(payload, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
     }
     const upstream = await fetch(`${catalogOrigin}${endpoint}`, {

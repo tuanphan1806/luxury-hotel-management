@@ -53,6 +53,7 @@ import com.hotel.backend.service.PricingV2LifecycleService;
 import com.hotel.backend.service.ReservationRateSnapshotService;
 import com.hotel.backend.service.WalkInPricingService;
 import com.hotel.backend.service.AvailabilityPricingService;
+import com.hotel.backend.service.RoomInventoryService;
 import com.hotel.backend.service.CustomerProfileClaimService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundRecipientService;
@@ -114,6 +115,7 @@ public class ReservationServiceImpl implements ReservationService {
     private final PricingV2LifecycleService pricingV2LifecycleService;
     private final WalkInPricingService walkInPricingService;
     private final AvailabilityPricingService availabilityPricingService;
+    private final RoomInventoryService roomInventoryService;
     private final StayWindowValidationService stayWindowValidationService;
     private final CashierShiftService cashierShiftService;
     private final FinancialJournalService financialJournalService;
@@ -762,10 +764,7 @@ public class ReservationServiceImpl implements ReservationService {
                 throw new AppException(ErrorCode.INVALID_REQUEST,
                         "Loại phòng đã thay đổi trong lúc tạo walk-in; vui lòng tải lại");
             }
-            if (room.getStatus() != RoomStatus.AVAILABLE
-                    || room.getCleaningStatus() != CleaningStatus.CLEAN
-                    || !Boolean.TRUE.equals(room.getSellable())
-                    || room.getDecommissionedAt() != null) {
+            if (!room.canReceiveGuest()) {
                 throw new AppException(ErrorCode.ROOM_NOT_AVAILABLE,
                         String.format("Phòng '%s' chưa sẵn sàng để nhận khách", room.getRoomName()));
             }
@@ -1402,26 +1401,22 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
 
     List<RoomType> roomTypes = roomTypeRepository.findAllActiveWithFacilities();
     Map<Long, Integer> totalByRoomType = quantityByRoomType(
-            roomTypeRepository.countAvailableRoomsGroupedByType());
-    Map<Long, Integer> bookedByRoomType = quantityByRoomType(
-            reservationRoomTypeRepository
-                    .countBookedQuantitiesGroupedByType(checkIn, checkOut));
-    Map<Long, Integer> heldByRoomType = quantityByRoomType(
-            roomHoldRepository.countActiveHeldQuantitiesGroupedByType(
-                    checkIn, checkOut, now));
+            roomTypeRepository.countAvailableRoomsGroupedByType(false));
     Map<Long, AvailabilityPricingService.Estimate> estimatesByRoomType =
             availabilityPricingService.estimateAll(
                     roomTypes, checkIn, checkOut);
+    Map<Long, LocalDateTime> protectedEnds = new HashMap<>();
+    estimatesByRoomType.forEach((typeId, estimate) -> protectedEnds.put(typeId, estimate.inventoryProtectedUntil()));
+    Map<Long, RoomInventoryService.Demand> demandByType = roomInventoryService.demand(checkIn, protectedEnds, null, now);
 
     return roomTypes.stream()
             .filter(rt -> estimatesByRoomType.containsKey(rt.getId()))
             .map(rt -> {
         int total = totalByRoomType.getOrDefault(rt.getId(), 0);
-        int booked = bookedByRoomType.getOrDefault(rt.getId(), 0);
-        int held = heldByRoomType.getOrDefault(rt.getId(), 0);
-        int available = Math.max(0, total - booked - held);
         AvailabilityPricingService.Estimate pricingEstimate =
                 estimatesByRoomType.get(rt.getId());
+        var demand = demandByType.getOrDefault(rt.getId(), RoomInventoryService.Demand.NONE);
+        int available = Math.max(0, total - demand.total());
  
         return AvailabilityResponse.builder()
                 .roomTypeId(rt.getId())
@@ -1445,8 +1440,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .checkOut(checkOut)
                 .totalHours(hours)
                 .totalRooms(total)
-                .bookedRooms(booked)
-                .heldRooms(held)
+                .bookedRooms(demand.booked())
+                .heldRooms(demand.held())
                 .availableRooms(available)
                 .build();
     }).toList();
@@ -1573,10 +1568,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             Room room = roomRepository.findByIdForUpdate(req.getRoomId())
                     .orElseThrow(() -> new AppException(ErrorCode.ROOM_NOT_FOUND));
 
-            if (room.getStatus() != RoomStatus.AVAILABLE
-                    || room.getCleaningStatus() != CleaningStatus.CLEAN
-                    || !Boolean.TRUE.equals(room.getSellable())
-                    || room.getDecommissionedAt() != null) {
+            if (!room.canReceiveGuest()) {
                 throw new AppException(ErrorCode.ROOM_NOT_AVAILABLE,
                         String.format("Phòng '%s' chưa sẵn sàng để nhận khách", room.getRoomName()));
             }
@@ -3535,22 +3527,17 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                                LocalDateTime checkIn,
                                LocalDateTime checkOut,
                                Long excludeReservationId) {
-        int total = roomTypeRepository.countAvailableRoomsByType(roomType.getId());
-        int booked = excludeReservationId == null
-                ? reservationRoomTypeRepository.countBookedQuantity(roomType.getId(), checkIn, checkOut)
-                : reservationRoomTypeRepository.countBookedQuantityExcluding(
-                roomType.getId(), excludeReservationId, checkIn, checkOut);
-        int held = excludeReservationId == null
-                ? roomHoldRepository.countActiveHeldQuantity(
-                roomType.getId(), checkIn, checkOut, LocalDateTime.now())
-                : roomHoldRepository.countActiveHeldQuantityExcluding(
-                roomType.getId(), excludeReservationId, checkIn, checkOut, LocalDateTime.now());
-        return total - booked - held;
+        LocalDateTime now = LocalDateTime.now();
+        boolean immediate = excludeReservationId == null && !checkIn.isAfter(now);
+        int total = roomTypeRepository.countAvailableRoomsByType(roomType.getId(), immediate);
+        var demand = roomInventoryService.demand(checkIn, Map.of(roomType.getId(), checkOut), excludeReservationId, now)
+                .getOrDefault(roomType.getId(), RoomInventoryService.Demand.NONE);
+        return Math.max(0, total - demand.total());
     }
 
     /**
      * Pricing V2 may reserve inventory beyond the customer's displayed
-     * checkout (package entitlement plus turnover). Legacy reservations keep
+     * checkout (the right to use the purchased package). Legacy reservations keep
      * their original checkout boundary because the new column is null.
      */
     private LocalDateTime availabilityStart(Reservation reservation) {

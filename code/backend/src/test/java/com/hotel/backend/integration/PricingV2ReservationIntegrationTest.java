@@ -1315,9 +1315,7 @@ class PricingV2ReservationIntegrationTest {
         assertTrue(
                 persisted.getTotalAmount().compareTo(
                         quote.getTotalAmount()) > 0);
-        assertTrue(
-                persisted.getInventoryProtectedUntil()
-                        .isAfter(newCheckOut));
+        assertEquals(newCheckOut, persisted.getInventoryProtectedUntil());
         assertEquals(0, new java.math.BigDecimal("70000.00")
                 .compareTo(extended.getPlannedRoomCharge()));
         assertEquals(0, new java.math.BigDecimal("90000.00")
@@ -1477,7 +1475,7 @@ class PricingV2ReservationIntegrationTest {
         RoomType roomType = roomTypeRepository.findByCode("STANDARD")
                 .orElseThrow();
         int totalRooms = roomTypeRepository
-                .countAvailableRoomsByType(roomType.getId());
+                .countAvailableRoomsByType(roomType.getId(), false);
         assertTrue(totalRooms > 0, "Seed phải có phòng STANDARD bán được");
 
         LocalDateTime checkIn = LocalDateTime.now().plusDays(5)
@@ -1519,9 +1517,9 @@ class PricingV2ReservationIntegrationTest {
         original.setStatus(ReservationStatus.CONFIRMED);
         reservationRepository.save(original);
 
-        // The original two-hour stay protects inventory until 10:30.
+        // The original two-hour stay protects inventory until 10:00.
         // Selling every STANDARD room from 10:45 is valid before extension,
-        // but must block an extension whose entitlement protects until 11:30.
+        // but must block an extension whose entitlement protects until 11:00.
         LocalDateTime competingCheckIn =
                 originalCheckOut.plusMinutes(45);
         LocalDateTime competingCheckOut =

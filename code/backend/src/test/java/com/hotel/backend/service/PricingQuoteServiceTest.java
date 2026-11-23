@@ -142,7 +142,7 @@ class PricingQuoteServiceTest {
         PricingQuoteResponse response = service.createQuote(request(1));
 
         assertEquals(StayPackage.OVERNIGHT, response.getDisplayPackageSummary());
-        assertEquals(LocalDateTime.of(2026, 8, 2, 12, 30),
+        assertEquals(LocalDateTime.of(2026, 8, 2, 12, 0),
                 response.getInventoryProtectedUntil());
         assertMoney("170000", response.getRoomCharge());
         assertMoney("0", response.getExtraGuestCharge());

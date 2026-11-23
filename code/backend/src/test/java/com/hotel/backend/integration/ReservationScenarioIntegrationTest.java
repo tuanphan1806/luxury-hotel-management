@@ -12,6 +12,7 @@ import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.PaymentService;
 import com.hotel.backend.service.RefundRecipientService;
 import com.hotel.backend.service.ReservationService;
+import com.hotel.backend.service.RoomInventoryService;
 import com.hotel.backend.service.CashierShiftService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ReservationScenarioIntegrationTest {
 
     @Autowired ReservationService reservationService;
+    @Autowired RoomInventoryService roomInventory;
     @Autowired ReservationRepository reservationRepository;
     @Autowired ReservationRoomTypeRepository reservationRoomTypeRepository;
     @Autowired ReservationRoomRepository reservationRoomRepository;
@@ -760,6 +763,105 @@ class ReservationScenarioIntegrationTest {
     }
 
     @Test
+    void anOverdueStayCountsOnceForTodaysArrivals() {
+        RoomType type = roomType(2);
+        Room physical = room(type);
+        Reservation stay = confirmedReservation(customer(), type, 1, 1);
+        reservationService.checkIn(stay.getId(), List.of(assignment(physical.getId(), "Khách lưu trú")));
+        LocalDateTime twoPm = stay.getCheckIn().toLocalDate().atTime(14, 0);
+        stay = reservationRepository.findById(stay.getId()).orElseThrow();
+        stay.setCheckIn(twoPm.minusHours(3));
+        stay.setCheckOut(twoPm);
+        stay.setInventoryProtectedUntil(twoPm);
+        reservationRepository.saveAndFlush(stay);
+
+        LocalDateTime arrival = twoPm.plusMinutes(20);
+        LocalDateTime departure = arrival.plusHours(1);
+        LocalDateTime asOf = twoPm.plusMinutes(7);
+        assertEquals(1, booked(type.getId(), null, arrival, departure, asOf));
+        assertEquals(0, booked(type.getId(), stay.getId(), arrival, departure, asOf));
+        assertEquals(1, booked(type.getId(), null, twoPm.minusMinutes(1), departure, asOf));
+        assertEquals(0, booked(type.getId(), null, arrival.plusDays(1), departure.plusDays(1), asOf));
+    }
+
+    @Test
+    void consecutiveStaysUseOneSlotThroughoutTheRequestedInterval() {
+        RoomType type = roomType(2);
+        Room roomA = room(type);
+        Room roomB = room(type);
+        LocalDateTime arrival = LocalDateTime.now().plusDays(6).withHour(9).withMinute(0).withSecond(0).withNano(0);
+        Reservation first = confirmedReservation(customer(), type, 1, 1);
+        first.setCheckIn(arrival);
+        first.setCheckOut(arrival.plusHours(2));
+        first.setInventoryProtectedUntil(first.getCheckOut());
+        reservationRepository.saveAndFlush(first);
+        Reservation second = confirmedReservation(customer(), type, 1, 1);
+        second.setCheckIn(first.getCheckOut());
+        second.setCheckOut(arrival.plusHours(4));
+        second.setInventoryProtectedUntil(second.getCheckOut());
+        reservationRepository.saveAndFlush(second);
+
+        assertEquals(1, availableFor(type, arrival, arrival.plusHours(4)));
+        assertNotNull(reservationService.createReservation(customer(),
+                onlineRequest(type, 1, 1, arrival, arrival.plusHours(4))).getId());
+
+        // Repeat with an active QR hold. One minute of overlap consumes both rooms.
+        second.setStatus(ReservationStatus.PAYMENT_PENDING);
+        reservationRepository.saveAndFlush(second);
+        RoomHold hold = holdOfOrNull(second.getId());
+        assertNotNull(hold);
+        hold.setStatus(HoldStatus.ACTIVE);
+        hold.setExpiresAt(LocalDateTime.now().plusMinutes(5));
+        roomHoldRepository.saveAndFlush(hold);
+        assertEquals(1, availableFor(type, arrival, arrival.plusHours(4)));
+        second.setCheckIn(first.getCheckOut().minusMinutes(1));
+        reservationRepository.saveAndFlush(second);
+        assertEquals(0, availableFor(type, arrival, arrival.plusHours(4)));
+        hold.setExpiresAt(LocalDateTime.now().minusSeconds(1));
+        roomHoldRepository.saveAndFlush(hold);
+        assertEquals(1, availableFor(type, arrival, arrival.plusHours(4)));
+
+        // Existing explicit room assignments may not be moved to fit a new booking.
+        second.setStatus(ReservationStatus.CONFIRMED);
+        second.setCheckIn(first.getCheckOut());
+        reservationRepository.saveAndFlush(second);
+        ReservationRoom firstSlot = reservationRoomRepository.findAllByReservationId(first.getId()).get(0);
+        ReservationRoom secondSlot = reservationRoomRepository.findAllByReservationId(second.getId()).get(0);
+        firstSlot.setRoom(roomA);
+        firstSlot.setStatus(AssignStatus.ASSIGNED);
+        secondSlot.setRoom(roomB);
+        secondSlot.setStatus(AssignStatus.ASSIGNED);
+        reservationRoomRepository.saveAllAndFlush(List.of(firstSlot, secondSlot));
+        assertEquals(0, availableFor(type, arrival, arrival.plusHours(4)));
+        secondSlot.setRoom(roomA);
+        reservationRoomRepository.saveAndFlush(secondSlot);
+        assertEquals(1, availableFor(type, arrival, arrival.plusHours(4)));
+    }
+
+    @Test
+    void confirmedGuestCanTakeTheCleanRoomWhenAnotherBookedRoomStillNeedsCleaning() {
+        RoomType type = roomType(2);
+        Room clean = room(type);
+        Room other = room(type);
+        Reservation first = confirmedReservation(customer(), type, 1, 1);
+        confirmedReservation(customer(), type, 1, 1);
+        other = roomRepository.findById(other.getId()).orElseThrow();
+        other.setCleaningStatus(CleaningStatus.DIRTY);
+        roomRepository.saveAndFlush(other);
+        // This guest arrives within the time already reserved for them.
+        first = reservationRepository.findById(first.getId()).orElseThrow();
+        first.setCheckIn(LocalDateTime.now().minusMinutes(1));
+        first.setInventoryProtectedUntil(first.getCheckOut().plusHours(1));
+        reservationRepository.saveAndFlush(first);
+
+        ReservationResponse received = reservationService.checkIn(first.getId(),
+                List.of(assignment(clean.getId(), "Khách đã đặt trước")));
+        assertEquals(ReservationStatus.CHECKED_IN, received.getStatus());
+        assertEquals(RoomStatus.CHECKED_IN, roomRepository.findById(clean.getId()).orElseThrow().getStatus());
+        assertEquals(CleaningStatus.DIRTY, roomRepository.findById(other.getId()).orElseThrow().getCleaningStatus());
+    }
+
+    @Test
     void explicitOverpaymentIsRefundedBeforeCheckoutAndRoomBecomesDirty() {
         RoomType roomType = roomType(2);
         Room room = room(roomType);
@@ -776,8 +878,7 @@ class ReservationScenarioIntegrationTest {
         LocalDateTime protectedWindowEnd = protectedWindowStart.plusHours(1);
         reservation.setInventoryProtectedUntil(protectedWindowEnd.plusMinutes(30));
         reservationRepository.saveAndFlush(reservation);
-        assertEquals(1, reservationRoomTypeRepository.countBookedQuantity(
-                roomType.getId(), protectedWindowStart, protectedWindowEnd));
+        assertEquals(1, booked(roomType.getId(), null, protectedWindowStart, protectedWindowEnd, LocalDateTime.now()));
 
         long alreadyPaid = paymentTransactionRepository.findByReservationId(reservation.getId())
                 .stream().filter(tx -> tx.getStatus() == PaymentStatus.SUCCESS)
@@ -822,8 +923,7 @@ class ReservationScenarioIntegrationTest {
         Room releasedRoom = roomRepository.findById(room.getId()).orElseThrow();
         assertEquals(RoomStatus.AVAILABLE, releasedRoom.getStatus());
         assertEquals(CleaningStatus.DIRTY, releasedRoom.getCleaningStatus());
-        assertEquals(0, reservationRoomTypeRepository.countBookedQuantity(
-                roomType.getId(), protectedWindowStart, protectedWindowEnd),
+        assertEquals(0, booked(roomType.getId(), null, protectedWindowStart, protectedWindowEnd, LocalDateTime.now()),
                 "Checkout phải giải phóng phần tồn phòng còn được bảo vệ trong tương lai");
         assertNotNull(guestRepository.findAllByReservationId(reservation.getId()).get(0).getCheckedOutAt());
         assertTrue(reservationInvoiceRepository.findByReservationId(reservation.getId()).isPresent());
@@ -1200,14 +1300,14 @@ class ReservationScenarioIntegrationTest {
         reservationRepository.saveAndFlush(reservation);
         entityManager.clear();
 
-        assertEquals(1, reservationRoomTypeRepository.countBookedQuantity(
-                roomType.getId(),
+        assertEquals(1, booked(
+                roomType.getId(), null,
                 displayedCheckout.plusMinutes(30),
-                protectedUntil.minusMinutes(30)));
-        assertEquals(0, reservationRoomTypeRepository.countBookedQuantity(
-                roomType.getId(),
+                protectedUntil.minusMinutes(30), LocalDateTime.now()));
+        assertEquals(0, booked(
+                roomType.getId(), null,
                 protectedUntil,
-                protectedUntil.plusHours(1)));
+                protectedUntil.plusHours(1), LocalDateTime.now()));
     }
 
     @Test
@@ -1452,6 +1552,16 @@ class ReservationScenarioIntegrationTest {
         RoomHold hold = holdOfOrNull(reservationId);
         assertNotNull(hold, "Expected reservation to have a room hold");
         return hold;
+    }
+
+    private int booked(Long typeId, Long excludeId, LocalDateTime start, LocalDateTime end, LocalDateTime now) {
+        return roomInventory.demand(start, Map.of(typeId, end), excludeId, now)
+                .getOrDefault(typeId, RoomInventoryService.Demand.NONE).booked();
+    }
+
+    private int availableFor(RoomType type, LocalDateTime arrival, LocalDateTime departure) {
+        return reservationService.checkAvailability(arrival, departure).stream()
+                .filter(item -> item.getRoomTypeId().equals(type.getId())).findFirst().orElseThrow().getAvailableRooms();
     }
 
     private void reloadPersistenceContext() {

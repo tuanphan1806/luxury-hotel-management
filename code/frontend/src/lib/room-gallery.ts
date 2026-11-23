@@ -1,9 +1,4 @@
-export const normalizeCatalogText = (value?: string) =>
-  (value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .toLowerCase();
+export { normalizeSearchText as normalizeCatalogText } from "./search-text";
 
 export const getRoomGalleryImages = (
   _typeName?: string,

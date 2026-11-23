@@ -27,6 +27,10 @@ export default defineConfig({
     url: 'http://localhost:13000',
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { BACKEND_INTERNAL_URL: 'http://127.0.0.1:19080', NEXT_TELEMETRY_DISABLED: '1' },
+    env: {
+      BACKEND_INTERNAL_URL: 'http://127.0.0.1:19080',
+      NEXT_PUBLIC_BACKEND_URL: 'http://localhost:19080',
+      NEXT_TELEMETRY_DISABLED: '1',
+    },
   },
 });

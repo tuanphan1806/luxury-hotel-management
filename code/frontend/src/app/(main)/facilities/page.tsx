@@ -110,7 +110,7 @@ export default function FacilitiesPage() {
         <div className="mb-8 flex flex-col gap-4 border-y border-[#0F2A43]/12 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#80632F]">{localize("Khám phá theo nhu cầu", "Browse by need")}</p>
-            <p className="mt-1 text-sm font-semibold text-[#66727C]" aria-live="polite">
+            <p className="mt-1 text-sm font-semibold text-[#0F2A43]/75" aria-live="polite">
               {localize(`${filteredFacilities.length} tiện nghi phù hợp`, `${filteredFacilities.length} matching facilities`)}
             </p>
           </div>

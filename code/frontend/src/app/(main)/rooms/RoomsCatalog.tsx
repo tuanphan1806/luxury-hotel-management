@@ -7,6 +7,7 @@ import { ROOMS_CONTENT } from "@/constants/content";
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import { useFavorites } from "@/components/favorites/FavoritesProvider";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
+import { createSearchMatcher } from "@/lib/search-text";
 import type { RoomPreview } from "@/lib/room-preview";
 import Image from "next/image";
 import { resolveMediaSource } from "@/lib/media-url";
@@ -50,6 +51,7 @@ export default function RoomsCatalog({ initialRooms }: { initialRooms: RoomPrevi
   const [sortBy, setSortBy] = useState<"recommended" | "price-asc" | "price-desc" | "rating">("recommended");
   const catalogKnown = liveRooms !== null || initialRooms !== null;
   const waitingForRooms = (!catalogKnown && isLoading) || (favoritesOnly && !favoritesReady);
+  const noPublishedFavorites = favoritesOnly && !roomTypes.some((room) => favoriteRoomIds.includes(room.id));
 
   // Fetch Room Types
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function RoomsCatalog({ initialRooms }: { initialRooms: RoomPrevi
   }, []);
 
   const filteredRoomTypes = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
+    const matchesText = createSearchMatcher(searchTerm);
     const guestRequirement = Number(guestCountFilter || 0);
     const filtered = roomTypes.filter((room) => {
       const searchableText = [
@@ -71,9 +73,9 @@ export default function RoomsCatalog({ initialRooms }: { initialRooms: RoomPrevi
         room.description,
         room.descriptionEn,
         ...(room.facilities || []).flatMap((facility) => [facility.facilityName, facility.facilityNameEn]),
-      ].filter(Boolean).join(" ").toLocaleLowerCase();
+      ].filter(Boolean).join(" ");
 
-      return (!normalizedSearch || searchableText.includes(normalizedSearch))
+      return matchesText(searchableText)
         && (!guestRequirement || Number(room.maxGuests || 0) >= guestRequirement)
         && (!favoritesOnly || favoriteRoomIds.includes(room.id));
     });
@@ -204,9 +206,9 @@ export default function RoomsCatalog({ initialRooms }: { initialRooms: RoomPrevi
         ) : filteredRoomTypes.length === 0 ? (
           <div className="border-y border-[#0F2A43]/12 bg-[#FBFAF6] px-6 py-16 text-center">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#80632F]">{favoritesOnly ? localize("Danh sách yêu thích", "Favorite rooms") : localize("Không có kết quả", "No matches")}</p>
-            <h3 className="mt-3 font-serif text-3xl font-bold text-primary-navy">{favoritesOnly ? localize("Bạn chưa lưu hạng phòng nào", "You have not saved a room yet") : localize("Thử nới điều kiện tìm kiếm", "Try broadening your search")}</h3>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-text-light">{favoritesOnly ? localize("Chạm biểu tượng trái tim trên một hạng phòng để lưu lại và xem nhanh tại đây.", "Select the heart on a room type to save it and find it here.") : localize("Xóa từ khóa hoặc giảm số khách để xem thêm hạng phòng.", "Clear the search term or reduce the guest count to see more room types.")}</p>
-            {favoritesOnly ? (
+            <h3 className="mt-3 font-serif text-3xl font-bold text-primary-navy">{noPublishedFavorites ? localize("Chưa có hạng phòng yêu thích để hiển thị", "No favorite rooms to show") : localize("Thử nới điều kiện tìm kiếm", "Try broadening your search")}</h3>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-text-light">{noPublishedFavorites ? localize("Chạm biểu tượng trái tim trên một hạng phòng để lưu lại và xem nhanh tại đây.", "Select the heart on a room type to save it and find it here.") : localize("Xóa từ khóa hoặc giảm số khách để xem thêm hạng phòng.", "Clear the search term or reduce the guest count to see more room types.")}</p>
+            {noPublishedFavorites ? (
               <Link href="/rooms" className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30]">{localize("Khám phá các hạng phòng", "Explore room types")}</Link>
             ) : (
               <button type="button" onClick={resetDiscovery} className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-[#0F2A43] px-6 text-sm font-bold text-white transition hover:bg-[#091E30]">{localize("Đặt lại bộ lọc", "Reset filters")}</button>

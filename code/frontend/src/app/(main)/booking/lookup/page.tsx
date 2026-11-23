@@ -5,7 +5,7 @@ import axios from "axios";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { publicApiClient } from "@/lib/api";
-import { saveGuestReservationToken } from "@/lib/guest-reservation-token";
+import { getGuestReservationToken, saveGuestReservationToken } from "@/lib/guest-reservation-token";
 import RefundRecipientForm, {
   type RefundDestinationStatus,
   type RefundRoute,
@@ -76,8 +76,9 @@ function GuestBookingLookupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const legacyToken = searchParams?.get("token") || "";
-  const [token, setToken] = useState("");
-  const [tokenResolved, setTokenResolved] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [canRetry, setCanRetry] = useState(false);
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -96,41 +97,76 @@ function GuestBookingLookupContent() {
   );
 
   useEffect(() => {
-    // Link mới dùng URL fragment để secret không bao giờ được gửi tới web server.
-    // Query token vẫn được đọc để các email cũ tiếp tục hoạt động.
-    const fragmentToken = new URLSearchParams(window.location.hash.slice(1)).get("token") || "";
-    setToken(fragmentToken || legacyToken);
-    window.history.replaceState(null, "", window.location.pathname);
-    setTokenResolved(true);
+    function readLink(navigated = false) {
+      const url = new URL(window.location.href);
+      const supplied = new URLSearchParams(url.hash.slice(1)).get("token") || url.searchParams.get("token");
+      if (supplied) {
+        setToken(supplied);
+        // Scrub the address on the same history entry without discarding the router's state.
+        const entry = { ...window.history.state };
+        delete entry.guestLookupReservationId;
+        window.history.replaceState(entry, "", url.pathname);
+        return;
+      }
+      // Only this tab can restore a previously verified booking on reload.
+      const id = window.history.state?.guestLookupReservationId;
+      let restored = "";
+      if (Number.isSafeInteger(id) && id > 0) {
+        try { restored = getGuestReservationToken(id) || ""; } catch { /* Storage is optional. */ }
+      }
+      // Removing a legacy query parameter also triggers a Next.js navigation update.
+      setToken((current) => restored || (navigated ? "" : current ?? ""));
+    }
+    readLink();
+    const onNavigation = () => readLink(true);
+    window.addEventListener("hashchange", onNavigation);
+    window.addEventListener("popstate", onNavigation);
+    return () => {
+      window.removeEventListener("hashchange", onNavigation);
+      window.removeEventListener("popstate", onNavigation);
+    };
   }, [legacyToken]);
 
   useEffect(() => {
+    if (token === null) return;
+    if (!token) {
+      router.replace("/my-bookings");
+      return;
+    }
+    const controller = new AbortController();
+    setIsLoading(true);
+    setError("");
+    setCanRetry(false);
+    setReservation(null);
     const loadReservation = async () => {
-      if (!tokenResolved) return;
-      if (!token) {
-        router.replace("/my-bookings");
-        return;
-      }
-
       try {
         const response = await publicApiClient.post("/api/reservations/lookup", null, {
           headers: { "X-Guest-Token": token },
+          signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         const nextReservation = response.data?.data;
         if (!nextReservation?.id) {
           throw new Error("Không tìm thấy đặt phòng.");
         }
-        saveGuestReservationToken(nextReservation.id, token);
+        try {
+          saveGuestReservationToken(nextReservation.id, token);
+          window.history.replaceState({ ...window.history.state, guestLookupReservationId: nextReservation.id }, "");
+        } catch { /* The open link still works when browser storage is unavailable. */ }
         setReservation(nextReservation);
       } catch (error: unknown) {
+        if (controller.signal.aborted) return;
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        setCanRetry(status === undefined || status === 408 || status === 429 || status >= 500);
         setError(getApiErrorMessage(error, "Không thể tải thông tin đặt phòng từ link này."));
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     };
 
-    loadReservation();
-  }, [router, token, tokenResolved]);
+    void loadReservation();
+    return () => controller.abort();
+  }, [router, token, attempt]);
 
   const handleCancel = async () => {
     if (!reservation || !token || !canCancel) return;
@@ -201,11 +237,12 @@ function GuestBookingLookupContent() {
         ) : error ? (
           <div className="space-y-4 border border-rose-200 bg-white p-8 shadow-sm">
             <p className="text-sm font-semibold text-rose-700">{error}</p>
-            <Link href="/rooms" className="inline-flex bg-primary-navy px-5 py-3 text-xs font-bold uppercase tracking-widest text-white">
-              Đặt phòng mới
-            </Link>
+            {canRetry && (
+              <button type="button" onClick={() => setAttempt((value) => value + 1)} className="rounded-lg bg-primary-navy px-5 py-3 text-sm font-bold text-white">Thử lại</button>
+            )}
+            <Link href="/support" className="block w-fit py-2 text-sm font-bold text-primary-navy underline">Liên hệ lễ tân</Link>
           </div>
-        ) : reservation ? (
+        ) : reservation && token ? (
           <div className="space-y-6">
             <div className="border border-[#0F2A43]/10 bg-white shadow-sm">
               <div className="flex flex-col gap-4 border-b border-[#0F2A43]/10 bg-[#101417] p-6 text-white sm:flex-row sm:items-center sm:justify-between">

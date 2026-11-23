@@ -22,7 +22,7 @@
     "test:e2e": "playwright test",
     "test:e2e:a11y": "playwright test tests/e2e/accessibility-smoke.spec.ts",
     "test:e2e:chatbot": "playwright test tests/e2e/chatbot-runtime.spec.ts",
-    "test:e2e:catalog": "playwright test tests/e2e/catalog-recovery.spec.ts"
+    "test:e2e:catalog": "playwright test tests/e2e/catalog-recovery.spec.ts tests/e2e/search-lookup.spec.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.75.2",
