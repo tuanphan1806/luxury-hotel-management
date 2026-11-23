@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import React, { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -303,11 +304,9 @@ export default function RoomsManagement() {
 
   // Filter & Search Logic
   const filteredRooms = useMemo(() => {
+    const matchesText = createSearchMatcher(searchQuery);
     return rooms.filter((room) => {
-      const matchesSearch =
-        room.roomName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (room.description && room.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        room.roomTypeName.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = matchesText(room.roomName, room.description, room.roomTypeName);
 
       const matchesStatus = selectedStatus === "All" || room.status === selectedStatus;
       const matchesType = selectedType === "All" || String(room.roomTypeId) === selectedType;

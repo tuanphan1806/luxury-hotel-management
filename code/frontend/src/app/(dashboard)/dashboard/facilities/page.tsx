@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
@@ -104,14 +105,10 @@ export default function DashboardFacilitiesPage() {
   );
 
   const filteredFacilities = useMemo(() => {
-    const keyword = searchQuery.trim().toLowerCase();
+    const matchesText = createSearchMatcher(searchQuery);
     return facilities.filter((facility) => {
-      const matchesSearch = !keyword || (
-        facility.facilityName.toLowerCase().includes(keyword) ||
-        (facility.facilityNameEn || "").toLowerCase().includes(keyword) ||
-        (facility.type || "").toLowerCase().includes(keyword) ||
-        (facility.description || "").toLowerCase().includes(keyword) ||
-        (facility.descriptionEn || "").toLowerCase().includes(keyword)
+      const matchesSearch = matchesText(
+        facility.facilityName, facility.facilityNameEn, facility.type, facility.description, facility.descriptionEn,
       );
       const matchesType = typeFilter === "ALL" || facility.type === typeFilter;
       const hasImage = Boolean(facility.imageUrls?.some((image) => image?.trim()) || facility.imageUrl?.trim());

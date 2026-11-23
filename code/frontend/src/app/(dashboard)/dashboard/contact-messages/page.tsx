@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient, cachedGet } from "@/lib/api";
@@ -119,13 +120,12 @@ export default function ContactMessagesPage() {
   };
 
   const filteredMessages = useMemo(() => {
-    const keyword = searchQuery.trim().toLowerCase();
+    const matchesText = createSearchMatcher(searchQuery);
     const priority: Record<ContactStatus, number> = { NEW: 0, READ: 1, RESOLVED: 2 };
     return messages
       .filter((message) => {
         const matchesStatus = statusFilter === "ALL" || message.status === statusFilter;
-        const matchesSearch = !keyword || [message.name, message.email, message.phone, message.subject, message.message]
-          .some((value) => value?.toLowerCase().includes(keyword));
+        const matchesSearch = matchesText(message.name, message.email, message.phone, message.subject, message.message);
         const matchesTime = matchesPointTimeScope(message.createdAt, timeScope);
         return matchesStatus && matchesSearch && matchesTime;
       })

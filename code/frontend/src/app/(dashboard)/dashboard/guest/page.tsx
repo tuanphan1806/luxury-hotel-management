@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -358,19 +359,12 @@ export default function DashboardGuestPage() {
   }, [rows]);
 
   const filteredRows = useMemo(() => {
-    const keyword = searchQuery.trim().toLowerCase();
+    const matchesText = createSearchMatcher(searchQuery);
     const priority: Record<string, number> = { CHECKED_IN: 0, CANCELLATION_PENDING: 1, CONFIRMED: 2, DRAFT: 3, CHECKED_OUT: 4, NO_SHOW: 5 };
     return rows
       .filter((row) => {
         const matchesStatus = statusFilter === "All" || row.status === statusFilter;
-        const matchesSearch =
-          !keyword ||
-          row.guestName.toLowerCase().includes(keyword) ||
-          String(row.id).toLowerCase().includes(keyword) ||
-          row.reservationCode.toLowerCase().includes(keyword) ||
-          row.email.toLowerCase().includes(keyword) ||
-          row.phone.toLowerCase().includes(keyword) ||
-          row.roomSummary.toLowerCase().includes(keyword);
+        const matchesSearch = matchesText(row.guestName, row.id, row.reservationCode, row.email, row.phone, row.roomSummary);
         const matchesTime = matchesIntervalTimeScope(row.checkIn, row.checkOut, timeScope);
         return matchesStatus && matchesSearch && matchesTime;
       })

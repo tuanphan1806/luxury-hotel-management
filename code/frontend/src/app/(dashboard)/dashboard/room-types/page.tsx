@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import React, { useCallback, useState, useEffect, useMemo } from "react";
 import Image from "next/image";
@@ -205,17 +206,11 @@ export default function RoomTypesManagement() {
   }, [fetchData]);
 
   const filteredRoomTypes = useMemo(() => {
-    const keyword = searchQuery.trim().toLowerCase();
+    const matchesText = createSearchMatcher(searchQuery);
     const matched = roomTypes.filter((type) => {
-      const matchesSearch = !keyword || (
-        type.typeName.toLowerCase().includes(keyword) ||
-        (type.typeNameEn || "").toLowerCase().includes(keyword) ||
-        (type.description || "").toLowerCase().includes(keyword) ||
-        (type.descriptionEn || "").toLowerCase().includes(keyword) ||
-        (type.facilities || []).some((facility) =>
-          facility.facilityName.toLowerCase().includes(keyword)
-          || (facility.facilityNameEn || "").toLowerCase().includes(keyword),
-        )
+      const matchesSearch = matchesText(
+        type.typeName, type.typeNameEn, type.description, type.descriptionEn,
+        ...(type.facilities || []).flatMap((facility) => [facility.facilityName, facility.facilityNameEn]),
       );
       const capacity = Number(type.maxGuests || 0);
       const matchesCapacity = capacityFilter === "ALL"

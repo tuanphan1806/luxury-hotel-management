@@ -243,6 +243,35 @@ test.describe("isolated online reservation, RoomHold and signed SePay webhook", 
     test.skip(testInfo.project.name !== "desktop-chrome", "The isolated QA backend is exercised once.");
   });
 
+  test("a guest can reopen their own booking from a new or legacy email link", async ({ page, request }) => {
+    const checkIn = hotelLocalDateTime(8, 14, 0);
+    const checkOut = hotelLocalDateTime(9, 12, 0);
+    const { roomTypeId } = await findAvailability(request, checkIn, checkOut);
+    const stay = { checkIn, checkOut, guestCount: 1 };
+    const rooms = [{ roomTypeId, quantity: 1, lineGuestCount: 1 }];
+    const priced = await request.post(qaUrl("/api/pricing/quote"), { data: { ...stay, rooms } });
+    expect(priced.status()).toBe(200);
+    const { quoteId, quoteHash } = (await priced.json()).data;
+    const created = await request.post(qaUrl("/api/reservations"), {
+      headers: { "Idempotency-Key": randomUUID() },
+      data: {
+        ...stay, roomTypes: rooms, quoteId, quoteHash, paymentPlan: "DEPOSIT_50",
+        customer: { fullName: "Đặng Thị Mai QA", email: "lookup@example.invalid", phone: "0900000123" },
+      },
+    });
+    expect(created.status()).toBe(201);
+    const { guestToken, reservationCode } = (await created.json()).data;
+    expect(guestToken).toEqual(expect.any(String));
+    for (const prefix of ["#", "?"]) {
+      await page.goto(`/booking/lookup${prefix}token=${encodeURIComponent(guestToken)}`);
+      const heading = page.getByRole("heading", { name: reservationCode, exact: true });
+      await expect(heading).toBeVisible();
+      await expect(page).toHaveURL(/\/booking\/lookup$/);
+      await page.reload();
+      await expect(heading).toBeVisible();
+    }
+  });
+
   test("DEPOSIT_50 and PREPAY_100 preserve hold, payment and staff-confirm ordering", async ({ request }) => {
     expect(WEBHOOK_SECRET, "QA webhook secret must come from the isolated QA configuration").not.toBe("");
     expect(MERCHANT_ACCOUNT, "QA merchant must come from the isolated QA configuration").not.toBe("");
