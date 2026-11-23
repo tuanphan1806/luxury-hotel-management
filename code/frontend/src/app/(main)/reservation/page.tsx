@@ -12,6 +12,7 @@ import GuestPageHero from "@/components/guest/GuestPageHero";
 import ReservationRoomQuickViewModal, { type ReservationRoomQuickViewItem } from "@/components/guest/ReservationRoomQuickViewModal";
 import { GALLERY_HERO_IMAGES } from "@/constants/content";
 import { getPublicRoomTypes } from "@/lib/public-catalog";
+import { BACKEND_RECOVERY_WINDOW_MS, nextBackendReadySignal, retryAfterMs } from "@/lib/backend-readiness";
 import { getRoomGalleryImages } from "@/lib/room-gallery";
 import { calculateSelectedGuestCapacity, normalizeGuestCapacity } from "@/lib/guest-capacity";
 import { RoomRateCompact } from "@/components/guest/RoomRateDisplay";
@@ -41,7 +42,7 @@ interface AvailabilityRoomOption {
   includedGuestsPerRoom?: number;
   maxGuestsPerRoom?: number;
   extraGuestPrice?: number;
-  availableRooms?: number;
+  availableRooms: number;
 }
 
 interface RoomTypeFacilityOption {
@@ -61,7 +62,6 @@ interface RoomTypeCatalogOption {
   imageUrls?: string[];
   overnightPrice?: number;
   dailyPrice?: number;
-  extraGuestPrice?: number;
   facilities?: RoomTypeFacilityOption[];
 }
 
@@ -94,28 +94,43 @@ const mapAvailabilityOptions = (
       totalHours: room.totalHours,
       includedGuestsPerRoom: room.includedGuestsPerRoom ?? catalogRoom?.includedGuests,
       maxGuestsPerRoom: room.maxGuestsPerRoom ?? catalogRoom?.maxGuests,
-      extraGuestPrice: room.extraGuestPrice ?? catalogRoom?.extraGuestPrice,
+      extraGuestPrice: room.extraGuestPrice,
       availableRooms: room.availableRooms,
       facilities: catalogRoom?.facilities ?? [],
     };
   });
 };
 
+class AvailabilityStartupPage extends Error {}
+
 const loadAvailabilityOptions = async (
   checkIn: string,
   checkOut: string,
   signal?: AbortSignal,
 ) => {
-  const [response, catalog] = await Promise.all([
-    apiClient.get("/api/reservations/availability", {
-      params: { checkIn, checkOut },
-      signal,
-    }),
-    getPublicRoomTypes<RoomTypeCatalogOption>().catch(() => []),
-  ]);
-  const data: AvailabilityRoomOption[] = Array.isArray(response.data?.data) ? response.data.data : [];
-  return mapAvailabilityOptions(data, catalog);
+  const response = await apiClient.get<{ success?: boolean; data: AvailabilityRoomOption[] }>("/api/reservations/availability", {
+    params: { checkIn, checkOut },
+    signal,
+    timeout: 20_000,
+  });
+  if (typeof response.data === "string" && String(response.headers["content-type"]).includes("text/html")) {
+    throw new AvailabilityStartupPage("Received a startup page while loading availability");
+  }
+  if (response.data?.success === false || !Array.isArray(response.data?.data)
+    || !response.data.data.every((room) => room && Number.isSafeInteger(room.roomTypeId) && room.roomTypeName
+      && Number.isSafeInteger(room.availableRooms) && room.availableRooms >= 0)) {
+    throw new Error("Invalid availability response");
+  }
+  return response.data.data.filter((room) => room.availableRooms > 0);
 };
+
+function availabilityRetryDelay(error: unknown): number | null {
+  if (error instanceof AvailabilityStartupPage) return 0;
+  if (!axios.isAxiosError(error) || axios.isCancel(error)) return null;
+  if (!error.response) return 0;
+  if (![408, 425, 429, 502, 503, 504].includes(error.response.status)) return null;
+  return retryAfterMs(error.response.headers["retry-after"]);
+}
 
 const formatDateTimeLocal = (date: Date) => {
   const offset = date.getTimezoneOffset() * 60_000;
@@ -142,20 +157,31 @@ export default function ReservationPage() {
   const [checkOut, setCheckOut] = useState("");
   const [adults, setAdults] = useState("2");
   const [childrenCount, setChildrenCount] = useState("0");
-  const [rooms, setRooms] = useState<ReservationRoomOption[]>([]);
+  const [availableRooms, setAvailableRooms] = useState<AvailabilityRoomOption[]>([]);
+  const [catalog, setCatalog] = useState<RoomTypeCatalogOption[]>([]);
+  const rooms = useMemo(() => mapAvailabilityOptions(availableRooms, catalog), [availableRooms, catalog]);
   const [selectedRooms, setSelectedRooms] = useState<Record<number, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isFormReady, setIsFormReady] = useState(false);
   const [didRestoreInvalidQuery, setDidRestoreInvalidQuery] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [loadedAvailabilityKey, setLoadedAvailabilityKey] = useState("");
+  const [failedAvailabilityKey, setFailedAvailabilityKey] = useState("");
   const [preferredRoomTypeId, setPreferredRoomTypeId] = useState<number | null>(null);
-  const [previewRoom, setPreviewRoom] = useState<ReservationRoomOption | null>(null);
+  const [previewRoomId, setPreviewRoomId] = useState<number | null>(null);
+  const previewRoom = rooms.find((room) => room.id === previewRoomId) ?? null;
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const resultsRef = useRef<HTMLElement>(null);
-  const availabilityRequestRef = useRef(0);
-  const availabilityAbortControllerRef = useRef<AbortController | null>(null);
-  const autoSearchTimerRef = useRef<number | null>(null);
+  const manualSearchKey = useRef<string | null>(null);
+  const [manualSearchCount, setManualSearchCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    getPublicRoomTypes<RoomTypeCatalogOption>().then((data) => {
+      if (active) setCatalog(data);
+    }).catch(() => { /* The date-specific response can be used on its own. */ });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -266,103 +292,64 @@ export default function ReservationPage() {
   const hasCurrentAvailability = !isLoading
     && loadedAvailabilityKey !== ""
     && loadedAvailabilityKey === currentAvailabilityKey;
-  const canAutoCheckAvailability = useMemo(() => {
-    return stayValidationIssue === null;
-  }, [stayValidationIssue]);
-
   useEffect(() => {
     if (!isFormReady) return;
-
-    const requestId = availabilityRequestRef.current + 1;
-    availabilityRequestRef.current = requestId;
-    availabilityAbortControllerRef.current?.abort();
-    availabilityAbortControllerRef.current = null;
-    if (autoSearchTimerRef.current !== null) {
-      window.clearTimeout(autoSearchTimerRef.current);
-      autoSearchTimerRef.current = null;
-    }
-
-    if (!canAutoCheckAvailability) {
-      setIsLoading(false);
-      setHasSearched(false);
-      setLoadedAvailabilityKey("");
-      setRooms([]);
-      setSelectedRooms({});
-      setPreviewRoom(null);
-      return;
-    }
-
-    setHasSearched(true);
-    setIsLoading(true);
+    const manual = manualSearchKey.current === currentAvailabilityKey;
+    manualSearchKey.current = null;
+    const valid = stayValidationIssue === null;
+    setHasSearched(valid);
+    setIsLoading(valid);
     setLoadedAvailabilityKey("");
-    setRooms([]);
+    setFailedAvailabilityKey("");
+    setAvailableRooms([]);
     setSelectedRooms({});
-    setPreviewRoom(null);
+    setPreviewRoomId(null);
+    if (!valid) return;
     setToast(null);
-    const requestKey = currentAvailabilityKey;
-    autoSearchTimerRef.current = window.setTimeout(() => {
-      autoSearchTimerRef.current = null;
-      const controller = new AbortController();
-      availabilityAbortControllerRef.current = controller;
-      loadAvailabilityOptions(
-        `${checkIn}:00`,
-        `${checkOut}:00`,
-        controller.signal,
-      )
-        .then((availableOptions) => {
-          if (availabilityRequestRef.current !== requestId) return;
-          setRooms(availableOptions);
-          setLoadedAvailabilityKey(requestKey);
-          setPreviewRoom(null);
-          if (preferredRoomTypeId) {
-            const preferred = availableOptions.find((room) => room.id === preferredRoomTypeId);
-            setSelectedRooms(
-              preferred && Number(preferred.availableRooms || 0) > 0
-                ? { [preferredRoomTypeId]: 1 }
-                : {},
-            );
-          } else {
-            setSelectedRooms({});
-          }
-        })
-        .catch((error: unknown) => {
-          if (axios.isCancel(error)) return;
-          if (availabilityRequestRef.current === requestId) {
-            setLoadedAvailabilityKey("");
-            setRooms([]);
-            setSelectedRooms({});
-            setPreviewRoom(null);
-            setToast({
-              message: localize("Không thể tự động kiểm tra phòng trống. Vui lòng thử lại.", "Could not check availability automatically. Please try again."),
-              type: "error",
-            });
-          }
-        })
-        .finally(() => {
-          if (availabilityAbortControllerRef.current === controller) {
-            availabilityAbortControllerRef.current = null;
-          }
-          if (availabilityRequestRef.current === requestId) setIsLoading(false);
-        });
-    }, 700);
 
-    return () => {
-      if (autoSearchTimerRef.current !== null) {
-        window.clearTimeout(autoSearchTimerRef.current);
-        autoSearchTimerRef.current = null;
+    const controller = new AbortController();
+    const deadline = Date.now() + BACKEND_RECOVERY_WINDOW_MS;
+    let retryTimer: number | undefined;
+    async function search(retryOnWake: boolean) {
+      if (controller.signal.aborted) return;
+      const ready = nextBackendReadySignal();
+      setIsLoading(true);
+      setFailedAvailabilityKey("");
+      try {
+        const options = await loadAvailabilityOptions(`${checkIn}:00`, `${checkOut}:00`, controller.signal);
+        if (controller.signal.aborted) return;
+        setAvailableRooms(options);
+        setLoadedAvailabilityKey(currentAvailabilityKey);
+        const preferred = options.find((room) => room.roomTypeId === preferredRoomTypeId);
+        if (preferred && Number(preferred.availableRooms) > 0) setSelectedRooms({ [preferred.roomTypeId]: 1 });
+        if (manual) window.requestAnimationFrame(() => {
+          if (!controller.signal.aborted) resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setFailedAvailabilityKey(currentAvailabilityKey);
+        const delay = availabilityRetryDelay(error);
+        if (!retryOnWake || delay === null) return;
+        const notBefore = Date.now() + delay;
+        if (notBefore >= deadline) return;
+        const retryAfterWake = () => {
+          retryTimer = window.setTimeout(() => {
+            if (!controller.signal.aborted && Date.now() < deadline) void search(false);
+          }, Math.max(0, notBefore - Date.now()));
+        };
+        if (ready.aborted) retryAfterWake();
+        else ready.addEventListener("abort", retryAfterWake, { once: true, signal: controller.signal });
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
       }
-      availabilityAbortControllerRef.current?.abort();
-      availabilityAbortControllerRef.current = null;
+    }
+    const timer = window.setTimeout(() => void search(true), manual ? 0 : 700);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
+      controller.abort();
     };
-  }, [
-    canAutoCheckAvailability,
-    checkIn,
-    checkOut,
-    currentAvailabilityKey,
-    isFormReady,
-    localize,
-    preferredRoomTypeId,
-  ]);
+  }, [checkIn, checkOut, currentAvailabilityKey, isFormReady, manualSearchCount, preferredRoomTypeId, stayValidationIssue]);
 
   const validateDates = () => {
     const issue = getStaySearchValidationIssue(checkIn, checkOut, totalGuests);
@@ -374,73 +361,15 @@ export default function ReservationPage() {
     return true;
   };
 
-  const handleSearch = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const handleSearch = (event?: React.FormEvent) => {
+    event?.preventDefault();
     if (!validateDates()) return;
-
-    if (autoSearchTimerRef.current !== null) {
-      window.clearTimeout(autoSearchTimerRef.current);
-      autoSearchTimerRef.current = null;
-    }
-    const requestId = availabilityRequestRef.current + 1;
-    availabilityRequestRef.current = requestId;
-    availabilityAbortControllerRef.current?.abort();
-    const controller = new AbortController();
-    availabilityAbortControllerRef.current = controller;
-
-    setIsLoading(true);
-    setHasSearched(true);
-    setLoadedAvailabilityKey("");
-    setRooms([]);
-    setSelectedRooms({});
-    setPreviewRoom(null);
-    setToast(null);
-    const requestKey = currentAvailabilityKey;
-
-    try {
-      const checkInDateTime = `${checkIn}:00`;
-      const checkOutDateTime = `${checkOut}:00`;
-      const availableOptions = await loadAvailabilityOptions(
-        checkInDateTime,
-        checkOutDateTime,
-        controller.signal,
-      );
-      if (availabilityRequestRef.current !== requestId) return;
-      setRooms(availableOptions);
-      setLoadedAvailabilityKey(requestKey);
-      setPreviewRoom(null);
-      if (preferredRoomTypeId) {
-        const preferred = availableOptions.find((room: ReservationRoomOption) => room.id === preferredRoomTypeId);
-        if (preferred && Number(preferred.availableRooms || 0) > 0) {
-          setSelectedRooms({ [preferredRoomTypeId]: 1 });
-        } else {
-          setSelectedRooms({});
-        }
-      } else {
-        setSelectedRooms({});
-      }
-      window.requestAnimationFrame(() => {
-        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    } catch (error: unknown) {
-      if (axios.isCancel(error)) return;
-      if (availabilityRequestRef.current === requestId) {
-        setLoadedAvailabilityKey("");
-        setRooms([]);
-        setSelectedRooms({});
-        setPreviewRoom(null);
-        setToast({ message: localize("Không thể kiểm tra phòng trống. Vui lòng thử lại.", "Could not check availability. Please try again."), type: "error" });
-      }
-    } finally {
-      if (availabilityAbortControllerRef.current === controller) {
-        availabilityAbortControllerRef.current = null;
-      }
-      if (availabilityRequestRef.current === requestId) setIsLoading(false);
-    }
+    manualSearchKey.current = currentAvailabilityKey;
+    setManualSearchCount((count) => count + 1);
   };
 
   const updateQuantity = (room: ReservationRoomOption, quantity: number) => {
-    const safeQuantity = Math.max(0, Math.min(quantity, room.availableRooms ?? 99));
+    const safeQuantity = Math.max(0, Math.min(quantity, room.availableRooms ?? 0));
     setSelectedRooms((current) => {
       const next = { ...current };
       if (safeQuantity === 0) delete next[room.id];
@@ -589,7 +518,14 @@ export default function ReservationPage() {
           <p className="text-sm font-semibold text-[#66727C]">{totalGuests} {localize("khách", "guests")}</p>
         </div>
 
-        {isLoading || (hasSearched && !hasCurrentAvailability) ? (
+        {hasSearched && !isLoading && failedAvailabilityKey === currentAvailabilityKey ? (
+          <div role="alert" className="rounded-[1.5rem] border border-[#0F2A43]/16 bg-white px-6 py-10 text-center">
+            <p className="font-semibold text-[#0F2A43]">{localize("Chưa kiểm tra được phòng trống cho thời gian bạn chọn.", "We could not check availability for your selected dates.")}</p>
+            <button type="button" onClick={() => void handleSearch()} className="mt-4 min-h-11 rounded-lg bg-[#0F2A43] px-6 font-bold text-white">
+              {localize("Thử lại", "Try again")}
+            </button>
+          </div>
+        ) : isLoading || (hasSearched && !hasCurrentAvailability) ? (
           <div className="motion-stagger grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2].map((item) => (
               <div key={item} className="overflow-hidden rounded-[2rem] bg-white shadow-sm">
@@ -609,7 +545,7 @@ export default function ReservationPage() {
         ) : rooms.length === 0 ? (
           <div className="rounded-[2rem] border border-[#0F2A43]/10 bg-white px-6 py-16 text-center">
             <h3 className="font-serif text-3xl font-bold text-[#0F2A43]">{localize("Chưa có phòng phù hợp", "No suitable rooms found")}</h3>
-            <p className="mt-3 text-sm text-[#66727C]">{localize("Thử đổi thời gian lưu trú hoặc giảm số lượng khách.", "Try changing the stay time or reducing the guest count.")}</p>
+            <p className="mt-3 text-sm text-[#66727C]">{localize("Thử đổi ngày hoặc giờ lưu trú để tìm phòng trống.", "Try different dates or times to find an available room.")}</p>
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -619,7 +555,7 @@ export default function ReservationPage() {
                   type="button"
                   aria-haspopup="dialog"
                   aria-label={localize(`Xem nhanh ${room.typeName}`, `Quick view for ${room.typeNameEn || room.typeName}`)}
-                  onClick={() => setPreviewRoom(room)}
+                  onClick={() => setPreviewRoomId(room.id)}
                   className="flex flex-1 flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#B8944F]"
                 >
                 <div className="relative aspect-[16/11] overflow-hidden rounded-[2rem] bg-[#E5E9ED]">
@@ -634,11 +570,11 @@ export default function ReservationPage() {
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[#66727C]">{localize("Chưa có ảnh", "No image")}</div>
                   )}
-                  <RoomRateCompact
+                  {room.estimatedPricePerRoom != null && room.estimatedPackage && <RoomRateCompact
                     rate={room}
                     display="stay-estimate"
                     className="absolute right-4 top-4"
-                  />
+                  />}
                 </div>
                 <div className="flex flex-1 flex-col px-6 pb-4 pt-6">
                   <div className="flex items-start justify-between gap-4">
@@ -678,7 +614,7 @@ export default function ReservationPage() {
                       onChange={(event) => updateQuantity(room, Number(event.target.value))}
                       className="h-10 w-20 rounded-xl border border-[#0F2A43]/10 bg-white px-3 text-center font-bold outline-none focus:border-[#B8944F]"
                     >
-                      {Array.from({ length: Math.min(room.availableRooms ?? 10, 20) + 1 }, (_, index) => index).map((value) => <option key={value} value={value}>{value}</option>)}
+                      {Array.from({ length: Math.min(room.availableRooms ?? 0, 20) + 1 }, (_, index) => index).map((value) => <option key={value} value={value}>{value}</option>)}
                     </select>
                 </div>
               </article>
@@ -737,7 +673,7 @@ export default function ReservationPage() {
         onQuantityChange={(quantity) => {
           if (previewRoom) updateQuantity(previewRoom, quantity);
         }}
-        onClose={() => setPreviewRoom(null)}
+        onClose={() => setPreviewRoomId(null)}
       />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>

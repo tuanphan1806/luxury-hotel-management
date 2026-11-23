@@ -8,8 +8,8 @@ import java.util.Objects;
 /**
  * Immutable operational policy used by pricing V2.
  *
- * <p>Turnover is carried here for the inventory caller, but is never added to a
- * chargeable duration by the pricing engine.</p>
+ * <p>Historical policies include a turnover buffer. Housekeeping status
+ * determines when the physical room can be handed over.</p>
  */
 public record StayPolicyDefinition(
         int graceMinutes,

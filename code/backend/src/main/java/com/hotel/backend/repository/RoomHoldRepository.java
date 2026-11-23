@@ -51,66 +51,6 @@ public interface RoomHoldRepository extends JpaRepository<RoomHold, Long> {
     """)
     List<RoomHold> findByReservationIdForUpdate(@Param("reservationId") Long reservationId);
 
-    // Đếm số phòng đang bị hold ACTIVE chưa expired trong khoảng ngày
-    @Query("""
-        SELECT COALESCE(SUM(rrt.quantity), 0)
-        FROM RoomHold rh
-        JOIN rh.reservationRoomType rrt
-        JOIN rrt.reservation r
-        WHERE rrt.roomType.id = :roomTypeId
-        AND rh.status         = 'ACTIVE'
-        AND rh.expiresAt      > :now
-        AND r.checkIn < :checkOut
-        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
-    """)
-    int countActiveHeldQuantity(
-        @Param("roomTypeId") Long roomTypeId,
-        @Param("checkIn")    LocalDateTime checkIn,
-        @Param("checkOut")   LocalDateTime checkOut,
-        @Param("now")        LocalDateTime now
-    );
-
-    /**
-     * Batch variant used by the public availability screen.
-     */
-    @Query("""
-        SELECT rrt.roomType.id AS roomTypeId,
-               COALESCE(SUM(rrt.quantity), 0) AS quantity
-        FROM RoomHold rh
-        JOIN rh.reservationRoomType rrt
-        JOIN rrt.reservation r
-        WHERE rh.status = 'ACTIVE'
-          AND rh.expiresAt > :now
-          AND r.checkIn < :checkOut
-          AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
-        GROUP BY rrt.roomType.id
-    """)
-    List<RoomTypeQuantityProjection> countActiveHeldQuantitiesGroupedByType(
-        @Param("checkIn") LocalDateTime checkIn,
-        @Param("checkOut") LocalDateTime checkOut,
-        @Param("now") LocalDateTime now
-    );
-
-    // Đếm hold ACTIVE, trừ reservation hiện tại (dùng khi update reservation)
-    @Query("""
-        SELECT COALESCE(SUM(rrt.quantity), 0)
-        FROM RoomHold rh
-        JOIN rh.reservationRoomType rrt
-        JOIN rrt.reservation r
-        WHERE rrt.roomType.id = :roomTypeId
-        AND r.id             != :excludeReservationId
-        AND rh.status         = 'ACTIVE'
-        AND rh.expiresAt      > :now
-        AND r.checkIn < :checkOut
-        AND COALESCE(r.inventoryProtectedUntil, r.checkOut) > :checkIn
-    """)
-    int countActiveHeldQuantityExcluding(
-        @Param("roomTypeId")           Long roomTypeId,
-        @Param("excludeReservationId") Long excludeReservationId,
-        @Param("checkIn")              LocalDateTime checkIn,
-        @Param("checkOut")             LocalDateTime checkOut,
-        @Param("now")                  LocalDateTime now
-    );
 
     // Lấy tất cả hold ACTIVE đã hết hạn (dùng cho scheduler)
     @Query("""

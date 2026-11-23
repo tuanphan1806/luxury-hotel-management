@@ -477,7 +477,7 @@ public class DataSeeder implements CommandLineRunner {
                                     .overnightMaximumMinutes(720)
                                     .dailyThresholdMinutes(1200)
                                     .dailyDurationMinutes(1440)
-                                    .turnoverBufferMinutes(30)
+                .turnoverBufferMinutes(0)
                                     .remainderCycleStartsAtBoundary(true)
                                     .inventoryProtectionMode(
                                             InventoryProtectionMode

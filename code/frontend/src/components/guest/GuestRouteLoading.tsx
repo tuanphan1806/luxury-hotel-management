@@ -1,4 +1,4 @@
-export default function MainRouteLoading() {
+export default function GuestRouteLoading() {
   return (
     <div className="min-h-[70vh] bg-[#F1F0EA] px-4 pb-20 pt-28 sm:px-6 lg:px-8" role="status" aria-live="polite">
       <div className="skeleton-group mx-auto max-w-[1400px]">

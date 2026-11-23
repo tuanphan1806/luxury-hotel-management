@@ -59,4 +59,8 @@ public class Room extends AbstractEntity<Long> implements Serializable{
     @OrderBy("createdAt DESC")
     private List<RoomMaintenanceLog> maintenanceHistory = new ArrayList<>();
 
+    public boolean canReceiveGuest() {
+        return status == RoomStatus.AVAILABLE && cleaningStatus == CleaningStatus.CLEAN
+                && Boolean.TRUE.equals(sellable) && decommissionedAt == null;
+    }
 }

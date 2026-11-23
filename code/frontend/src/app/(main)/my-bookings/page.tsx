@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
@@ -523,7 +524,7 @@ export default function MyBookingsPage() {
   };
 
   const filteredBookings = useMemo(() => {
-    const query = bookingSearch.trim().toLocaleLowerCase(localeTag);
+    const matchesText = createSearchMatcher(bookingSearch);
     const matchesFilter = (booking: Booking) => {
       switch (bookingFilter) {
         case "UPCOMING":
@@ -545,9 +546,9 @@ export default function MyBookingsPage() {
 
     return [...bookings]
       .filter(matchesFilter)
-      .filter((booking) => !query || `${booking.bookingId} ${booking.roomName} ${booking.status}`.toLocaleLowerCase(localeTag).includes(query))
+      .filter((booking) => matchesText(`${booking.bookingId} ${booking.roomName} ${booking.status}`))
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-  }, [bookingFilter, bookingSearch, bookings, localeTag]);
+  }, [bookingFilter, bookingSearch, bookings]);
 
   const bookingPageCount = Math.max(1, Math.ceil(filteredBookings.length / BOOKINGS_PER_PAGE));
   const visibleBookings = filteredBookings.slice((bookingPage - 1) * BOOKINGS_PER_PAGE, bookingPage * BOOKINGS_PER_PAGE);
@@ -612,7 +613,7 @@ export default function MyBookingsPage() {
             <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#F1F0EA] text-2xl font-serif text-[#B8944F]">L</span>
             <h3 className="font-serif text-2xl font-bold text-primary-navy">{localize("Đăng nhập để xem các đơn đặt phòng", "Sign in to view your reservations")}</h3>
             <p className="text-sm text-text-light font-medium max-w-md mx-auto">
-              {localize("Trang này chỉ hiển thị các đơn thuộc tài khoản của bạn.", "My Bookings only shows reservations that belong to your account.")}
+              {localize("Nếu đã đặt phòng không cần tài khoản, hãy mở liên kết tra cứu trong email xác nhận hoặc trên trang kết quả thanh toán.", "If you booked as a guest, open the booking link in your confirmation email or on the payment result page.")}
             </p>
             <div className="flex flex-wrap justify-center gap-3">
               <Link

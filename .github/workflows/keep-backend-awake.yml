@@ -1,9 +1,16 @@
-name: Check Render backend manually
+name: Prepare hotel demo
 
 on:
   # Deliberately manual: recurring probes keep Render and its DB jobs awake,
   # exhausting Neon Free compute even without visitors.
   workflow_dispatch:
+    inputs:
+      demo_minutes:
+        description: Presentation duration in minutes (0 runs the preflight once)
+        type: choice
+        required: true
+        default: '0'
+        options: ['0', '30', '60', '90']
 
 permissions:
   contents: read
@@ -16,7 +23,7 @@ jobs:
   health-check:
     name: Verify production recovery
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 100
     steps:
       - name: Wake backend and verify database and public catalog
         env:
@@ -24,6 +31,8 @@ jobs:
           HEALTH_URL: https://luxury-hotel-backend-c06y.onrender.com/actuator/health
           CATALOG_URL: https://luxury-hotel-backend-c06y.onrender.com/api/room-types
           PUBLIC_CATALOG_URL: https://www.luxuryhotelvn.site/catalog_proxy/room-types
+          AVAILABILITY_URL: https://www.luxuryhotelvn.site/backend_proxy/api/reservations/availability
+          DEMO_MINUTES: ${{ inputs.demo_minutes }}
         shell: bash
         run: |
           set -euo pipefail
@@ -33,10 +42,41 @@ jobs:
               --connect-timeout 10 --max-time "$2" "$1"
           }
 
-          # Wait for the application first. A homepage 200 or readiness UP
-          # alone does not prove that Neon or the Vercel proxy is usable.
-          probe "$READINESS_URL" 210 | jq -e '.status == "UP"' > /dev/null
-          probe "$HEALTH_URL" 30 | jq -e '.status == "UP"' > /dev/null
-          probe "$CATALOG_URL" 30 | jq -e '.success == true and (.data | type == "array")' > /dev/null
-          probe "$PUBLIC_CATALOG_URL" 30 | jq -e '.success == true and (.data | type == "array")' > /dev/null
-          echo "Readiness, database health, direct catalog and public catalog passed."
+          case "$DEMO_MINUTES" in 0|30|60|90) ;; *) exit 2 ;; esac
+          search_rooms() {
+            local arrival departure
+            arrival=$(TZ=Asia/Ho_Chi_Minh date -d '+2 days' '+%FT14:00:00')
+            departure=$(TZ=Asia/Ho_Chi_Minh date -d '+3 days' '+%FT12:00:00')
+            probe "$AVAILABILITY_URL?checkIn=$arrival&checkOut=$departure" 20 |
+              jq -e '.success == true and (.data | type == "array" and all(.[]; (.roomTypeId | type == "number") and (.availableRooms | type == "number")))' > /dev/null
+          }
+          preflight() {
+            local catalog_ok='.success == true and (.data | type == "array")'
+            probe "$HEALTH_URL" 15 | jq -e '.status == "UP"' > /dev/null &&
+              probe "$CATALOG_URL" 20 | jq -e "$catalog_ok" > /dev/null &&
+              probe "$PUBLIC_CATALOG_URL?check=$(date +%s)" 20 | jq -e "$catalog_ok" > /dev/null &&
+              search_rooms
+          }
+          wait_for() {
+            local deadline=$((SECONDS + $1))
+            shift
+            until "$@"; do
+              if (( SECONDS >= deadline )); then return 1; fi
+              sleep 5
+            done
+          }
+          ready() {
+            probe "$READINESS_URL" 25 | jq -e '.status == "UP"' > /dev/null
+          }
+          wait_for 240 ready
+          wait_for 45 preflight
+          echo "Render, the direct and public catalogs, and a live availability search passed."
+
+          # Only a presenter starts a window. Normal days require no runner or probes.
+          end=$((SECONDS + DEMO_MINUTES * 60))
+          while (( SECONDS < end )); do
+            remaining=$((end - SECONDS))
+            if (( remaining > 480 )); then remaining=480; fi
+            sleep "$remaining"
+            wait_for 45 search_rooms
+          done

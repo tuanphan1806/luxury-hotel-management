@@ -166,13 +166,25 @@ class PricingQuoteCommitmentServiceTest {
         assertMoney("170000", commitment.roomCharge());
         assertMoney("170000", commitment.totalAmount());
         assertEquals(
-                LocalDateTime.of(2026, 8, 2, 12, 30),
+                LocalDateTime.of(2026, 8, 2, 12, 0),
                 commitment.inventoryProtectedUntil());
         verify(quoteRepository).findByIdForUpdate(quote.getId());
         verify(rateProfileRepository).findByIdForUpdate(rateProfile.getId());
         verify(reservationAddOnService)
                 .quoteBookingTimeForPackageCycles(
                         anyList(), eq(1), eq(1));
+    }
+
+    @Test
+    void honoursTheRecordedWindowOfAnUnexpiredLegacyQuote() {
+        LocalDateTime legacyEnd = quote.getInventoryProtectedUntil().plusMinutes(policy.getTurnoverBufferMinutes());
+        ReflectionTestUtils.setField(quote, "inventoryProtectedUntil", legacyEnd);
+        ((ObjectNode) quote.getResponseJson()).set("inventoryProtectedUntil", hasher.canonicalTree(legacyEnd));
+        stubValidQuote();
+
+        var committed = service.validateForReservation(request, Map.of(roomType.getId(), roomType));
+        assertEquals(legacyEnd, committed.inventoryProtectedUntil());
+        assertMoney("170000", committed.totalAmount());
     }
 
     @Test

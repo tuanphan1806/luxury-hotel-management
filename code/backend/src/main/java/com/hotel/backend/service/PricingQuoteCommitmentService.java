@@ -200,13 +200,17 @@ public class PricingQuoteCommitmentService {
                         quoteRequest.getCheckOut(), breakdowns, policy);
         StayPackage displayPackage = aggregates.displayPackage(breakdowns);
 
+        LocalDateTime quotedEnd = quote.getInventoryProtectedUntil();
+        // An unexpired quote issued before status-based housekeeping may still
+        // carry the previous policy's buffer. Honour its signed inventory window.
+        boolean matchesInventoryWindow = inventoryProtectedUntil.equals(quotedEnd)
+                || (inventoryProtectedUntil.plusMinutes(policy.getTurnoverBufferMinutes()).equals(quotedEnd)
+                    && jsonHasher.canonicalTree(quotedEnd).equals(quote.getResponseJson().path("inventoryProtectedUntil")));
         if (!moneyEquals(quote.getRoomCharge(), roomCharge)
                 || !moneyEquals(quote.getExtraGuestCharge(), extraGuestCharge)
                 || !moneyEquals(quote.getServiceCharge(), serviceCharge)
                 || !moneyEquals(quote.getTotalAmount(), totalAmount)
-                || !Objects.equals(
-                        quote.getInventoryProtectedUntil(),
-                        inventoryProtectedUntil)) {
+                || !matchesInventoryWindow) {
             throw priceChanged();
         }
 
@@ -218,7 +222,7 @@ public class PricingQuoteCommitmentService {
                 extraGuestCharge,
                 serviceCharge,
                 totalAmount,
-                inventoryProtectedUntil,
+                quotedEnd,
                 displayPackage);
     }
 

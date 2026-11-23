@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProgressiveImage from "@/components/UI/ProgressiveImage";
@@ -134,15 +135,9 @@ export default function DashboardServicesPage() {
   }, [isAdmin, loadServices]);
 
   const filtered = useMemo(() => {
-    const keyword = search.trim().toLocaleLowerCase();
+    const matchesText = createSearchMatcher(search);
     return services.filter((service) => {
-      const matchesSearch = !keyword || [
-        service.code,
-        service.name,
-        service.nameEn,
-        service.description,
-        service.descriptionEn,
-      ].some((value) => (value || "").toLocaleLowerCase().includes(keyword));
+      const matchesSearch = matchesText(service.code, service.name, service.nameEn, service.description, service.descriptionEn);
       const matchesActive = activeFilter === "ALL"
         || (activeFilter === "ACTIVE" && service.active)
         || (activeFilter === "INACTIVE" && !service.active);

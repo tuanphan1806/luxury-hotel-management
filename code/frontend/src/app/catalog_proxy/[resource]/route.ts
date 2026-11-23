@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server";
+import { catalogOrigin, readPublicRoomCatalog, RoomCatalogError } from "@/lib/room-catalog-server";
 
 const catalogResources = {
   "room-types": "/api/room-types",
   facilities: "/api/facilities",
   galleries: "/api/galleries",
 } as const;
-
-const backendOrigin = (
-  process.env.BACKEND_INTERNAL_URL
-  || process.env.NEXT_PUBLIC_BACKEND_URL
-  || "http://localhost:8080"
-).replace(/\/+$/, "");
 
 export const revalidate = 60;
 
@@ -23,7 +18,11 @@ export async function GET(
   if (!endpoint) return NextResponse.json({ message: "Not found" }, { status: 404 });
 
   try {
-    const upstream = await fetch(`${backendOrigin}${endpoint}`, {
+    if (resource === "room-types") {
+      const payload = await readPublicRoomCatalog();
+      return NextResponse.json(payload, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+    }
+    const upstream = await fetch(`${catalogOrigin}${endpoint}`, {
       headers: { Accept: "application/json" },
       next: { revalidate: 60 },
       signal: AbortSignal.timeout(12_000),
@@ -38,12 +37,15 @@ export async function GET(
           ? "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
           : "no-store",
         "X-Content-Type-Options": "nosniff",
+        ...(upstream.headers.has("Retry-After") ? { "Retry-After": upstream.headers.get("Retry-After")! } : {}),
       },
     });
-  } catch {
+  } catch (error) {
+    const status = error instanceof RoomCatalogError ? error.status : 503;
+    const retryAfter = error instanceof RoomCatalogError ? error.retryAfter : "5";
     return NextResponse.json(
       { message: "Public catalog is temporarily unavailable" },
-      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "5" } },
+      { status, headers: { "Cache-Control": "no-store", ...(retryAfter ? { "Retry-After": retryAfter } : {}) } },
     );
   }
 }

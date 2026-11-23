@@ -185,13 +185,19 @@ Trước khi thay đổi:
 
 ```text
 HOURLY/DAILY:
-  max(plannedCheckout, packageIncludedCheckout) + turnoverBuffer
+  max(plannedCheckout, packageIncludedCheckout)
 
 OVERNIGHT:
-  max(plannedCheckout, operationalNightHardCheckout) + turnoverBuffer
+  max(plannedCheckout, operationalNightHardCheckout)
 ```
 
-Turnover chỉ bảo vệ tồn phòng, không cộng vào doanh thu.
+Đặt trước xét lịch lưu trú và các lượt giữ phòng trong khung giờ khách chọn.
+Mỗi hạng phòng được tính theo số phòng bận cùng lúc cao nhất. Hai lượt nối
+tiếp có thể dùng cùng một căn. Nếu đơn đã gán căn cụ thể, hệ thống giữ căn
+đó khi kiểm tra khả năng ở liên tục suốt lượt mới.
+Nếu khách vẫn ở sau khi hết quyền sử dụng theo gói, lượt ở đó tiếp tục chiếm
+một suất cho các lượt đến trong ngày. Giờ nhận thực tế của mỗi khách còn phụ
+thuộc vào căn được giao. Căn đó phải đang trống, đã sạch và có thể bán.
 
 Request tạo đơn/báo giá/availability/walk-in được giới hạn bởi
 `PRICING_MAX_STAY_DAYS` (mặc định 365 ngày, hard safety cap 1095 ngày). Mục

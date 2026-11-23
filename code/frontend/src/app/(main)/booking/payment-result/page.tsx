@@ -68,7 +68,7 @@ function PaymentResultContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { localeTag, localize } = useLanguage();
-  const transactionId = searchParams.get("transactionId")?.trim() || "";
+  const transactionId = searchParams?.get("transactionId")?.trim() || "";
   const [verification, setVerification] = React.useState<VerificationState>({ state: "loading", payment: null });
   const [pollAttempt, setPollAttempt] = React.useState(0);
   const [nowMs, setNowMs] = React.useState(() => Date.now());

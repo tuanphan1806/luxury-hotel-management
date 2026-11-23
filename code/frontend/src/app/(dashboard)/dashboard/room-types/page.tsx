@@ -1,4 +1,5 @@
 "use client";
+import { createSearchMatcher } from "@/lib/search-text";
 
 import React, { useCallback, useState, useEffect, useMemo } from "react";
 import Image from "next/image";
@@ -173,6 +174,14 @@ export default function RoomTypesManagement() {
     setToast({ message, type });
   }, []);
 
+  const showSaved = (message: string, refresh: unknown) => {
+    if (refresh === "pending") {
+      showToast(localize("Đã lưu thay đổi. Danh mục công khai đang chờ cập nhật.", "Changes saved. The public catalog is awaiting a refresh."), "info");
+    } else {
+      showToast(message, "success");
+    }
+  };
+
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -197,17 +206,11 @@ export default function RoomTypesManagement() {
   }, [fetchData]);
 
   const filteredRoomTypes = useMemo(() => {
-    const keyword = searchQuery.trim().toLowerCase();
+    const matchesText = createSearchMatcher(searchQuery);
     const matched = roomTypes.filter((type) => {
-      const matchesSearch = !keyword || (
-        type.typeName.toLowerCase().includes(keyword) ||
-        (type.typeNameEn || "").toLowerCase().includes(keyword) ||
-        (type.description || "").toLowerCase().includes(keyword) ||
-        (type.descriptionEn || "").toLowerCase().includes(keyword) ||
-        (type.facilities || []).some((facility) =>
-          facility.facilityName.toLowerCase().includes(keyword)
-          || (facility.facilityNameEn || "").toLowerCase().includes(keyword),
-        )
+      const matchesSearch = matchesText(
+        type.typeName, type.typeNameEn, type.description, type.descriptionEn,
+        ...(type.facilities || []).flatMap((facility) => [facility.facilityName, facility.facilityNameEn]),
       );
       const capacity = Number(type.maxGuests || 0);
       const matchesCapacity = capacityFilter === "ALL"
@@ -253,7 +256,7 @@ export default function RoomTypesManagement() {
     setIsSaving(true);
     try {
       const imageUrls = Array.from(new Set(formData.imageUrls.map((image) => image.trim()).filter(Boolean))).slice(0, 3);
-      await apiClient.post("/api/room-types", {
+      const response = await apiClient.post("/api/room-types", {
         typeName: formData.typeName,
         typeNameEn: formData.typeNameEn,
         maxGuests: Number(formData.maxGuests),
@@ -270,7 +273,7 @@ export default function RoomTypesManagement() {
         facilityIds: formData.facilityIds,
       });
 
-      showToast("Thêm room type mới thành công", "success");
+      showSaved("Thêm room type mới thành công", response.headers["x-room-catalog-refresh"]);
       setIsCreateOpen(false);
       fetchData();
     } catch (error: unknown) {
@@ -323,7 +326,7 @@ export default function RoomTypesManagement() {
     setIsSaving(true);
     try {
       const imageUrls = Array.from(new Set(formData.imageUrls.map((image) => image.trim()).filter(Boolean))).slice(0, 3);
-      await apiClient.put(`/api/room-types/${formData.id}`, {
+      const response = await apiClient.put(`/api/room-types/${formData.id}`, {
         typeName: formData.typeName,
         typeNameEn: formData.typeNameEn,
         maxGuests: Number(formData.maxGuests),
@@ -340,7 +343,7 @@ export default function RoomTypesManagement() {
         facilityIds: formData.facilityIds,
       });
 
-      showToast("Cập nhật room type thành công", "success");
+      showSaved("Cập nhật room type thành công", response.headers["x-room-catalog-refresh"]);
       setIsEditOpen(false);
       fetchData();
     } catch (error: unknown) {
@@ -359,8 +362,8 @@ export default function RoomTypesManagement() {
   const handleDeleteConfirm = async () => {
     if (!selectedRoomType) return;
     try {
-      await apiClient.delete(`/api/room-types/${selectedRoomType.id}`);
-      showToast("Xóa loại phòng thành công!", "success");
+      const response = await apiClient.delete(`/api/room-types/${selectedRoomType.id}`);
+      showSaved("Xóa loại phòng thành công!", response.headers["x-room-catalog-refresh"]);
       setIsDeleteOpen(false);
       fetchData();
     } catch (error: unknown) {
@@ -392,13 +395,13 @@ export default function RoomTypesManagement() {
     }
     setIsSaving(true);
     try {
-      await apiClient.patch(`/api/room-types/${selectedRoomType.id}/active`, {
+      const response = await apiClient.patch(`/api/room-types/${selectedRoomType.id}/active`, {
         active: nextActive,
         reason: statusReason.trim() || undefined,
       });
-      showToast(nextActive
+      showSaved(nextActive
         ? localize("Đã kích hoạt lại loại phòng.", "Room type reactivated.")
-        : localize("Đã ngừng cung cấp loại phòng.", "Room type deactivated."), "success");
+        : localize("Đã ngừng cung cấp loại phòng.", "Room type deactivated."), response.headers["x-room-catalog-refresh"]);
       setIsStatusOpen(false);
       await fetchData();
     } catch (error: unknown) {

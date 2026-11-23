@@ -47,7 +47,7 @@ const BOTANICAL_LEFT_STOPS = ["8%", "30%", "52%", "74%", "92%"] as const;
 const BOTANICAL_RIGHT_STOPS = ["18%", "40%", "62%", "84%", "94%"] as const;
 
 export default function MainSiteShell({ children }: Readonly<{ children: React.ReactNode }>) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const router = useRouter();
   const { t, localize, locale, setLocale } = useLanguage();
   const { favoriteCount } = useFavorites();
