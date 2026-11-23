@@ -18,12 +18,12 @@ V2 dùng `PACKAGE_ENTITLEMENT` (Policy A):
 ```text
 inventoryProtectedUntil
   = max(plannedCheckout, packageEntitlementEnd)
-  + turnoverBuffer
 ```
 
-`turnoverBufferMinutes` mặc định là 30 phút và chỉ tham gia availability,
-RoomHold, room assignment, extension và next booking. Thời gian dọn phòng
-không được cộng vào tiền phòng, số giờ phụ thu hoặc doanh thu hóa đơn.
+Tìm phòng, giữ phòng và tạo đơn dùng chung thời điểm kết thúc quyền lưu trú.
+Lễ tân ghi nhận giờ trả thực tế. Phòng vừa trả chuyển sang trống và cần dọn.
+Nhân viên xác nhận đã dọn sạch thì có thể giao phòng ngay cho khách tiếp theo.
+Đơn và báo giá đã phát hành giữ mốc tồn phòng đã lưu trong lịch sử.
 
 Với `OVERNIGHT`, `packageEntitlementEnd` không vượt quá giờ checkout cứng của
 đêm vận hành. Policy hiện tại dùng 10:00; policy V1 lịch sử dùng 12:00. Quy

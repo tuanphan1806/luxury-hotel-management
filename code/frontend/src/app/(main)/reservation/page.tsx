@@ -42,7 +42,7 @@ interface AvailabilityRoomOption {
   includedGuestsPerRoom?: number;
   maxGuestsPerRoom?: number;
   extraGuestPrice?: number;
-  availableRooms?: number;
+  availableRooms: number;
 }
 
 interface RoomTypeFacilityOption {
@@ -117,10 +117,11 @@ const loadAvailabilityOptions = async (
     throw new AvailabilityStartupPage("Received a startup page while loading availability");
   }
   if (response.data?.success === false || !Array.isArray(response.data?.data)
-    || !response.data.data.every((room) => room && Number.isSafeInteger(room.roomTypeId) && room.roomTypeName)) {
+    || !response.data.data.every((room) => room && Number.isSafeInteger(room.roomTypeId) && room.roomTypeName
+      && Number.isSafeInteger(room.availableRooms) && room.availableRooms >= 0)) {
     throw new Error("Invalid availability response");
   }
-  return response.data.data;
+  return response.data.data.filter((room) => room.availableRooms > 0);
 };
 
 function availabilityRetryDelay(error: unknown): number | null {
@@ -368,7 +369,7 @@ export default function ReservationPage() {
   };
 
   const updateQuantity = (room: ReservationRoomOption, quantity: number) => {
-    const safeQuantity = Math.max(0, Math.min(quantity, room.availableRooms ?? 99));
+    const safeQuantity = Math.max(0, Math.min(quantity, room.availableRooms ?? 0));
     setSelectedRooms((current) => {
       const next = { ...current };
       if (safeQuantity === 0) delete next[room.id];
@@ -544,7 +545,7 @@ export default function ReservationPage() {
         ) : rooms.length === 0 ? (
           <div className="rounded-[2rem] border border-[#0F2A43]/10 bg-white px-6 py-16 text-center">
             <h3 className="font-serif text-3xl font-bold text-[#0F2A43]">{localize("Chưa có phòng phù hợp", "No suitable rooms found")}</h3>
-            <p className="mt-3 text-sm text-[#66727C]">{localize("Thử đổi thời gian lưu trú hoặc giảm số lượng khách.", "Try changing the stay time or reducing the guest count.")}</p>
+            <p className="mt-3 text-sm text-[#66727C]">{localize("Thử đổi ngày hoặc giờ lưu trú để tìm phòng trống.", "Try different dates or times to find an available room.")}</p>
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -613,7 +614,7 @@ export default function ReservationPage() {
                       onChange={(event) => updateQuantity(room, Number(event.target.value))}
                       className="h-10 w-20 rounded-xl border border-[#0F2A43]/10 bg-white px-3 text-center font-bold outline-none focus:border-[#B8944F]"
                     >
-                      {Array.from({ length: Math.min(room.availableRooms ?? 10, 20) + 1 }, (_, index) => index).map((value) => <option key={value} value={value}>{value}</option>)}
+                      {Array.from({ length: Math.min(room.availableRooms ?? 0, 20) + 1 }, (_, index) => index).map((value) => <option key={value} value={value}>{value}</option>)}
                     </select>
                 </div>
               </article>

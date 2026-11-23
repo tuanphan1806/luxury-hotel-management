@@ -39,6 +39,25 @@ class RoomServiceTest {
     @InjectMocks RoomServiceImpl roomService;
 
     @Test
+    void onlyAVacantCleanSellableRoomCanReceiveAGuest() {
+        for (RoomStatus physical : RoomStatus.values()) {
+            for (CleaningStatus housekeeping : CleaningStatus.values()) {
+                Room room = room(2L, "102", physical, housekeeping);
+                assertEquals(physical == RoomStatus.AVAILABLE && housekeeping == CleaningStatus.CLEAN,
+                        room.canReceiveGuest(), physical + " / " + housekeeping);
+            }
+        }
+        Room room = room(2L, "102", RoomStatus.AVAILABLE, null);
+        assertFalse(room.canReceiveGuest());
+        room.setCleaningStatus(CleaningStatus.CLEAN);
+        room.setSellable(false);
+        assertFalse(room.canReceiveGuest());
+        room.setSellable(true);
+        room.setDecommissionedAt(java.time.LocalDateTime.now());
+        assertFalse(room.canReceiveGuest());
+    }
+
+    @Test
     void manualBookedStatusIsRejected() {
         Room room = room(1L, "101", RoomStatus.AVAILABLE, CleaningStatus.CLEAN);
         when(roomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
@@ -93,7 +112,6 @@ class RoomServiceTest {
         when(roomRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(target));
         when(reservationRoomRepository.findFirstByRoomIdAndStatus(1L, AssignStatus.CHECKED_IN))
                 .thenReturn(Optional.of(activeStay));
-        when(reservationRoomRepository.existsByRoomIdAndStatus(2L, AssignStatus.CHECKED_IN)).thenReturn(false);
         when(roomRepository.save(any(Room.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         roomService.transferCheckedInRoom(1L, 2L);

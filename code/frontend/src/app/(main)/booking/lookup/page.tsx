@@ -102,7 +102,10 @@ function GuestBookingLookupContent() {
       const supplied = new URLSearchParams(url.hash.slice(1)).get("token") || url.searchParams.get("token");
       if (supplied) {
         setToken(supplied);
-        window.history.replaceState(null, "", url.pathname);
+        // Scrub the address on the same history entry without discarding the router's state.
+        const entry = { ...window.history.state };
+        delete entry.guestLookupReservationId;
+        window.history.replaceState(entry, "", url.pathname);
         return;
       }
       // Only this tab can restore a previously verified booking on reload.

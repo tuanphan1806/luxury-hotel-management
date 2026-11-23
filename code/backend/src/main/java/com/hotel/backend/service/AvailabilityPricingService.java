@@ -9,6 +9,7 @@ import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.pricing.PricingBreakdown;
 import com.hotel.backend.pricing.PricingDefinitionFactory;
 import com.hotel.backend.pricing.PricingEngine;
+import com.hotel.backend.pricing.PricingQuoteAggregates;
 import com.hotel.backend.pricing.PricingRequest;
 import com.hotel.backend.repository.RoomRateProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class AvailabilityPricingService {
     private final PricingEngine pricingEngine;
     private final PricingDefinitionFactory definitionFactory;
     private final RoomRateProfileRepository rateProfileRepository;
+    private final PricingQuoteAggregates quoteAggregates;
 
     @Transactional(readOnly = true)
     public Optional<Estimate> estimate(
@@ -134,7 +136,8 @@ public class AvailabilityPricingService {
                 rateProfile.getFirstBlockPrice(),
                 rateProfile.getExtraGuestPrice(),
                 breakdown.roomChargePerRoom(),
-                breakdown.appliedPackage());
+                breakdown.appliedPackage(),
+                quoteAggregates.inventoryProtectedUntil(checkOut, List.of(breakdown), rateProfile.getStayPolicyVersion()));
     }
 
     private RoomRateProfile requireSingleEffectiveRate(
@@ -161,6 +164,7 @@ public class AvailabilityPricingService {
             BigDecimal firstBlockPrice,
             BigDecimal extraGuestPrice,
             BigDecimal estimatedPricePerRoom,
-            StayPackage estimatedPackage) {
+            StayPackage estimatedPackage,
+            LocalDateTime inventoryProtectedUntil) {
     }
 }

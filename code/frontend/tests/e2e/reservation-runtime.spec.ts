@@ -13,6 +13,7 @@ type ApiEnvelope<T> = {
 
 type Room = {
   id: number;
+  roomTypeId: number;
   roomName: string;
   status: string;
   cleaningStatus: string;
@@ -293,6 +294,58 @@ test.describe("isolated runtime reservation and cash settlement", () => {
     const releasedRoom = await roomAfterCheckout.json() as Room;
     expect(releasedRoom.status).toBe("AVAILABLE");
     expect(releasedRoom.cleaningStatus).toBe("DIRTY");
+
+    const nextCustomer = {
+      fullName: `Khách tiếp theo QA ${suffix}`,
+      phone: `08${Date.now().toString().slice(-8)}`,
+      email: `qa-next-${suffix}@example.com`,
+      idCardNumber: `QB${Date.now().toString().slice(-10)}`,
+    };
+    const nextArrival = {
+      ...createPayload, customer: nextCustomer, checkOut: localDateTimeHoursFromNow(1),
+      rooms: [{ roomId: room.id, guests: [{ ...createPayload.rooms[0].guests[0], ...nextCustomer }] }],
+      paymentOption: "CASH",
+    };
+    const handOver = () => request.post(qaUrl("/api/reservations/walk-in/v2"), {
+      headers: { ...staffHeaders, "Idempotency-Key": randomUUID() },
+      data: nextArrival,
+    });
+    const setCleaning = async (cleaningStatus: string) => {
+      const response = await request.patch(qaUrl(`/api/rooms/${room.id}/cleaning-status`), {
+        headers: staffHeaders, params: { cleaningStatus },
+      });
+      expect(response.status()).toBe(200);
+    };
+    const arrival = localDateTimeHoursFromNow(1 / 60);
+    const publicCount = async (checkIn: string, checkOut: string) => {
+      const response = await request.get(qaUrl("/api/reservations/availability"), { params: { checkIn, checkOut } });
+      expect(response.status()).toBe(200);
+      const rows = (await response.json() as ApiEnvelope<{ roomTypeId: number; availableRooms: number }[]>).data;
+      return rows.find(row => row.roomTypeId === room.roomTypeId)!.availableRooms;
+    };
+    const end = localDateTimeHoursFromNow(2);
+    const futureStart = localDateTimeHoursFromNow(48);
+    const futureEnd = localDateTimeHoursFromNow(50);
+    const dirtyCount = await publicCount(arrival, end);
+    const futureCount = await publicCount(futureStart, futureEnd);
+    expect((await handOver()).status()).toBe(409);
+    await setCleaning("IN_PROGRESS");
+    expect((await handOver()).status()).toBe(409);
+    expect(await publicCount(arrival, end)).toBe(dirtyCount);
+    await setCleaning("CLEAN");
+    // A reservation is for a time slot. Handing over this exact room, above, requires it to be clean.
+    expect(await publicCount(arrival, end)).toBe(dirtyCount);
+    expect(await publicCount(futureStart, futureEnd)).toBe(futureCount);
+    const nextStay = await handOver();
+    expect(nextStay.status(), await nextStay.text()).toBe(201);
+    const nextId = (await nextStay.json() as ApiEnvelope<WalkInResponse>).data.reservation.id;
+    expect(nextId).not.toBe(reservationId);
+    expect((await handOver()).status()).toBe(409);
+    const leave = await request.patch(qaUrl(`/api/reservations/check-out/${nextId}`), {
+      headers: { ...staffHeaders, "Idempotency-Key": randomUUID() },
+    });
+    expect(leave.status(), await leave.text()).toBe(200);
+    await setCleaning("CLEAN");
     await closeStaffShift();
   });
 });

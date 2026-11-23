@@ -11,9 +11,12 @@ import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.pricing.MotelPackagePricingEngine;
 import com.hotel.backend.pricing.PricingDefinitionFactory;
+import com.hotel.backend.pricing.PricingQuoteAggregates;
 import com.hotel.backend.repository.RoomRateProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -53,7 +56,8 @@ class AvailabilityPricingServiceTest {
                 properties,
                 new MotelPackagePricingEngine(),
                 new PricingDefinitionFactory(),
-                rateProfileRepository);
+                rateProfileRepository,
+                new PricingQuoteAggregates());
 
         StayPolicyVersion policy = StayPolicyVersion.builder()
                 .id(11L)
@@ -121,6 +125,25 @@ class AvailabilityPricingServiceTest {
         assertEquals(StayPackage.DAILY, estimate.estimatedPackage());
         assertEquals(0, new BigDecimal("50000")
                 .compareTo(estimate.extraGuestPrice()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "2026-08-01T10:00,2026-08-01T11:00,HOURLY,PACKAGE_ENTITLEMENT,30,2026-08-01T12:00",
+            "2026-08-01T21:00,2026-08-02T06:00,OVERNIGHT,PACKAGE_ENTITLEMENT,30,2026-08-02T12:00",
+            "2026-08-01T14:00,2026-08-02T12:00,DAILY,PACKAGE_ENTITLEMENT,30,2026-08-02T14:00",
+            "2026-08-01T14:00,2026-08-02T12:00,DAILY,PLANNED_STAY,30,2026-08-02T12:00",
+            "2026-08-01T14:00,2026-08-03T14:00,DAILY,PACKAGE_ENTITLEMENT,0,2026-08-03T14:00"
+    })
+    void appliesTheSelectedStayPolicyToAvailability(LocalDateTime arrival, LocalDateTime departure,
+            StayPackage expectedPackage, InventoryProtectionMode mode, int turnoverMinutes, LocalDateTime readyAt) {
+        when(rateProfileRepository.findEffectiveByRoomTypeCode(eq("STANDARD"), any(Instant.class)))
+                .thenReturn(List.of(rateProfile));
+        rateProfile.getStayPolicyVersion().setInventoryProtectionMode(mode);
+        rateProfile.getStayPolicyVersion().setTurnoverBufferMinutes(turnoverMinutes);
+        var estimate = service.estimate(roomType, arrival, departure).orElseThrow();
+        assertEquals(expectedPackage, estimate.estimatedPackage());
+        assertEquals(readyAt, estimate.inventoryProtectedUntil());
     }
 
     @Test

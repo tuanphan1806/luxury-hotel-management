@@ -231,7 +231,7 @@ public class RoomServiceImpl implements RoomService {
     @Transactional(rollbackFor = Exception.class)
     public RoomResponse updateCleaningStatus(Long id, CleaningStatus cleaningStatus) {
         log.info("Updating cleaning status roomId={}, cleaningStatus={}", id, cleaningStatus);
-        Room room = getRoomById(id);
+        Room room = getRoomByIdForUpdate(id);
         Map<String, Object> oldValue = RoomViewMapper.auditSnapshot(room);
         room.setCleaningStatus(cleaningStatus);
         roomRepository.save(room);
@@ -263,14 +263,14 @@ public class RoomServiceImpl implements RoomService {
         if (sourceRoom.getStatus() != RoomStatus.CHECKED_IN) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Phòng nguồn không ở trạng thái đang có khách");
         }
-        if (targetRoom.getStatus() != RoomStatus.AVAILABLE
-                || targetRoom.getCleaningStatus() != CleaningStatus.CLEAN) {
+        if (!targetRoom.canReceiveGuest()) {
             throw new AppException(ErrorCode.ROOM_NOT_AVAILABLE, "Phòng chuyển đến phải đang sẵn sàng và đã dọn sạch");
         }
         if (!sourceRoom.getRoomType().getId().equals(targetRoom.getRoomType().getId())) {
             throw new AppException(ErrorCode.INVALID_REQUEST, "Chỉ được chuyển sang phòng cùng loại");
         }
-        if (reservationRoomRepository.existsByRoomIdAndStatus(targetRoomId, AssignStatus.CHECKED_IN)) {
+        if (reservationRoomRepository.existsByRoomIdAndStatusIn(targetRoomId,
+                List.of(AssignStatus.ASSIGNED, AssignStatus.CHECKED_IN))) {
             throw new AppException(ErrorCode.ROOM_NOT_AVAILABLE, "Phòng chuyển đến đã có lượt lưu trú khác");
         }
 

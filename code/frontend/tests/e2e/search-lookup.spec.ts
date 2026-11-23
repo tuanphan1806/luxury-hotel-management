@@ -10,6 +10,22 @@ const booking = {
   checkIn: '2026-12-01T14:00:00', checkOut: '2026-12-02T12:00:00',
 };
 
+test('distinguishes missing inventory from sold-out stays and offers only rooms with stock', async ({ page }) => {
+  const candidate = { roomTypeId: 91, roomTypeName: 'Phòng QA', maxGuestsPerRoom: 2 };
+  let results: object[] = [candidate];
+  await page.route('**/backend_proxy/api/reservations/availability?**', route => route.fulfill({ json: { success: true, data: results } }));
+  await page.goto('/reservation');
+  const list = page.locator('#availability-results');
+  await expect(list.getByText('Chưa kiểm tra được phòng trống cho thời gian bạn chọn.')).toBeVisible();
+  results = [{ ...candidate, availableRooms: 0 }];
+  await list.getByRole('button', { name: 'Thử lại' }).click();
+  await expect(list.getByRole('heading', { name: 'Chưa có phòng phù hợp' })).toBeVisible();
+  results.push({ ...candidate, roomTypeId: 92, roomTypeName: 'Phòng còn trống', availableRooms: 2 });
+  await page.reload();
+  await expect(list.getByRole('heading', { name: 'Phòng còn trống' })).toBeVisible();
+  await expect(list.getByRole('heading', { name: 'Phòng QA' })).toHaveCount(0);
+});
+
 test('finds Vietnamese room names and amenities and restores a filtered favorite', async ({ page }) => {
   await page.route('**/catalog_proxy/room-types', route => route.fulfill({ json: { success: true, data: [room] } }));
   await page.goto('/rooms');

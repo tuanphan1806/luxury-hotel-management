@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -63,15 +62,17 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, Long> {
 
     Optional<RoomType> findByTypeName(String typeName);
  
-    // Tổng số phòng của 1 room type (dùng cho availability check)
+    // Advance bookings use the calendar. A walk-in needs rooms ready for handover now.
+    String SELLABLE_INVENTORY = """
+        r.status <> 'MAINTENANCE' AND r.sellable = true AND r.decommissionedAt IS NULL
+        AND (:immediate = false OR r.status <> 'AVAILABLE' OR r.cleaningStatus = 'CLEAN')
+        """;
     @Query("""
         SELECT COUNT(r) FROM Room r
-            WHERE r.roomType.id = :roomTypeId
-            AND r.status != 'MAINTENANCE'
-            AND r.sellable = true
-            AND r.decommissionedAt IS NULL
-    """)
-    int countAvailableRoomsByType(@Param("roomTypeId") Long roomTypeId);
+        WHERE r.roomType.id = :roomTypeId AND
+        """ + SELLABLE_INVENTORY)
+    int countAvailableRoomsByType(@Param("roomTypeId") Long roomTypeId,
+                                  @Param("immediate") boolean immediate);
 
     /**
      * Batch variant for the public availability screen. A missing room type
@@ -80,35 +81,8 @@ public interface RoomTypeRepository extends JpaRepository<RoomType, Long> {
     @Query("""
         SELECT r.roomType.id AS roomTypeId, COUNT(r) AS quantity
         FROM Room r
-        WHERE r.status != 'MAINTENANCE'
-          AND r.sellable = true
-          AND r.decommissionedAt IS NULL
-        GROUP BY r.roomType.id
-    """)
-    List<RoomTypeQuantityProjection> countAvailableRoomsGroupedByType();
+        WHERE
+        """ + SELLABLE_INVENTORY + " GROUP BY r.roomType.id")
+    List<RoomTypeQuantityProjection> countAvailableRoomsGroupedByType(@Param("immediate") boolean immediate);
  
-    // Lấy tất cả room type còn phòng trống trong khoảng ngày
-    @Query("""
-        SELECT rt FROM RoomType rt
-        WHERE rt.active = true
-        AND (
-            SELECT COUNT(r) FROM Room r
-            WHERE r.roomType = rt
-            AND r.status != 'MAINTENANCE'
-            AND r.sellable = true
-            AND r.decommissionedAt IS NULL
-        ) > (
-            SELECT COALESCE(SUM(rrt.quantity), 0)
-            FROM ReservationRoomType rrt
-            JOIN rrt.reservation res
-            WHERE rrt.roomType = rt
-            AND res.status IN ('DRAFT', 'CANCELLATION_PENDING', 'CONFIRMED', 'CHECKED_IN')
-            AND res.checkIn < :checkOut
-            AND COALESCE(res.inventoryProtectedUntil, res.checkOut) > :checkIn
-        )
-    """)
-    List<RoomType> findAvailableRoomTypes(
-        @Param("checkIn")  LocalDateTime checkIn,
-        @Param("checkOut") LocalDateTime checkOut
-    );
 }

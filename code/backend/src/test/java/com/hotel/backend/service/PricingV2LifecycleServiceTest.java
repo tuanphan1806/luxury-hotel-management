@@ -376,7 +376,7 @@ class PricingV2LifecycleServiceTest {
         assertEquals(money("20000"), projection.deltaAmount());
         assertEquals(StayPackage.OVERNIGHT, projection.displayPackage());
         assertEquals(
-                LocalDateTime.of(2026, 8, 2, 11, 30),
+                LocalDateTime.of(2026, 8, 2, 11, 0),
                 projection.inventoryProtectedUntil());
         assertEquals(
                 LocalDateTime.of(2026, 8, 1, 23, 0),
