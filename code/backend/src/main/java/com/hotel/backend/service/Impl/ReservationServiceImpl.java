@@ -1860,7 +1860,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .stream()
                 .mapToInt(Integer::intValue)
                 .sum();
-        reservation.setGuestCount(actualGuestCount);
+        reservation.setGuestCount(actualGuestCount + Reservation.departedGuests(reservation.getRoomTypes()));
         reservationRepository.save(reservation);
 
         PricingV2LifecycleService.LineProjection updatedLine =
@@ -2042,7 +2042,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .stream()
                 .mapToInt(Integer::intValue)
                 .sum();
-        reservation.setGuestCount(actualGuestCount);
+        reservation.setGuestCount(actualGuestCount + Reservation.departedGuests(reservation.getRoomTypes()));
         reservationRepository.save(reservation);
 
         auditService.record(
@@ -2999,7 +2999,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             reservationRepository.save(reservation);
             return;
         }
-        if (hasRoomDepartures(reservation)) {
+        if (LegacyRoomDeparturePricing.isMultiRoom(reservation)) {
             var projection = legacyDeparturePricing.project(reservation, now);
             reservation.setTotalAmount(projection.total());
             reservation.setEarlyCheckoutAdjustment(projection.early());
@@ -3009,11 +3009,6 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         }
         applyEarlyCheckoutAdjustment(reservation, now);
         applyLateCheckoutFee(reservation, now);
-    }
-
-    private boolean hasRoomDepartures(Reservation reservation) {
-        return reservation.getRoomTypes().stream().flatMap(line -> line.getRooms().stream())
-                .anyMatch(slot -> slot.getDeparture() != null);
     }
 
     private void applyEarlyCheckoutAdjustment(Reservation reservation, LocalDateTime now) {
@@ -3130,7 +3125,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
         }
 
-        if (reservation.getStatus() == ReservationStatus.CHECKED_IN && hasRoomDepartures(reservation)) {
+        if (reservation.getStatus() == ReservationStatus.CHECKED_IN && LegacyRoomDeparturePricing.isMultiRoom(reservation)) {
             var mixed = legacyDeparturePricing.project(reservation, now);
             return new ProjectedCheckout(mixed.total().longValueExact(), mixed.early().longValueExact(), mixed.late().longValueExact(),
                     additionalFee.longValueExact(), addOnServiceAmount.longValueExact(), mixed.planned().longValueExact(),

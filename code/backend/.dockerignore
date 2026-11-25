@@ -3,7 +3,8 @@
 .env
 .env.*
 !.env.example
-target
+target/*
+!target/backend-*.jar
 storage
 docs
 db

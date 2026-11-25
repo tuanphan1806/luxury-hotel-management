@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     package \
     && cp target/backend-*.jar /workspace/backend.jar
 
-FROM eclipse-temurin:17-jre-jammy AS runtime
+FROM eclipse-temurin:17-jre-jammy AS runtime-base
 # Refresh APT/OpenSSL even when the base image predates Ubuntu security patches.
 # No retries while bootstrapping the APT fix (CVE-2026-109518).
 RUN apt-get -o Acquire::Retries=0 update \
@@ -28,7 +28,6 @@ RUN apt-get -o Acquire::Retries=0 update \
     && useradd --system --gid hotel --home-dir /app --shell /usr/sbin/nologin hotel
 
 WORKDIR /app
-COPY --from=build --chown=hotel:hotel /workspace/backend.jar /app/backend.jar
 
 # Stay times are hotel-local while provider/ledger timestamps remain Instant/UTC.
 ENV TZ=Asia/Ho_Chi_Minh \
@@ -38,3 +37,10 @@ ENV TZ=Asia/Ho_Chi_Minh \
 USER hotel
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/backend.jar"]
+
+# CI packages the verified sources with the production profile using the runner's Maven cache.
+FROM runtime-base AS verified-runtime
+COPY --chown=hotel:hotel target/backend-*.jar /app/backend.jar
+
+FROM runtime-base AS runtime
+COPY --from=build --chown=hotel:hotel /workspace/backend.jar /app/backend.jar

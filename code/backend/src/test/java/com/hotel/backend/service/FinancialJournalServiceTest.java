@@ -181,6 +181,20 @@ class FinancialJournalServiceTest {
     }
 
     @Test
+    void fullyDiscountedInvoicePostsDiscountAndRoomRevenueWithoutCustomerCash() {
+        var invoice = ReservationInvoice.builder().id(81L).invoiceNumber("INV-FULL-DISCOUNT")
+                .issuedAtUtc(Instant.parse("2026-07-27T12:00:00Z"))
+                .totalAmount(BigDecimal.ZERO).discountAmount(BigDecimal.valueOf(200000)).build();
+        var entry = service.postInvoice(invoice);
+        assertEquals(BigDecimal.valueOf(200000), entry.getTotalDebit());
+        assertEquals(entry.getTotalDebit(), entry.getTotalCredit());
+        var lines = capturedLines();
+        assertEquals(2, lines.size());
+        assertLine(lines, FinancialAccountCode.DISCOUNT, FinancialEntryDirection.DEBIT, 200000);
+        assertLine(lines, FinancialAccountCode.ROOM_REVENUE, FinancialEntryDirection.CREDIT, 200000);
+    }
+
+    @Test
     void closedDayRejectsOperatorPostingButLateProviderUsesCurrentDay() {
         Instant oldOccurredAt = Instant.parse("2026-07-26T12:00:00Z");
         LocalDate oldBusinessDate = LocalDate.of(2026, 7, 26);

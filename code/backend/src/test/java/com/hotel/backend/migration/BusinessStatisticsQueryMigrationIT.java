@@ -474,6 +474,29 @@ class BusinessStatisticsQueryMigrationIT {
         assertThat(repository.ledger(
                 period, "UNCLASSIFIED_CASH_OUT", "SEPAY", "REVIEW_REQUIRED",
                 0, 25).content()).singleElement();
+
+        // One extra room was occupied between 22:00 and 23:00 only.
+        jdbc.update("UPDATE reservation_room_types SET quantity = 2 WHERE reservation_id = ?", reservationId);
+        Long slotId = jdbc.queryForObject("""
+                INSERT INTO reservation_rooms(reservation_room_type_id, status)
+                SELECT id, 'CHECKED_OUT' FROM reservation_room_types WHERE reservation_id = ? RETURNING id
+                """, Long.class, reservationId);
+        jdbc.update("""
+                INSERT INTO reservation_room_departures(reservation_room_id, departed_at, departure_room_name,
+                    folio_number, billing_mode, departed_guests, billed_extra_guests, room_charge, included_late_fee,
+                    extra_charge, service_charge, additional_fee, allocated_payment, cash_collected)
+                VALUES (?, TIMESTAMP '2026-07-10 23:00:00', 'T-102', 'STATS-P2', 'GROUP', 1, 0, 40000, 0, 0, 0, 0, 0, 0)
+                """, slotId);
+        // Some existing Hibernate snapshots are stored as PostgreSQL large-object references.
+        jdbc.update("UPDATE reservation_invoices SET snapshot_json = lo_from_bytea(0, convert_to(snapshot_json, 'UTF8'))::text WHERE reservation_id = ?", reservationId);
+        assertThat(repository.dailyOccupancy(firstStayDay)).singleElement().satisfies(row ->
+                assertThat(row.soldHours()).isEqualByComparingTo("3"));
+        assertThat(repository.roomTypePerformance(firstStayDay)).singleElement().satisfies(row ->
+                assertThat(row.recognizedRoomRevenue()).isEqualByComparingTo("66000"));
+        assertThat(repository.roomTypePerformance(period)).singleElement().satisfies(row -> {
+            assertThat(row.soldHours()).isEqualByComparingTo("11");
+            assertThat(row.recognizedRoomRevenue()).isEqualByComparingTo("170000");
+        });
     }
 
     private DriverManagerDataSource freshDataSource() {

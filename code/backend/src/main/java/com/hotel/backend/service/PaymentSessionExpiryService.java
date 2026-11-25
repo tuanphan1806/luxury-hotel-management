@@ -30,6 +30,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class PaymentSessionExpiryService {
+    static final String TIMEOUT_MESSAGE = "Phiên thanh toán đã hết hạn";
 
     private static final ZoneId HOTEL_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
@@ -250,7 +251,7 @@ public class PaymentSessionExpiryService {
             payment.setExpiresAtUtc(payment.getExpiresAt().atZone(HOTEL_ZONE).toInstant());
         }
         payment.setMessage(transition == Transition.TIMEOUT
-                ? "Phiên thanh toán đã hết hạn"
+                ? TIMEOUT_MESSAGE
                 : "Khách đã rời trang QR trước khi thanh toán");
         transactionRepository.save(payment);
 

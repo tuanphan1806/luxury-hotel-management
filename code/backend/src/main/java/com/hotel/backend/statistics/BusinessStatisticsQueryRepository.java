@@ -875,53 +875,47 @@ public class BusinessStatisticsQueryRepository {
                         resultSet.getLong("no_show")));
     }
 
+    // A room that was released early has its own end time. Booked lines can still have unassigned units.
+    private static final String SOLD_INTERVALS = """
+            room_lines AS (
+                SELECT r.id AS reservation_id, l.id AS line_id, l.room_type_id, l.quantity,
+                       period.stay_start, period.stay_end
+                FROM reservations r JOIN reservation_room_types l ON l.reservation_id = r.id
+                CROSS JOIN LATERAL (
+                    SELECT COALESCE(r.actual_check_in, r.check_in) AS stay_start,
+                           COALESCE(r.actual_check_out, CASE WHEN r.status = 'CHECKED_IN'
+                               THEN GREATEST(r.check_out, CURRENT_TIMESTAMP AT TIME ZONE '%s')
+                               ELSE r.check_out END) AS stay_end
+                ) period
+                WHERE r.status IN ('CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT')
+                  AND period.stay_start < :toLocal AND period.stay_end > :fromLocal
+            ), released AS (
+                SELECT l.line_id, l.reservation_id, l.room_type_id, l.stay_start,
+                       LEAST(d.departed_at, l.stay_end) AS stay_end,
+                       d.room_charge - d.included_late_fee AS room_revenue, d.extra_charge AS extra_guest_revenue
+                FROM room_lines l
+                JOIN reservation_rooms slot ON slot.reservation_room_type_id = l.line_id
+                JOIN reservation_room_departures d ON d.reservation_room_id = slot.id
+            ), sold_intervals AS (
+                SELECT l.reservation_id, l.room_type_id, l.stay_start, l.stay_end,
+                       l.quantity - COALESCE(gone.units, 0) AS quantity
+                FROM room_lines l
+                LEFT JOIN (SELECT line_id, COUNT(*) AS units FROM released GROUP BY line_id) gone
+                    ON gone.line_id = l.line_id
+                WHERE l.quantity > COALESCE(gone.units, 0) AND l.stay_end > l.stay_start
+                UNION ALL
+                SELECT reservation_id, room_type_id, stay_start, stay_end, 1
+                FROM released WHERE stay_end > :fromLocal AND stay_end > stay_start
+            )
+            """.formatted(HOTEL_TIMEZONE);
+
     public List<DailyOccupancyRow> dailyOccupancy(StatisticsPeriod period) {
         String sql = """
                 WITH days AS (
                     SELECT generate_series(CAST(:fromDate AS date),
                                            CAST(:toDate AS date),
                                            INTERVAL '1 day')::date AS day
-                ), sold_intervals AS (
-                    SELECT reservation.id,
-                           room_line.quantity,
-                           CASE
-                               WHEN reservation.status IN ('CHECKED_IN', 'CHECKED_OUT')
-                                    AND reservation.actual_check_in IS NOT NULL
-                                   THEN reservation.actual_check_in
-                               ELSE reservation.check_in
-                           END AS stay_start,
-                           CASE
-                               WHEN reservation.status = 'CHECKED_OUT'
-                                    AND reservation.actual_check_out IS NOT NULL
-                                   THEN reservation.actual_check_out
-                               WHEN reservation.status = 'CHECKED_IN'
-                                   THEN GREATEST(
-                                       reservation.check_out,
-                                       CURRENT_TIMESTAMP AT TIME ZONE '%s')
-                               ELSE reservation.check_out
-                           END AS stay_end
-                    FROM reservations reservation
-                    JOIN reservation_room_types room_line
-                      ON room_line.reservation_id = reservation.id
-                    WHERE reservation.status IN
-                          ('CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT')
-                      AND (CASE
-                               WHEN reservation.status IN ('CHECKED_IN', 'CHECKED_OUT')
-                                    AND reservation.actual_check_in IS NOT NULL
-                                   THEN reservation.actual_check_in
-                               ELSE reservation.check_in
-                           END) < :toLocal
-                      AND (CASE
-                               WHEN reservation.status = 'CHECKED_OUT'
-                                    AND reservation.actual_check_out IS NOT NULL
-                                   THEN reservation.actual_check_out
-                               WHEN reservation.status = 'CHECKED_IN'
-                                   THEN GREATEST(
-                                       reservation.check_out,
-                                       CURRENT_TIMESTAMP AT TIME ZONE '%s')
-                               ELSE reservation.check_out
-                           END) > :fromLocal
-                ), sold AS (
+                ), %s, sold AS (
                     SELECT days.day,
                            SUM(EXTRACT(EPOCH FROM (
                                LEAST(sold_intervals.stay_end,
@@ -951,10 +945,12 @@ public class BusinessStatisticsQueryRepository {
                          AND room.status = 'MAINTENANCE')
                     GROUP BY days.day
                 ), revenue_intervals AS (
-                    SELECT invoice.id,
-                           COALESCE(invoice.actual_room_charge,
+                    SELECT gone.room_revenue + gone.extra_guest_revenue AS room_revenue, gone.stay_start, gone.stay_end
+                    FROM released gone JOIN reservation_invoices i ON i.reservation_id = gone.reservation_id
+                    UNION ALL
+                    SELECT COALESCE(invoice.actual_room_charge,
                                     invoice.room_charge, 0)
-                               + COALESCE(invoice.extra_guest_charge, 0)
+                               + COALESCE(invoice.extra_guest_charge, 0) - COALESCE(folios.amount, 0)
                                AS room_revenue,
                            COALESCE(reservation.actual_check_in,
                                     reservation.check_in) AS stay_start,
@@ -963,6 +959,8 @@ public class BusinessStatisticsQueryRepository {
                     FROM reservation_invoices invoice
                     JOIN reservations reservation
                       ON reservation.id = invoice.reservation_id
+                    LEFT JOIN (SELECT reservation_id, SUM(room_revenue + extra_guest_revenue) AS amount
+                               FROM released GROUP BY reservation_id) folios ON folios.reservation_id = reservation.id
                     WHERE COALESCE(reservation.actual_check_in,
                                    reservation.check_in) < :toLocal
                       AND COALESCE(reservation.actual_check_out,
@@ -1002,7 +1000,7 @@ public class BusinessStatisticsQueryRepository {
                 LEFT JOIN available USING (day)
                 LEFT JOIN allocated_revenue USING (day)
                 ORDER BY days.day
-                """.formatted(HOTEL_TIMEZONE, HOTEL_TIMEZONE, HOTEL_TIMEZONE);
+                """.formatted(SOLD_INTERVALS, HOTEL_TIMEZONE);
         MapSqlParameterSource parameters = localParameters(period)
                 .addValue("fromDate", Date.valueOf(period.from()))
                 .addValue("toDate", Date.valueOf(period.to()));
@@ -1020,56 +1018,12 @@ public class BusinessStatisticsQueryRepository {
                     SELECT generate_series(CAST(:fromDate AS date),
                                            CAST(:toDate AS date),
                                            INTERVAL '1 day')::date AS day
-                ), usage AS (
-                    SELECT room_type.id AS room_type_id,
-                           COUNT(DISTINCT reservation.id) AS booking_count,
-                           SUM(room_line.quantity) AS reserved_quantity,
-                           SUM(EXTRACT(EPOCH FROM (
-                               LEAST(
-                                   CASE
-                                       WHEN reservation.status = 'CHECKED_OUT'
-                                            AND reservation.actual_check_out IS NOT NULL
-                                           THEN reservation.actual_check_out
-                                       WHEN reservation.status = 'CHECKED_IN'
-                                           THEN GREATEST(
-                                               reservation.check_out,
-                                               CURRENT_TIMESTAMP AT TIME ZONE '%s')
-                                       ELSE reservation.check_out
-                                   END,
-                                   :toLocal)
-                               - GREATEST(
-                                   CASE
-                                       WHEN reservation.status IN ('CHECKED_IN', 'CHECKED_OUT')
-                                            AND reservation.actual_check_in IS NOT NULL
-                                           THEN reservation.actual_check_in
-                                       ELSE reservation.check_in
-                                   END,
-                                   :fromLocal)
-                           )) / 3600.0 * room_line.quantity) AS sold_hours
-                    FROM reservation_room_types room_line
-                    JOIN reservations reservation
-                      ON reservation.id = room_line.reservation_id
-                    JOIN room_types room_type
-                      ON room_type.id = room_line.room_type_id
-                    WHERE reservation.status IN
-                          ('CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT')
-                      AND (CASE
-                               WHEN reservation.status IN ('CHECKED_IN', 'CHECKED_OUT')
-                                    AND reservation.actual_check_in IS NOT NULL
-                                   THEN reservation.actual_check_in
-                               ELSE reservation.check_in
-                           END) < :toLocal
-                      AND (CASE
-                               WHEN reservation.status = 'CHECKED_OUT'
-                                    AND reservation.actual_check_out IS NOT NULL
-                                   THEN reservation.actual_check_out
-                               WHEN reservation.status = 'CHECKED_IN'
-                                   THEN GREATEST(
-                                       reservation.check_out,
-                                       CURRENT_TIMESTAMP AT TIME ZONE '%s')
-                               ELSE reservation.check_out
-                           END) > :fromLocal
-                    GROUP BY room_type.id
+                ), %s, usage AS (
+                    SELECT room_type_id, COUNT(DISTINCT reservation_id) AS booking_count,
+                           SUM(quantity) AS reserved_quantity,
+                           SUM(EXTRACT(EPOCH FROM (LEAST(stay_end, :toLocal) - GREATEST(stay_start, :fromLocal)))
+                               / 3600.0 * quantity) AS sold_hours
+                    FROM sold_intervals GROUP BY room_type_id
                 ), availability AS (
                     SELECT room.room_type_id,
                            COUNT(room.id) * 24.0 AS available_hours
@@ -1087,11 +1041,14 @@ public class BusinessStatisticsQueryRepository {
                          AND room.status = 'MAINTENANCE')
                     GROUP BY room.room_type_id
                 ), invoice_room_lines AS (
+                    SELECT gone.room_type_id, gone.room_revenue, gone.extra_guest_revenue, gone.stay_start, gone.stay_end
+                    FROM released gone JOIN reservation_invoices i ON i.reservation_id = gone.reservation_id
+                    UNION ALL
                     SELECT room_type.id AS room_type_id,
                            COALESCE((line ->> 'actualRoomCharge')::numeric, 0)
-                               AS room_revenue,
+                               - COALESCE(folios.room_revenue, 0) AS room_revenue,
                            COALESCE((line ->> 'extraGuestCharge')::numeric, 0)
-                               AS extra_guest_revenue,
+                               - COALESCE(folios.extra_guest_revenue, 0) AS extra_guest_revenue,
                            COALESCE(reservation.actual_check_in,
                                     reservation.check_in) AS stay_start,
                            COALESCE(reservation.actual_check_out,
@@ -1100,10 +1057,16 @@ public class BusinessStatisticsQueryRepository {
                     JOIN reservations reservation
                       ON reservation.id = invoice.reservation_id
                     CROSS JOIN LATERAL jsonb_array_elements(
-                        COALESCE(invoice.snapshot_json::jsonb -> 'roomTypes',
+                        COALESCE((CASE WHEN invoice.snapshot_json ~ '^[0-9]+$'
+                            THEN convert_from(lo_get(CAST(invoice.snapshot_json AS oid)), 'UTF8')::jsonb
+                            ELSE invoice.snapshot_json::jsonb END) -> 'roomTypes',
                                  '[]'::jsonb)) line
                     JOIN room_types room_type
                       ON room_type.code = line ->> 'roomTypeCode'
+                    LEFT JOIN (SELECT reservation_id, room_type_id, SUM(room_revenue) AS room_revenue,
+                                      SUM(extra_guest_revenue) AS extra_guest_revenue
+                               FROM released GROUP BY reservation_id, room_type_id) folios
+                      ON folios.reservation_id = reservation.id AND folios.room_type_id = room_type.id
                     WHERE COALESCE(reservation.actual_check_in,
                                    reservation.check_in) < :toLocal
                       AND COALESCE(reservation.actual_check_out,
@@ -1131,6 +1094,7 @@ public class BusinessStatisticsQueryRepository {
                                    stay_end - stay_start)), 0))
                                AS extra_guest_revenue
                     FROM invoice_room_lines
+                    WHERE stay_end > :fromLocal AND stay_start < :toLocal AND stay_end > stay_start
                     GROUP BY room_type_id
                 )
                 SELECT room_type.id,
@@ -1156,7 +1120,7 @@ public class BusinessStatisticsQueryRepository {
                    OR invoice_lines.room_type_id IS NOT NULL
                 ORDER BY recognized_room_revenue DESC,
                          room_type.type_name ASC
-                """.formatted(HOTEL_TIMEZONE, HOTEL_TIMEZONE, HOTEL_TIMEZONE);
+                """.formatted(SOLD_INTERVALS, HOTEL_TIMEZONE);
         MapSqlParameterSource parameters = localParameters(period)
                 .addValue("fromDate", Date.valueOf(period.from()))
                 .addValue("toDate", Date.valueOf(period.to()));

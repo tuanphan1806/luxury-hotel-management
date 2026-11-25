@@ -84,6 +84,7 @@ public class ReservationResponse {
     @Builder.Default
     private List<ReservationRefundResponse> refunds = List.of();
     private Integer guestCount;
+    private Integer inHouseGuestCount;
     private Boolean noShowEligible;
     private LocalDateTime noShowEligibleAt;
     private LocalDateTime createdAt;

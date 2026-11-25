@@ -93,7 +93,7 @@ public class RoomDepartureService {
     private record Charge(ReservationRoom slot, int guests, int extras, BigDecimal room,
                           BigDecimal extra, BigDecimal includedLate) {}
     private record Calculation(List<Charge> charges, List<RoomServiceAllocation> services, List<Guest> guests,
-                               boolean lastOccupied, long remainingGroupTotal, Quote quote, RoomFolioPayments.Progress collection) {}
+                               boolean lastOccupied, long previouslyIssued, long remainingGroupTotal, Quote quote, RoomFolioPayments.Progress collection) {}
 
     /** The remaining part of one pooled rate line; consuming a share carries VND rounding to the next room. */
     private static class LineBalance {
@@ -176,13 +176,15 @@ public class RoomDepartureService {
         BigDecimal extra = charges.stream().map(Charge::extra).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal service = services.stream().map(RoomServiceAllocation::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         long total = Math.addExact(room.add(extra).add(service).longValueExact(), selection.additionalFee());
-        long allocated = all.stream().map(ReservationRoom::getDeparture).filter(Objects::nonNull)
+        long previouslyIssued = all.stream().map(ReservationRoom::getDeparture).filter(Objects::nonNull)
                 .mapToLong(d -> d.getAllocatedPayment().longValueExact()).sum();
-        long netPaid = refunds.getNetPaidAmount(r.getId());
+        var funding = folioPayments.funding(r.getId(), previouslyIssued);
+        long netPaid = funding.netPaid();
+        long allocated = funding.netSeparate();
         long cashTender = collection == null ? 0 : collection.cash();
         long qrTender = collection == null ? 0 : collection.qr();
         long tendered = cashTender + qrTender;
-        if (tendered > total || tendered > netPaid - allocated) {
+        if (tendered > total || tendered > Math.max(0, netPaid - allocated)) {
             throw invalid("Khoản đã thu cần đối soát trên hóa đơn chung trước khi lập lại phiếu.");
         }
         long maximumCredit = Math.min(total - tendered, Math.max(0, netPaid - allocated - tendered));
@@ -194,7 +196,7 @@ public class RoomDepartureService {
         boolean last = all.stream().filter(s -> s.getStatus() == AssignStatus.CHECKED_IN).count() == selected.size();
         var quote = new Quote(room, extra, service, selection.additionalFee(), total, credit, minimumCredit, maximumCredit,
                 total - credit - tendered, cashTender, qrTender);
-        return new Calculation(charges, services, leavingGuests, last, projected.longValueExact() - allocated, quote, collection);
+        return new Calculation(charges, services, leavingGuests, last, previouslyIssued, projected.longValueExact() - allocated, quote, collection);
     }
 
     @Transactional
@@ -220,12 +222,14 @@ public class RoomDepartureService {
         }
         ReservationRoom first = selected.get(0);
         String folioNumber = r.getReservationCode() + "-P" + first.getId();
+        Long collectionId = separate ? (collection != null ? collection.id()
+                : folioPayments.start(id, new RoomFolioCollection.Pick(slotIds, command.selection()))) : null;
         if (cash > 0) {
             PaymentRequest payment = new PaymentRequest();
             payment.setBookingId(id);
             payment.setPurpose(PaymentPurpose.FINAL_PAYMENT);
             payment.setOrderInfo("Thanh toán phiếu phòng " + folioNumber);
-            cashier.createCashPayment(payment, request, operator, cash, null);
+            cashier.createCashPayment(payment, request, operator, cash, collectionId);
         }
         if (pricing.supports(r)) pricing.applyAutomatic(r, now, RateSnapshotStage.ADJUSTMENT);
 
@@ -251,7 +255,7 @@ public class RoomDepartureService {
         }
         first.getDepartureServices().addAll(calculation.services());
         calculation.guests().forEach(g -> g.setCheckedOutAt(now));
-        if (collection != null) folioPayments.close(collection.id());
+        if (separate) folioPayments.issue(id, collectionId, quote.total(), calculation.previouslyIssued());
         if (calculation.lastOccupied()) r.setActualCheckOut(now);
         var folio = RoomFolio.from(selected);
         audit.record(r, "RESERVATION_ROOM", String.valueOf(first.getId()), ReservationAuditAction.PARTIAL_CHECK_OUT,
@@ -275,13 +279,17 @@ public class RoomDepartureService {
         var calculation = prepare(reservation, slotIds, tender.selection(), LocalDateTime.now());
         checkSettlementAllowed(id, calculation, RoomBillingMode.SEPARATE);
         var collection = calculation.collection();
+        var quote = calculation.quote();
         if (collection != null && collection.pendingTransactionId() != null) {
             if (tender.provider() == PaymentProvider.SEPAY) {
+                if (!Objects.equals(collection.pendingAmount(), tender.expectedDue())
+                        || quote.cashDue() != tender.expectedDue() || quote.total() != tender.expectedTotal()) {
+                    throw invalid("Mệnh giá QR đang chờ khác báo giá mới. Kiểm tra giao dịch trước khi hủy hoặc tạo mã mới.");
+                }
                 return cashier.replayPaymentResponse(collection.pendingTransactionId(), operator, null);
             }
             throw invalid("Mã QR đang chờ. Hãy kiểm tra trạng thái hoặc hủy mã trước khi thu tiền mặt.");
         }
-        var quote = calculation.quote();
         if (quote.cashDue() != tender.expectedDue() || quote.total() != tender.expectedTotal()) {
             throw invalid("Số tiền phải thu đã đổi. Hãy cập nhật phiếu trước khi thu.");
         }

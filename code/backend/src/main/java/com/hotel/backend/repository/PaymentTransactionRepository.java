@@ -22,6 +22,14 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     List<PaymentTransaction> findByRoomFolioCollectionIdOrderById(Long collectionId);
 
+    @Query("""
+            SELECT COUNT(payment) > 0 FROM PaymentTransaction payment
+            WHERE payment.reservation.id = :reservationId AND payment.purpose = :purpose
+              AND payment.id <> :originalId AND payment.createdAt >= :createdAt
+            """)
+    boolean hasOtherSettlementSince(@Param("reservationId") Long reservationId, @Param("purpose") PaymentPurpose purpose,
+            @Param("originalId") String originalId, @Param("createdAt") LocalDateTime createdAt);
+
     boolean existsByStatus(PaymentStatus status);
 
     Optional<PaymentTransaction> findByTxnRef(String txnRef);

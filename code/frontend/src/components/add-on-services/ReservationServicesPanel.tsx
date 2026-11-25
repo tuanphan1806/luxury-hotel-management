@@ -64,9 +64,9 @@ export default function ReservationServicesPanel({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const canRequest = operator
+  const canRequest = guestCount > 0 && (operator
     ? ["CONFIRMED", "CHECKED_IN"].includes(reservationStatus)
-    : reservationStatus === "CHECKED_IN";
+    : reservationStatus === "CHECKED_IN");
 
   const money = (value?: number) => Number(value || 0).toLocaleString(localeTag, {
     style: "currency",

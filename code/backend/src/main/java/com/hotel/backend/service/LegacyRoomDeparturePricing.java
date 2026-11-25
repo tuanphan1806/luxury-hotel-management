@@ -16,6 +16,10 @@ public class LegacyRoomDeparturePricing {
     public record RoomAmount(BigDecimal base, BigDecimal late) {}
     public record Total(BigDecimal planned, BigDecimal actualBase, BigDecimal early, BigDecimal late, BigDecimal total) {}
 
+    public static boolean isMultiRoom(Reservation reservation) {
+        return reservation.getRoomTypes().stream().mapToInt(ReservationRoomType::getQuantity).sum() > 1;
+    }
+
     public RoomAmount active(Reservation r, ReservationRoomType line, LocalDateTime requested) {
         LocalDateTime end = r.getActualCheckOut() != null ? r.getActualCheckOut() : requested;
         BigDecimal base = line.getRoomPrice();
@@ -55,9 +59,13 @@ public class LegacyRoomDeparturePricing {
             actual = actual.add(charge.base());
             late = late.add(charge.late());
         }
-        BigDecimal early = planned.subtract(actual).max(BigDecimal.ZERO);
-        BigDecimal total = r.getTotalAmount().add(zero(r.getEarlyCheckoutAdjustment())).subtract(zero(r.getLateCheckoutFee()))
-                .subtract(early).add(late);
+        BigDecimal beforeEarly = r.getTotalAmount().add(zero(r.getEarlyCheckoutAdjustment()))
+                .subtract(zero(r.getLateCheckoutFee())).add(late);
+        // A discount can use up the pretax balance. Only persist the reduction actually applied so
+        // repeated quotes, returning to the planned checkout time, and later room charges replay correctly.
+        BigDecimal available = beforeEarly.subtract(zero(r.getTaxAmount())).max(BigDecimal.ZERO);
+        BigDecimal early = planned.subtract(actual).max(BigDecimal.ZERO).min(available);
+        BigDecimal total = beforeEarly.subtract(early).max(BigDecimal.ZERO);
         return new Total(planned, actual, early, late, total);
     }
 

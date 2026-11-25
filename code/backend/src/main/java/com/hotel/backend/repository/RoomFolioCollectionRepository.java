@@ -6,4 +6,5 @@ import java.util.Optional;
 
 public interface RoomFolioCollectionRepository extends JpaRepository<RoomFolioCollection, Long> {
     Optional<RoomFolioCollection> findByReservationIdAndClosedAtIsNull(Long reservationId);
+    java.util.List<RoomFolioCollection> findByReservationIdAndClosedAtIsNotNullOrderById(Long reservationId);
 }

@@ -51,6 +51,7 @@ public class ReservationInvoiceSnapshotService {
     private final ObjectMapper objectMapper;
     private final FinancialJournalService financialJournalService;
     private final LegacyRoomDeparturePricing legacyDeparturePricing;
+    private final RoomFolioPayments folioPayments;
 
     @Value("${app.hotel-name:Luxury Hotel}")
     private String hotelName;
@@ -82,6 +83,8 @@ public class ReservationInvoiceSnapshotService {
         List<ReservationServiceResponse> services =
                 reservationAddOnService.listInternal(reservation.getId());
         List<RoomFolio> folios = RoomFolio.issued(reservation.getRoomTypes().stream().flatMap(line -> line.getRooms().stream()).toList());
+        BigDecimal issuedSeparately = folios.stream().map(RoomFolio::allocatedPayment).reduce(BigDecimal.ZERO, BigDecimal::add);
+        long netSeparate = issuedSeparately.signum() == 0 ? 0 : folioPayments.funding(reservation.getId(), issuedSeparately.longValueExact()).netSeparate();
         BigDecimal addOnServiceAmount = services.stream()
                 .filter(item -> item.getStatus() == ReservationServiceStatus.CONFIRMED
                         || item.getStatus() == ReservationServiceStatus.FULFILLED)
@@ -97,6 +100,10 @@ public class ReservationInvoiceSnapshotService {
         BigDecimal extraGuestCharge = pricing.extraGuestCharge();
         BigDecimal earlyAdjustment = pricing.earlyCheckoutAdjustment();
         BigDecimal lateFee = pricing.lateCheckoutFee();
+        if (reservation.getPricingVersion() != PricingAlgorithmVersion.MOTEL_PACKAGE_V2
+                && LegacyRoomDeparturePricing.isMultiRoom(reservation)) {
+            discount = discount.min(roomCharge.add(lateFee).add(addOnServiceAmount).add(additionalFee));
+        }
 
         List<PaymentTransaction> transactions = paymentTransactionRepository
                 .findByReservationId(reservation.getId()).stream()
@@ -193,7 +200,8 @@ public class ReservationInvoiceSnapshotService {
                         .filter(slot -> slot.getRoom() != null)
                         .map(slot -> slot.getDeparture() == null ? slot.getRoom().getRoomName() : slot.getDeparture().getRoomName())
                         .sorted().toList())
-                .separatelySettledAmount(folios.stream().map(RoomFolio::allocatedPayment).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .separatelySettledAmount(issuedSeparately)
+                .netSeparatelySettledAmount(BigDecimal.valueOf(netSeparate))
                 .grossPaidAmount(grossPaid)
                 .refundedAmount(refunded)
                 .completedRefundAmount(refunded)
@@ -284,12 +292,12 @@ public class ReservationInvoiceSnapshotService {
                     .subtract(additionalFee)
                     .subtract(addOnServiceAmount)
                     .max(BigDecimal.ZERO);
-            boolean hasPartialDeparture = reservation.getRoomTypes().stream().flatMap(line -> line.getRooms().stream())
-                    .anyMatch(slot -> slot.getDeparture() != null);
+            boolean multiRoom = LegacyRoomDeparturePricing.isMultiRoom(reservation)
+                    && reservation.getActualCheckOut() != null && reservation.getCheckOut() != null;
             List<ReservationInvoiceResponse.RoomTypeLine> lines =
                     reservation.getRoomTypes().stream()
                             .map(item -> {
-                                BigDecimal actual = hasPartialDeparture
+                                BigDecimal actual = multiRoom
                                         ? legacyDeparturePricing.lineTotal(reservation, item, reservation.getActualCheckOut()).base()
                                         : item.getSubtotal();
                                 return ReservationInvoiceResponse
@@ -317,8 +325,12 @@ public class ReservationInvoiceSnapshotService {
                                     .build();
                             })
                             .toList();
+            if (multiRoom) roomCharge = lines.stream().map(ReservationInvoiceResponse.RoomTypeLine::getActualRoomCharge)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal planned = multiRoom ? lines.stream().map(ReservationInvoiceResponse.RoomTypeLine::getPlannedRoomCharge)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add) : roomCharge.add(earlyAdjustment);
             return new InvoicePricing(
-                    roomCharge.add(earlyAdjustment),
+                    planned,
                     roomCharge,
                     BigDecimal.ZERO,
                     lateFee,

@@ -7,6 +7,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /** The desk can recover this selection across devices while its payments settle. */
 @Entity
@@ -23,9 +24,13 @@ public class RoomFolioCollection {
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
 
-    public record Pick(List<Long> slotIds, RoomFolioSelection selection) {
+    public record Pick(List<Long> slotIds, RoomFolioSelection selection, Map<String, Long> appliedPayments) {
+        public Pick(List<Long> slotIds, RoomFolioSelection selection) {
+            this(slotIds, selection, Map.of());
+        }
         public Pick {
             slotIds = slotIds.stream().sorted().toList();
+            appliedPayments = appliedPayments == null ? Map.of() : Map.copyOf(appliedPayments);
         }
     }
 }

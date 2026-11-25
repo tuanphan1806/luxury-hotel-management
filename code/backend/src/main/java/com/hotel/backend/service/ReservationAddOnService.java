@@ -650,10 +650,11 @@ public class ReservationAddOnService {
     }
 
     private int requireGuestCount(Reservation reservation) {
-        if (reservation.getGuestCount() == null || reservation.getGuestCount() < 1) {
-            throw new AppException(ErrorCode.INVALID_REQUEST, "Đơn chưa có số khách hợp lệ");
+        int count = reservation.inHouseGuestCount(reservation.getRoomTypes());
+        if (count < 1) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Đơn không còn khách để thêm dịch vụ.");
         }
-        return reservation.getGuestCount();
+        return count;
     }
 
     private void requireOperator(User user) {

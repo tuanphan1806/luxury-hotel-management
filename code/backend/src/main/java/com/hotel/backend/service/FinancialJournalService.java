@@ -207,7 +207,8 @@ public class FinancialJournalService {
         FinancialJournalEntry existing = existing(sourceType, sourceId, postingKind);
         if (existing != null) return existing;
 
-        BigDecimal total = money(invoice.getTotalAmount(), "invoice total");
+        if (invoice.getTotalAmount() == null) throw invalid("invoice total is required");
+        BigDecimal total = nonNegative(invoice.getTotalAmount(), "invoice total");
         BigDecimal discount = nonNegative(invoice.getDiscountAmount(), "discount");
         BigDecimal tax = nonNegative(invoice.getTaxAmount(), "tax");
         BigDecimal service = nonNegative(invoice.getAddOnServiceAmount(), "add-on service")

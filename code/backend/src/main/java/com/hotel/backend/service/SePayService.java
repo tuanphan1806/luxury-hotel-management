@@ -30,6 +30,7 @@ import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
 import com.hotel.backend.exception.AppException;
 import com.hotel.backend.exception.ErrorCode;
 import com.hotel.backend.repository.PaymentTransactionRepository;
+import com.hotel.backend.repository.RoomFolioCollectionRepository;
 import com.hotel.backend.repository.PaymentProviderEventRepository;
 import com.hotel.backend.repository.PaymentRefundRepository;
 import com.hotel.backend.repository.ReservationRepository;
@@ -87,6 +88,7 @@ public class SePayService {
     private final SePayWebhookAuthenticator webhookAuthenticator;
     private final SePayEventIdentity eventIdentity;
     private final FinancialJournalService financialJournalService;
+    private final RoomFolioCollectionRepository folioCollections;
 
     public void validateCheckoutConfig() {
         validateQrConfig();
@@ -889,11 +891,10 @@ public class SePayService {
         transaction.setPaidAtUtc(event.getProviderOccurredAtUtc() != null
                 ? event.getProviderOccurredAtUtc() : Instant.now());
 
-        boolean recoveredOnTime = transaction.getPurpose() == PaymentPurpose.DEPOSIT
-                && transaction.getStatus() == PaymentStatus.CANCELLED
-                && reservationService.recoverOnTimeDepositPayment(
+        boolean recoveredOnTime = transaction.getStatus() == PaymentStatus.CANCELLED
+                && (transaction.getPurpose() == PaymentPurpose.DEPOSIT ? reservationService.recoverOnTimeDepositPayment(
                 transaction.getReservation().getId(), transaction.getId(),
-                event.getProviderOccurredAtUtc());
+                event.getProviderOccurredAtUtc()) : canResumeTimedOutSettlement(transaction, event.getProviderOccurredAtUtc()));
         boolean latePayment = transaction.getStatus() == PaymentStatus.FAILED
                 || (!recoveredOnTime && transaction.getStatus() == PaymentStatus.CANCELLED)
                 || (!recoveredOnTime && !canAcceptSuccessfulPayment(
@@ -1173,6 +1174,19 @@ public class SePayService {
                 .message("Khách chuyển thêm sau khi mã thanh toán đã được xử lý; phải hoàn toàn bộ")
                 .build();
         return transactionRepository.save(captured);
+    }
+
+    private boolean canResumeTimedOutSettlement(PaymentTransaction transaction, Instant occurredAt) {
+        if (transaction.getPurpose() != PaymentPurpose.FINAL_PAYMENT || transaction.getCreatedAt() == null
+                || !PaymentSessionExpiryService.TIMEOUT_MESSAGE.equals(transaction.getMessage())
+                || !canAcceptSuccessfulPayment(transaction, occurredAt)) return false;
+        // The reservation lock also serializes opening a new folio, cancelling a QR and posting cash.
+        Long reservationId = transaction.getReservation().getId();
+        Long openFolio = folioCollections.findByReservationIdAndClosedAtIsNull(reservationId)
+                .map(com.hotel.backend.entity.RoomFolioCollection::getId).orElse(null);
+        return java.util.Objects.equals(openFolio, transaction.getRoomFolioCollectionId())
+                && !transactionRepository.hasOtherSettlementSince(reservationId, PaymentPurpose.FINAL_PAYMENT,
+                    transaction.getId(), transaction.getCreatedAt());
     }
 
     private boolean canAcceptSuccessfulPayment(
