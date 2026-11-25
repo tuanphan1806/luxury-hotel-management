@@ -36,6 +36,7 @@ public class CheckoutReconciliationResponse {
     private Long checkoutAdditionalFee;
     private Long addOnServiceAmount;
     private boolean paymentPending;
+    private boolean roomFolioInProgress;
     private boolean refundPending;
     private CheckoutReconciliationStatus status;
     private List<String> blockingReasons;

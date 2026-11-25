@@ -45,12 +45,13 @@ export async function openStaffShift(request: APIRequestContext, adminToken: str
   expect(current.status()).toBe(200);
   const cashierShift = (await current.json()).data;
   expect(cashierShift.status).toBe('OPEN');
-  return async () => {
-    await post(`/api/work-schedules/assignments/${assignment.id}/check-out`, { note: 'QA verification completed' }, staffToken);
-    const closed = await request.get(`${api}/api/accounting/cashier-shifts/current`, { headers: staffHeaders });
+  return async (currentToken = staffToken) => {
+    const closingHeaders = { Authorization: `Bearer ${currentToken}` };
+    await post(`/api/work-schedules/assignments/${assignment.id}/check-out`, { note: 'QA verification completed' }, currentToken);
+    const closed = await request.get(`${api}/api/accounting/cashier-shifts/current`, { headers: closingHeaders });
     expect(closed.status()).toBe(200);
     expect((await closed.json()).data ?? null).toBeNull();
-    const shift = await request.get(`${api}/api/accounting/cashier-shifts/${cashierShift.id}`, { headers: staffHeaders });
+    const shift = await request.get(`${api}/api/accounting/cashier-shifts/${cashierShift.id}`, { headers: closingHeaders });
     expect(shift.status()).toBe(200);
     expect((await shift.json()).data.status).toBe('CLOSED');
   };

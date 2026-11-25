@@ -65,6 +65,24 @@ public class PaymentService {
             HttpServletRequest httpRequest,
             User currentUser,
             String guestToken) {
+        return createOnlinePayment(request, httpRequest, currentUser, guestToken, null, null);
+    }
+
+    @Transactional
+    public PaymentResponse collectRoomFolio(Long reservationId, Long collectionId, long amount, PaymentProvider provider,
+            HttpServletRequest httpRequest, User operator) {
+        PaymentRequest payment = new PaymentRequest();
+        payment.setBookingId(reservationId);
+        payment.setPurpose(PaymentPurpose.FINAL_PAYMENT);
+        payment.setProvider(provider);
+        payment.setOrderInfo("Thanh toán phiếu phòng " + collectionId);
+        return provider == PaymentProvider.CASH
+                ? createCashPayment(payment, httpRequest, operator, amount, collectionId)
+                : createOnlinePayment(payment, httpRequest, operator, null, amount, collectionId);
+    }
+
+    private PaymentResponse createOnlinePayment(PaymentRequest request, HttpServletRequest httpRequest, User currentUser,
+                                                String guestToken, Long folioAmount, Long collectionId) {
         String ipAddress = clientIpResolver.resolve(httpRequest);
         // Lock the payment aggregate before validation and insert. This prevents
         // concurrent requests from both observing an unpaid balance and creating
@@ -74,6 +92,7 @@ public class PaymentService {
         accessPolicy.ensureCanAccessReservation(currentUser, reservation, guestToken);
         validateReservationCanAcceptPayment(reservation);
         validateOnlinePaymentAllowed(reservation);
+        validateCollectionScope(reservation, collectionId);
 
         PaymentProvider requestedProvider = request.getProvider() != null
                 ? request.getProvider() : PaymentProvider.SEPAY;
@@ -89,10 +108,10 @@ public class PaymentService {
         // Số tiền và mục đích phải khớp với phiên cũ trước khi cho
         // phép idempotent reuse; không trả nhầm QR đã cũ khi phụ phí thay đổi.
         PaymentBalanceCalculator.PaymentBalance balance = balanceCalculator.resolve(reservation);
-        long amount = balance.defaultAmount();
+        long amount = folioAmount == null ? balance.defaultAmount() : folioAmount;
         validatePaymentAmount(amount, balance.remainingAmount());
         PaymentPurpose purpose = resolvePaymentPurpose(reservation, request.getPurpose());
-        PaymentTransaction reusablePayment = findReusablePendingPayment(reservation, amount, purpose);
+        PaymentTransaction reusablePayment = findReusablePendingPayment(reservation, amount, purpose, collectionId);
         if (reusablePayment != null) {
             validateDepositHoldIsActive(reservation);
             log.info("Trả lại phiên SePay đang chờ: txnRef={}, reservationId={}",
@@ -119,6 +138,7 @@ public class PaymentService {
         PaymentTransaction transaction = PaymentTransaction.builder()
                 .reservation(reservation)
                 .txnRef(txnRef)
+                .roomFolioCollectionId(collectionId)
                 .provider(PaymentProvider.SEPAY)
                 .purpose(purpose)
                 .status(PaymentStatus.PENDING)
@@ -165,7 +185,7 @@ public class PaymentService {
         long amount = requestedAmount != null ? requestedAmount : balance.defaultAmount();
         validatePaymentAmount(amount, balance.remainingAmount());
         PaymentTransaction reusable = findReusablePendingPayment(
-                reservation, amount, PaymentPurpose.WALK_IN);
+                reservation, amount, PaymentPurpose.WALK_IN, null);
         if (reusable != null) {
             return toSePayCreateResponse(reusable, "Phiên VietQR walk-in đang chờ thanh toán");
         }
@@ -205,6 +225,13 @@ public class PaymentService {
 
     @Transactional
     public PaymentResponse createCashPayment(PaymentRequest request, HttpServletRequest httpRequest, User currentUser) {
+        return createCashPayment(request, httpRequest, currentUser, null, null);
+    }
+
+    // Called only under the reservation lock after the room folio has priced the exact outstanding amount.
+    @Transactional
+    PaymentResponse createCashPayment(PaymentRequest request, HttpServletRequest httpRequest, User currentUser,
+                                      Long roomFolioAmount, Long collectionId) {
         String ipAddress = clientIpResolver.resolve(httpRequest);
         // Cash collection shares the same critical section as online payment so
         // two front-desk requests cannot collect the same remaining balance.
@@ -213,8 +240,10 @@ public class PaymentService {
         accessPolicy.ensureCanAccessReservation(currentUser, reservation);
         validateReservationCanAcceptPayment(reservation);
         validateCashPaymentAllowed(reservation);
+        validateCollectionScope(reservation, collectionId);
+        validateNoPendingFinalPayment(reservation);
         PaymentBalanceCalculator.PaymentBalance balance = balanceCalculator.resolve(reservation);
-        long amount = balance.defaultAmount();
+        long amount = roomFolioAmount != null ? roomFolioAmount : balance.defaultAmount();
         validatePaymentAmount(amount, balance.remainingAmount());
 
         String txnRef = PaymentUtil.generateTxnRef("CASH-" + request.getBookingId());
@@ -226,6 +255,7 @@ public class PaymentService {
         PaymentTransaction transaction = PaymentTransaction.builder()
                 .reservation(reservation)
                 .txnRef(txnRef)
+                .roomFolioCollectionId(collectionId)
                 .provider(PaymentProvider.CASH)
                 .purpose(resolvePaymentPurpose(reservation, request.getPurpose()))
                 .status(PaymentStatus.SUCCESS)
@@ -276,12 +306,12 @@ public class PaymentService {
     // ==================== TRUY VẤN ====================
 
     @Transactional(readOnly = true)
-    public PaymentTransaction getTransaction(String transactionId, User currentUser) {
+    public PaymentResponse getTransaction(String transactionId, User currentUser) {
         PaymentTransaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Không tìm thấy giao dịch: " + transactionId));
         accessPolicy.ensureCanAccessReservation(currentUser, transaction.getReservation());
-        return transaction;
+        return PaymentResponse.from(transaction);
     }
 
     @Transactional(readOnly = true)
@@ -351,6 +381,13 @@ public class PaymentService {
                 .contains(reservation.getStatus())) {
             throw new AppException(ErrorCode.INVALID_REQUEST,
                     "Không thể thanh toán cho đặt phòng đã hủy hoặc đã checkout");
+        }
+    }
+
+    private void validateCollectionScope(Reservation reservation, Long collectionId) {
+        if (collectionId == null && reservation.getStatus() == ReservationStatus.CHECKED_IN
+                && reservationRepository.hasOpenRoomFolioCollection(reservation.getId())) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Có phiếu từng căn đang thu tiền. Hãy hoàn tất hoặc đóng phiếu tại Trả từng căn.");
         }
     }
 
@@ -458,13 +495,14 @@ public class PaymentService {
     private PaymentTransaction findReusablePendingPayment(
             Reservation reservation,
             long expectedAmount,
-            PaymentPurpose expectedPurpose) {
+            PaymentPurpose expectedPurpose, Long collectionId) {
         LocalDateTime now = LocalDateTime.now(HOTEL_ZONE);
         Instant nowUtc = Instant.now();
         return transactionRepository.findByReservationId(reservation.getId()).stream()
                 .filter(payment -> payment.getProvider() == PaymentProvider.SEPAY)
                 .filter(payment -> payment.getStatus() == PaymentStatus.PENDING)
                 .filter(payment -> payment.getPurpose() == expectedPurpose)
+                .filter(payment -> java.util.Objects.equals(payment.getRoomFolioCollectionId(), collectionId))
                 .filter(payment -> java.util.Objects.equals(
                         payment.getExpectedAmount() != null
                                 ? payment.getExpectedAmount() : payment.getAmount(),

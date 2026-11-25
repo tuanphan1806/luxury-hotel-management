@@ -58,6 +58,9 @@ public class ReservationInvoiceResponse {
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
+    private List<RoomFolio> roomFolios;
+    private List<String> groupRoomNames;
+    private BigDecimal separatelySettledAmount;
     private Long grossPaidAmount;
     private Long refundedAmount;
     private Long completedRefundAmount;
@@ -99,6 +102,7 @@ public class ReservationInvoiceResponse {
         private String purpose;
         private String status;
         private Long amount;
+        private Long receivedAmount;
         private Long refundAmount;
         private String refundProvider;
         private RefundChannel refundChannel;

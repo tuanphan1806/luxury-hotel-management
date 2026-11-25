@@ -12,6 +12,8 @@ import java.io.Serializable;
 
 @Entity
 @Table(name = "reservation_rooms")
+@SecondaryTable(name = "reservation_room_departures",
+        pkJoinColumns = @PrimaryKeyJoinColumn(name = "reservation_room_id"))
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
 @Builder
@@ -35,6 +37,15 @@ public class ReservationRoom extends AbstractEntity<Long> implements Serializabl
     @Column(nullable = false, columnDefinition = "VARCHAR(20) DEFAULT 'PENDING_ASSIGN'")
     @Builder.Default
     private AssignStatus status = AssignStatus.PENDING_ASSIGN;
+
+    @Embedded
+    private RoomDeparture departure;
+
+    @ElementCollection
+    @CollectionTable(name = "room_departure_services", joinColumns = @JoinColumn(name = "reservation_room_id"))
+    @OrderBy("orderId")
+    @Builder.Default
+    private java.util.List<RoomServiceAllocation> departureServices = new java.util.ArrayList<>();
 
     @Builder.Default
     @OneToMany(mappedBy = "reservationRoom", cascade = CascadeType.ALL, orphanRemoval = true)

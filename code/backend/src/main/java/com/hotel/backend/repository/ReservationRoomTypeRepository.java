@@ -42,10 +42,11 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
     );
 
     @Query("""
-        SELECT rrt
+        SELECT DISTINCT rrt
         FROM ReservationRoomType rrt
         JOIN FETCH rrt.roomType
         LEFT JOIN FETCH rrt.roomHold
+        LEFT JOIN FETCH rrt.rooms
         WHERE rrt.reservation.id = :reservationId
         ORDER BY rrt.roomType.id
     """)
@@ -69,7 +70,11 @@ public interface ReservationRoomTypeRepository extends JpaRepository<Reservation
 
     @Query("""
         SELECT DISTINCT line.id AS lineId, line.roomType.id AS roomTypeId,
-               assigned.room.id AS assignedRoomId, line.quantity AS quantity, r.status AS reservationStatus,
+               assigned.room.id AS assignedRoomId,
+               CASE WHEN r.status = 'CHECKED_IN' THEN line.quantity - CAST((SELECT COUNT(gone.id) FROM ReservationRoom gone
+                   WHERE gone.reservationRoomType = line AND gone.departure.departedAt IS NOT NULL) AS INTEGER)
+                   ELSE line.quantity END AS quantity,
+               r.status AS reservationStatus,
                CASE WHEN r.actualCheckIn < r.checkIn THEN r.actualCheckIn ELSE r.checkIn END AS startsAt,
                COALESCE(r.inventoryProtectedUntil, r.checkOut) AS endsAt
         FROM ReservationRoomType line JOIN line.reservation r

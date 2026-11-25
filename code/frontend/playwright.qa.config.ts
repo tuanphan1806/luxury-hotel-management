@@ -7,7 +7,7 @@ process.env.QA_MERCHANT_BANK_ACCOUNT = '0000000000';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: /(?:reservation-runtime|sepay-online-runtime|management-crud|authenticated-access)\.spec\.ts/,
+  testMatch: /(?:reservation-runtime|sepay-online-runtime|management-crud|authenticated-access|group-room-checkout|room-folio-exceptions)\.spec\.ts/,
   globalSetup: './tests/qa/verify-isolation.ts',
   fullyParallel: false,
   workers: 1,

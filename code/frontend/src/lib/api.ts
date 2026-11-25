@@ -52,6 +52,14 @@ export const getApiErrorMessage = (error: unknown, fallback: string): string => 
 export const getApiErrorStatus = (error: unknown): number | undefined =>
   axios.isAxiosError(error) ? error.response?.status : undefined;
 
+export function getApiErrorCode(error: unknown): number | undefined {
+  if (!error || typeof error !== "object" || !("response" in error)) return undefined;
+  const response = error.response;
+  if (!response || typeof response !== "object" || !("data" in response)) return undefined;
+  const data = response.data;
+  return data && typeof data === "object" && "code" in data && typeof data.code === "number" ? data.code : undefined;
+}
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {

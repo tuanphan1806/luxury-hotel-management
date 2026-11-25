@@ -134,6 +134,54 @@ class PricingV2LifecycleServiceTest {
     }
 
     @Test
+    void releasedRoomCannotLendItsIncludedGuestAllowanceToARemainingRoom() {
+        var rate = commitment.getRateProfile();
+        rate.setIncludedGuests(2);
+        rate.getRoomType().setMaxGuests(3);
+        reservationLine.setQuantity(2);
+        commitment = snapshot(1, RateSnapshotStage.COMMITMENT, PricingTransitionReason.INITIAL_QUOTE,
+                rate, commitment.getStayPolicyVersion(), reservation.getCheckOut(),
+                money("340000"), money("0"), money("0"), 2, 3, StayPackage.OVERNIGHT, money("340000"));
+        when(snapshotRepository.findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(reservationLine.getId()))
+                .thenReturn(List.of(commitment));
+        reservationLine.getRooms().add(ReservationRoom.builder().status(AssignStatus.CHECKED_OUT)
+                .departure(RoomDeparture.builder().guestCount(1).billedExtraGuests(0)
+                        .roomCharge(money("70000")).extraCharge(money("0")).build()).build());
+        var projection = service.applyGuestDistributionCorrection(reservation, reservation.getCheckIn().plusHours(27),
+                Map.of(reservationLine.getId(), 3));
+        var line = projection.lines().get(0);
+        assertEquals(1, line.breakdown().extraGuestCount());
+        assertEquals(2, line.breakdown().packageCycles());
+        assertEquals(money("100000"), line.finalExtraGuestCharge());
+    }
+
+    @Test
+    void oneEarlyDepartureStaysAtItsActualRateWhileOtherRoomStaysOvernightOrLate() {
+        reservationLine.setQuantity(2);
+        commitment = snapshot(1, RateSnapshotStage.COMMITMENT, PricingTransitionReason.INITIAL_QUOTE,
+                commitment.getRateProfile(), commitment.getStayPolicyVersion(), reservation.getCheckOut(),
+                money("340000"), money("0"), money("0"), 2, 2, StayPackage.OVERNIGHT, money("340000"));
+        when(snapshotRepository.findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(reservationLine.getId()))
+                .thenReturn(List.of(commitment));
+        reservation.setTotalAmount(money("340000"));
+
+        var leftAt = LocalDateTime.of(2026, 8, 1, 22, 30);
+        assertEquals(money("140000"), service.project(reservation, leftAt).actualRoomCharge());
+        // The release transaction applies the authoritative group projection at the instant of departure.
+        var latest = snapshot(2, RateSnapshotStage.ADJUSTMENT, PricingTransitionReason.ACTUAL_CHECKOUT,
+                commitment.getRateProfile(), commitment.getStayPolicyVersion(), leftAt,
+                money("140000"), money("0"), money("-200000"), 2, 2);
+        when(snapshotRepository.findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(reservationLine.getId()))
+                .thenReturn(List.of(commitment, latest));
+        reservation.setTotalAmount(money("140000"));
+        reservationLine.getRooms().add(ReservationRoom.builder().status(AssignStatus.CHECKED_OUT)
+                .departure(RoomDeparture.builder().departedAt(leftAt).guestCount(1).billedExtraGuests(0)
+                        .roomCharge(money("70000")).extraCharge(money("0")).build()).build());
+        assertEquals(money("240000"), service.project(reservation, reservation.getCheckOut()).projectedTotalAmount());
+        assertEquals(money("260000"), service.project(reservation, reservation.getCheckOut().plusHours(1)).projectedTotalAmount());
+    }
+
+    @Test
     void overnightCheckoutBeforeRefundLockRepricesActualUsageAndPersistsAdjustment() {
         LocalDateTime actualCheckout =
                 LocalDateTime.of(2026, 8, 1, 22, 30);
@@ -389,6 +437,25 @@ class PricingV2LifecycleServiceTest {
     }
 
     @Test
+    void extraGuestOnReleasedRoomStopsAccruingWhileAnotherExtraGuestStays() {
+        reservationLine.setQuantity(3);
+        commitment = snapshot(1, RateSnapshotStage.COMMITMENT, PricingTransitionReason.INITIAL_QUOTE,
+                commitment.getRateProfile(), commitment.getStayPolicyVersion(), reservation.getCheckOut(),
+                money("510000"), money("0"), money("0"), 3, 5, StayPackage.OVERNIGHT, money("510000"));
+        when(snapshotRepository.findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(reservationLine.getId()))
+                .thenReturn(List.of(commitment));
+        var later = reservation.getCheckOut().plusDays(1);
+        var entire = service.project(reservation, later);
+        assertTrue(entire.extraGuestCharge().signum() > 0);
+        reservationLine.getRooms().add(ReservationRoom.builder().status(AssignStatus.CHECKED_OUT)
+                .departure(RoomDeparture.builder().guestCount(2).billedExtraGuests(1)
+                        .roomCharge(money("170000")).extraCharge(money("50000")).build()).build());
+        var mixed = service.project(reservation, later);
+        assertEquals(entire.extraGuestCharge().divide(BigDecimal.valueOf(2)).add(money("50000")), mixed.extraGuestCharge());
+        assertEquals(entire.actualRoomCharge().divide(BigDecimal.valueOf(3)).multiply(BigDecimal.valueOf(2)).add(money("170000")), mixed.actualRoomCharge());
+    }
+
+    @Test
     void earlyArrivalUsesActualStartAndChargesBothEarlyAndLateUnits() {
         reservation.setActualCheckIn(
                 LocalDateTime.of(2026, 8, 1, 19, 30));
@@ -527,8 +594,8 @@ class PricingV2LifecycleServiceTest {
                 .appliedPackage(stayPackage)
                 .maxPackageReached(stayPackage)
                 .transitionReason(reason)
-                .includedGuests(1)
-                .maxGuestsSnapshot(2)
+                .includedGuests(rate.getIncludedGuests())
+                .maxGuestsSnapshot(rate.getRoomType().getMaxGuests())
                 .lineGuestCount(lineGuestCount)
                 .roomQuantity(roomQuantity)
                 .extraGuestCount(0)

@@ -75,6 +75,7 @@ function PaymentResultContent() {
   const [copiedField, setCopiedField] = React.useState<"amount" | "account" | "content" | null>(null);
   const [copyError, setCopyError] = React.useState("");
   const [abandonError, setAbandonError] = React.useState("");
+  const [staffRoomFolio, setStaffRoomFolio] = React.useState(false);
   const [isAbandoning, setIsAbandoning] = React.useState(false);
   const paymentRef = React.useRef<VerifiedPaymentResult | null>(null);
   const copyResetTimerRef = React.useRef<number | undefined>(undefined);
@@ -123,6 +124,8 @@ function PaymentResultContent() {
 
         paymentRef.current = payment;
         setVerification({ state: "verified", payment });
+        const fromRoomFolio = sessionStorage.getItem("staff_room_folio_transaction") === transactionId;
+        setStaffRoomFolio(fromRoomFolio);
 
         const normalizedStatus = payment.status.toUpperCase();
         if (PENDING_STATUSES.has(normalizedStatus)) {
@@ -137,6 +140,11 @@ function PaymentResultContent() {
         }
 
         const bookingId = String(payment.bookingId);
+        if (fromRoomFolio) {
+          sessionStorage.removeItem("staff_room_folio_transaction");
+          router.replace(`/dashboard/reservations?roomFolioId=${encodeURIComponent(bookingId)}`);
+          return;
+        }
         const staffFinalPaymentId = sessionStorage.getItem("staff_final_payment_reservation_id");
         if (staffFinalPaymentId === bookingId) {
           sessionStorage.removeItem("staff_final_payment_reservation_id");
@@ -288,9 +296,15 @@ function PaymentResultContent() {
       await publicApiClient.post(
         `/api/payments/result/${encodeURIComponent(transactionId)}/abandon`,
       );
-      router.replace("/rooms");
+      if (staffRoomFolio && paymentRef.current) {
+        sessionStorage.removeItem("staff_room_folio_transaction");
+        router.replace(`/dashboard/reservations?roomFolioId=${paymentRef.current.bookingId}`);
+      } else router.replace("/rooms");
     } catch {
-      setAbandonError(localize(
+      setAbandonError(staffRoomFolio ? localize(
+        "Chưa hủy được QR của phiếu phòng. Vui lòng kiểm tra lại trạng thái giao dịch.",
+        "Could not cancel this folio QR. Check the transaction status and try again.",
+      ) : localize(
         "Chưa thể hủy phiên thanh toán. Vui lòng thử lại; phòng vẫn tự nhả khi hết 5 phút.",
         "We could not cancel this payment session. Try again; the room will still release when the five-minute timer ends.",
       ));
@@ -382,7 +396,7 @@ function PaymentResultContent() {
       : isRefundPending
         ? localize("Giao dịch chờ hoàn tiền", "Refund pending")
         : isPending
-          ? localize("Thanh toán đang được xác minh", "Payment verification pending")
+          ? staffRoomFolio ? localize("Thanh toán phiếu phòng", "Room folio payment") : localize("Thanh toán đang được xác minh", "Payment verification pending")
           : isExpired
             ? localize("Phiên thanh toán đã hết hạn", "Payment session expired")
           : isFailure
@@ -711,7 +725,7 @@ function PaymentResultContent() {
           </dl>
 
           <div className="payment-receipt-no-print flex flex-col gap-3 pt-1 sm:flex-row">
-            {isPending && isDeposit && (
+            {isPending && (isDeposit || staffRoomFolio) && (
               <button
                 type="button"
                 onClick={() => void handleAbandonPayment()}
@@ -719,8 +733,8 @@ function PaymentResultContent() {
                 className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-rose-300 px-5 text-xs font-bold text-rose-800 transition hover:bg-rose-50 active:translate-y-px disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]"
               >
                 {isAbandoning
-                  ? localize("Đang nhả phòng...", "Releasing room...")
-                  : localize("Hủy thanh toán và chọn lại", "Cancel payment and choose again")}
+                  ? localize("Đang hủy...", "Cancelling...")
+                  : staffRoomFolio ? localize("Hủy QR và về phiếu phòng", "Cancel QR and return to folio") : localize("Hủy thanh toán và chọn lại", "Cancel payment and choose again")}
               </button>
             )}
             {isConfirmedOutcome && (
@@ -728,7 +742,7 @@ function PaymentResultContent() {
                 {localize("In biên nhận thanh toán", "Print payment receipt")}
               </button>
             )}
-            {!isConfirmedOutcome && !isLoading && (guestReservationToken ? (
+            {!staffRoomFolio && !isConfirmedOutcome && !isLoading && (guestReservationToken ? (
               <a href={reservationHref} className="flex min-h-11 flex-1 items-center justify-center rounded-lg border border-[#0F2A43] px-5 text-center text-xs font-bold text-[#0F2A43] hover:bg-[#0F2A43]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">
                 {localize("Xem đơn đặt phòng", "View reservation")}
               </a>
@@ -747,8 +761,8 @@ function PaymentResultContent() {
                 {localize("Kiểm tra lại thanh toán", "Check payment again")}
               </button>
             )}
-            <Link href="/" className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-[#0F2A43] px-5 text-center text-xs font-bold text-white hover:bg-[#091E30] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">
-              {localize("Về trang chủ", "Back to home")}
+            <Link href={staffRoomFolio && payment ? `/dashboard/reservations?roomFolioId=${payment.bookingId}` : "/"} className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-[#0F2A43] px-5 text-center text-xs font-bold text-white hover:bg-[#091E30] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B8944F]">
+              {staffRoomFolio ? localize("Về phiếu phòng", "Back to folio") : localize("Về trang chủ", "Back to home")}
             </Link>
           </div>
             {abandonError && <p className="text-center text-xs font-semibold text-rose-700" role="alert">{abandonError}</p>}

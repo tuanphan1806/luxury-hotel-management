@@ -1,6 +1,7 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { requireIsolation } from '../qa/require-isolation';
+import { deliverSignedWebhook, settleThroughSignedWebhook, sePayTransactionDate } from '../qa/sepay-fixture';
 
 const QA_API = process.env.E2E_QA_API || "http://localhost:18080";
 const DEMO_PASSWORD = "123456";
@@ -74,19 +75,6 @@ function hotelLocalDateTime(daysFromNow: number, hour: number, minute: number) {
     day: "2-digit",
   }).format(date);
   return `${parts}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
-}
-
-function sePayTransactionDate() {
-  return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date()).replace("T", " ");
 }
 
 async function login(request: APIRequestContext, username: string) {
@@ -167,72 +155,6 @@ async function createDepositQr(
     },
   });
   return { response, idempotencyKey };
-}
-
-function signedWebhook(rawBody: string) {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const digest = createHmac("sha256", WEBHOOK_SECRET)
-    .update(`${timestamp}.${rawBody}`)
-    .digest("hex");
-  return {
-    "Content-Type": "application/json",
-    "X-SePay-Timestamp": timestamp,
-    "X-SePay-Signature": `sha256=${digest}`,
-  };
-}
-
-async function deliverSignedWebhook(
-  request: APIRequestContext,
-  payload: Record<string, unknown>,
-  rejectInvalidFirst = false,
-) {
-  const rawBody = JSON.stringify(payload);
-  if (rejectInvalidFirst) {
-    const rejected = await request.post(qaUrl("/api/payments/sepay/webhook"), {
-      headers: {
-        "Content-Type": "application/json",
-        "X-SePay-Timestamp": Math.floor(Date.now() / 1000).toString(),
-        "X-SePay-Signature": "sha256=invalid",
-      },
-      data: rawBody,
-    });
-    expect(rejected.status()).toBe(401);
-  }
-
-  const accepted = await request.post(qaUrl("/api/payments/sepay/webhook"), {
-    headers: signedWebhook(rawBody),
-    data: rawBody,
-  });
-  expect(accepted.status(), await accepted.text()).toBe(200);
-  expect(await accepted.json()).toEqual({ success: true });
-
-  const replay = await request.post(qaUrl("/api/payments/sepay/webhook"), {
-    headers: signedWebhook(rawBody),
-    data: rawBody,
-  });
-  expect(replay.status(), await replay.text()).toBe(200);
-  expect(await replay.json()).toEqual({ success: true });
-}
-
-async function settleThroughSignedWebhook(
-  request: APIRequestContext,
-  payment: Payment,
-  eventOffset: number,
-  transferAmount = Number(payment.expectedAmount),
-) {
-  await deliverSignedWebhook(request, {
-    id: Date.now() + eventOffset,
-    gateway: "TPBank",
-    transactionDate: sePayTransactionDate(),
-    accountNumber: MERCHANT_ACCOUNT,
-    code: null,
-    content: payment.transferContent || payment.transactionReference,
-    transferType: "in",
-    transferAmount,
-    accumulated: 0,
-    subAccount: null,
-    referenceCode: `QA-SEPAY-${Date.now()}-${eventOffset}`,
-  }, true);
 }
 
 test.describe("isolated online reservation, RoomHold and signed SePay webhook", () => {

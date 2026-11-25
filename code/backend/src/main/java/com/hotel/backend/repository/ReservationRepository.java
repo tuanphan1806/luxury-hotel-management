@@ -24,6 +24,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     @Query("SELECT r FROM Reservation r WHERE r.id = :id")
     Optional<Reservation> findByIdForUpdate(@Param("id") Long id);
 
+    @Query("SELECT COUNT(c) > 0 FROM RoomFolioCollection c WHERE c.reservationId = :id AND c.closedAt IS NULL")
+    boolean hasOpenRoomFolioCollection(@Param("id") Long id);
+
     boolean existsByReservationCode(String reservationCode);
 
     boolean existsByGuestToken(String guestToken);
