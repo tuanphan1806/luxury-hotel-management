@@ -20,6 +20,8 @@ import java.util.Collection;
 @Repository
 public interface PaymentTransactionRepository extends JpaRepository<PaymentTransaction, String> {
 
+    List<PaymentTransaction> findByRoomFolioCollectionIdOrderById(Long collectionId);
+
     boolean existsByStatus(PaymentStatus status);
 
     Optional<PaymentTransaction> findByTxnRef(String txnRef);

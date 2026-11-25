@@ -32,6 +32,9 @@ public class PaymentTransaction {
     @JoinColumn(name = "reservation_id", nullable = false)
     private Reservation reservation;
 
+    @Column(name = "room_folio_collection_id")
+    private Long roomFolioCollectionId;
+
     // Mã giao dịch nội bộ (gửi sang cổng thanh toán)
     @Column(name = "txn_ref", unique = true, nullable = false)
     private String txnRef;

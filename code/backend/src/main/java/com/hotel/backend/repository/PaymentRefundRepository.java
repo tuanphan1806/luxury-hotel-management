@@ -42,6 +42,8 @@ public interface PaymentRefundRepository extends JpaRepository<PaymentRefund, St
             + "WHERE r.status IN :statuses ORDER BY r.updatedAt ASC")
     List<PaymentRefund> findOperationalQueue(@Param("statuses") Collection<RefundStatus> statuses);
 
+    List<PaymentRefund> findByPaymentTransaction_RoomFolioCollectionId(Long collectionId);
+
     List<PaymentRefund> findByPaymentTransactionId(String paymentTransactionId);
 
     Optional<PaymentRefund> findBySourceKey(String sourceKey);

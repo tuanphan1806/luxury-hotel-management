@@ -558,6 +558,9 @@ public class ReservationAddOnService {
     }
 
     private void validateCanRequestInStay(Reservation reservation, User currentUser) {
+        if (reservation.getActualCheckOut() != null) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Các căn đã trả hết. Chỉ còn đối soát dịch vụ đã yêu cầu.");
+        }
         boolean operator = isOperator(currentUser);
         boolean allowed = operator
                 ? List.of(ReservationStatus.CONFIRMED, ReservationStatus.CHECKED_IN)

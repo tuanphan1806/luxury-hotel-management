@@ -1,11 +1,12 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 import { createSearchMatcher } from "@/lib/search-text";
+import { suggestReadyRooms } from "@/lib/check-in-room-options";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { apiClient, cachedGet, getApiErrorStatus } from "@/lib/api";
+import { apiClient, cachedGet, getApiErrorCode, getApiErrorStatus } from "@/lib/api";
 import Toast from "@/components/UI/Toast";
 import ViewportModal from "@/components/UI/ViewportModal";
 import type { ReservationInvoice } from "@/components/reservations/ReservationInvoiceModal";
@@ -49,6 +50,8 @@ const ReservationInvoiceModal = dynamic(
   () => import("@/components/reservations/ReservationInvoiceModal"),
   { ssr: false },
 );
+import CheckoutTenderActions from "@/components/reservations/CheckoutTenderActions";
+const RoomDepartureModal = dynamic(() => import("@/components/reservations/RoomDepartureModal"), { ssr: false });
 
 type ReservationStatus = "DRAFT" | "PAYMENT_PENDING" | "CONFIRMED" | "CANCELLATION_PENDING" | "CANCELLED" | "CHECKED_IN" | "CHECKED_OUT" | "NO_SHOW";
 type PaymentFilter = "ALL" | "UNPAID" | "PARTIAL" | "PAID";
@@ -184,6 +187,7 @@ interface FinalPayment {
   reservedRefundAmount: number;
   uncoveredRefundAmount: number;
   paymentPending: boolean;
+  roomFolioInProgress?: boolean;
   refundPending: boolean;
 }
 
@@ -261,6 +265,7 @@ interface CheckoutReconciliationApi {
   checkoutAdditionalFee?: number;
   addOnServiceAmount?: number;
   paymentPending: boolean;
+  roomFolioInProgress?: boolean;
   refundPending: boolean;
   status: "MATCHED" | "MISMATCH";
   blockingReasons: string[];
@@ -412,6 +417,7 @@ interface CheckInGuestDraft {
 
 interface CheckInRoomDraft {
   key: string;
+  reservationRoomId?: number;
   roomTypeId: number;
   roomTypeName: string;
   roomTypeNameEn?: string;
@@ -445,14 +451,6 @@ const getApiErrorMessage = (error: unknown, fallback: string) => {
     : [];
   if (validationErrors.length > 0) return validationErrors.join(" · ");
   return typeof responseData.message === "string" ? responseData.message : fallback;
-};
-
-const getApiErrorCode = (error: unknown) => {
-  if (!isRecord(error) || !("response" in error) || !isRecord(error.response)) return undefined;
-  const responseData = error.response.data;
-  return isRecord(responseData) && typeof responseData.code === "number"
-    ? responseData.code
-    : undefined;
 };
 
 const getApiValidationMessages = (error: unknown): string[] => {
@@ -710,6 +708,7 @@ export default function ReservationsManagement() {
   const [isChargeBreakdownOpen, setIsChargeBreakdownOpen] = useState(false);
   const [cashierShiftRequired, setCashierShiftRequired] = useState(false);
   const [checkInDrafts, setCheckInDrafts] = useState<CheckInRoomDraft[]>([]);
+  const checkInRequest = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [linkedReservationCode, setLinkedReservationCode] = useState("");
   const [serviceQueueOnly, setServiceQueueOnly] = useState(false);
@@ -785,6 +784,7 @@ export default function ReservationsManagement() {
   const [isManualProofUploading, setIsManualProofUploading] = useState(false);
   const [manualQrFailed, setManualQrFailed] = useState(false);
   const [invoice, setInvoice] = useState<ReservationInvoice | null>(null);
+  const [departureTarget, setDepartureTarget] = useState<ReservationItem | null>(null);
   const [serviceReservationTarget, setServiceReservationTarget] = useState<ReservationItem | null>(null);
   const [reservationAuditTarget, setReservationAuditTarget] = useState<ReservationItem | null>(null);
   const [reservationAuditLogs, setReservationAuditLogs] = useState<ReservationAuditItem[]>([]);
@@ -1041,6 +1041,8 @@ export default function ReservationsManagement() {
   }));
 
   const closeReservationModal = () => {
+    checkInRequest.current++;
+    setIsActionLoading(false);
     setIsChargeBreakdownOpen(false);
     setSelectedReservation(null);
     setFinalPayment(null);
@@ -1210,6 +1212,14 @@ export default function ReservationsManagement() {
     loadPendingRefunds();
     loadSePayReviewEvents();
     const params = new URLSearchParams(window.location.search);
+    const folioId = Number(params.get("roomFolioId"));
+    if (Number.isSafeInteger(folioId) && folioId > 0) {
+      void apiClient.get(`/api/reservations/${folioId}`).then(response => {
+        const reservation = toData<ReservationItem>(response);
+        if (reservation.status === "CHECKED_IN") setDepartureTarget(reservation);
+        window.history.replaceState(null, "", "/dashboard/reservations");
+      }).catch(error => showToast(getApiErrorMessage(error, "Không mở được phiếu phòng"), "error"));
+    }
     const finalPaymentId = Number(params.get("finalPaymentId"));
     if (Number.isFinite(finalPaymentId) && finalPaymentId > 0) {
       setPendingFinalPaymentId(finalPaymentId);
@@ -1237,7 +1247,7 @@ export default function ReservationsManagement() {
     };
     window.addEventListener("focus", reloadOperationalData);
     return () => window.removeEventListener("focus", reloadOperationalData);
-  }, [loadPendingRefunds, loadReservations, loadSePayReviewEvents, openWalkInModal]);
+  }, [loadPendingRefunds, loadReservations, loadSePayReviewEvents, openWalkInModal, showToast]);
 
   const pendingRefundsByReservation = useMemo(() => {
     const grouped = new Map<number, PendingRefund[]>();
@@ -1342,6 +1352,7 @@ export default function ReservationsManagement() {
   }, [reservations]);
 
   const openCheckIn = async (reservation: ReservationItem) => {
+    const revision = ++checkInRequest.current;
     setSelectedReservation(reservation);
     setFinalPayment(null);
     setIsActionLoading(true);
@@ -1352,22 +1363,26 @@ export default function ReservationsManagement() {
       ]);
       const detail = toData<ReservationItem>(detailRes);
       const rooms = toData<RoomItem[]>(roomsRes);
+      if (revision !== checkInRequest.current) return;
       setSelectedReservation(detail);
       setAvailableRooms(Array.isArray(rooms) ? rooms : []);
 
       const drafts: CheckInRoomDraft[] = [];
       (detail.roomTypes || []).forEach((roomType) => {
         const quantity = Math.max(1, Number(roomType.quantity || 1));
+        const slots = (detail.rooms || []).filter(slot => slot.reservationRoomTypeId === roomType.id).sort((a, b) => a.id - b.id);
         for (let index = 0; index < quantity; index += 1) {
+          const assigned = slots[index];
           drafts.push({
             key: `${roomType.roomTypeId}-${index}`,
+            reservationRoomId: assigned?.id,
             roomTypeId: roomType.roomTypeId,
             roomTypeName: roomType.roomTypeName,
             roomTypeNameEn: roomType.roomTypeNameEn,
             includedGuestsPerRoom: Math.max(1, Number(roomType.includedGuestsPerRoom || roomType.maxGuestsPerRoom || 1)),
             maxGuestsPerRoom: normalizeGuestCapacity(roomType.maxGuestsPerRoom),
             extraGuestPricePerCycle: Math.max(0, Number(roomType.extraGuestPricePerCycle || 0)),
-            roomId: "",
+            roomId: assigned?.roomId && rooms?.some(r => r.id === assigned.roomId && r.status === "AVAILABLE" && r.cleaningStatus === "CLEAN") ? String(assigned.roomId) : "",
             guests: [{ ...emptyGuest, fullName: index === 0 ? detail.customerName || "" : "" }],
           });
         }
@@ -1376,12 +1391,32 @@ export default function ReservationsManagement() {
     } catch (error: unknown) {
       showToast(getApiErrorMessage(error, "Không thể tải phòng trống cho reservation"), "error");
     } finally {
-      setIsActionLoading(false);
+      if (revision === checkInRequest.current) setIsActionLoading(false);
     }
   };
 
   const updateDraft = (key: string, patch: Partial<CheckInRoomDraft>) => {
     setCheckInDrafts((prev) => prev.map((item) => (item.key === key ? { ...item, ...patch } : item)));
+  };
+
+  const refreshCheckInChoices = async () => {
+    if (!selectedReservation || isActionLoading) return;
+    const revision = ++checkInRequest.current;
+    setIsActionLoading(true);
+    try {
+      const res = await apiClient.get("/api/rooms/available-for-reservation", {
+        params: { reservationId: selectedReservation.id },
+      });
+      const rooms = toData<RoomItem[]>(res);
+      if (revision !== checkInRequest.current) return;
+      if (!Array.isArray(rooms)) throw new Error("Invalid room list");
+      setAvailableRooms(rooms);
+      setCheckInDrafts(current => suggestReadyRooms(current, rooms));
+    } catch (error: unknown) {
+      showToast(getApiErrorMessage(error, localize("Không tải được phòng thay thế.", "Could not refresh available rooms.")), "error");
+    } finally {
+      if (revision === checkInRequest.current) setIsActionLoading(false);
+    }
   };
 
   const updateGuestDraft = (key: string, guestIndex: number, patch: Partial<CheckInGuestDraft>) => {
@@ -1668,6 +1703,7 @@ export default function ReservationsManagement() {
         `/api/reservations/check-in/${selectedReservation.id}`,
         checkInDrafts.map((draft) => ({
           roomId: Number(draft.roomId),
+          reservationRoomId: draft.reservationRoomId,
           guests: draft.guests.map((guest) => ({
             ...guest,
             email: guest.email || undefined,
@@ -1689,7 +1725,7 @@ export default function ReservationsManagement() {
     }
   };
 
-  const openFinalPayment = useCallback(async (reservation: ReservationItem) => {
+  const openFinalPayment = useCallback(async (reservation: ReservationItem, editFee = false) => {
     setSelectedReservation(reservation);
     setCashierShiftRequired(false);
     setCheckInDrafts([]);
@@ -1737,8 +1773,16 @@ export default function ReservationsManagement() {
         reservedRefundAmount: reconciliation.reservedRefundAmount || 0,
         uncoveredRefundAmount: reconciliation.uncoveredRefundAmount || 0,
         paymentPending: reconciliation.paymentPending,
+        roomFolioInProgress: reconciliation.roomFolioInProgress,
         refundPending: reconciliation.refundPending,
       });
+      if (editFee) {
+        setRefundAdditionalFee(String(additionalFee));
+        setRefundFeeReasonCode("LATE_SERVICE_CHARGE");
+        setRefundFeeReason("");
+        setRefundFeeError("");
+        setIsRefundFeeOpen(true);
+      }
     } catch (error: unknown) {
       showToast(getApiErrorMessage(error, "Không thể tải đối soát checkout"), "error");
     } finally {
@@ -1865,6 +1909,14 @@ export default function ReservationsManagement() {
     setIsRefundFeeOpen(true);
   };
 
+  const closeCheckoutFee = () => {
+    setIsRefundFeeOpen(false);
+    if (departureTarget) {
+      setFinalPayment(null);
+      setSelectedReservation(null);
+    }
+  };
+
   const handleCheckoutAdditionalFee = async () => {
     if (!selectedReservation || !finalPayment) return;
     const additionalFee = Number(refundAdditionalFee.replace(/[^0-9]/g, ""));
@@ -1890,9 +1942,9 @@ export default function ReservationsManagement() {
       );
       clearIdempotencyKey(operationScope);
       showToast("Đã cập nhật phụ phí checkout", "success");
-      setIsRefundFeeOpen(false);
+      closeCheckoutFee();
       await loadReservations();
-      await openFinalPayment(selectedReservation);
+      if (!departureTarget) await openFinalPayment(selectedReservation);
     } catch (error: unknown) {
       setRefundFeeError(getApiErrorMessage(error, "Không thể cập nhật phụ phí"));
     } finally {
@@ -2550,6 +2602,13 @@ export default function ReservationsManagement() {
     );
   };
 
+  const rowStatus = (reservation: ReservationItem) => {
+    if (reservation.cancellationRefundPending) return reservation.refundRoute === "CASH_AT_COUNTER"
+      ? localize("Chờ giao tiền mặt", "Cash handover pending") : localize("Chờ hoàn QR", "QR refund pending");
+    if (reservation.status === "CHECKED_IN" && reservation.actualCheckOut) return localize("Đã trả hết căn · Chờ quyết toán", "All rooms departed · Awaiting settlement");
+    return getStatusLabel(reservation.status);
+  };
+
   const renderReservationActions = (reservation: ReservationItem) => {
     const reservationRefunds = pendingRefundsByReservation.get(reservation.id) || [];
     const cancellationRefundPending = Boolean(reservation.cancellationRefundPending);
@@ -2616,6 +2675,13 @@ export default function ReservationsManagement() {
       {reservation.status === "CHECKED_IN" && (
         <button type="button" onClick={() => openFinalPayment(reservation)} className="min-h-10 rounded-lg bg-[#0F2A43] px-3 text-xs font-bold text-white hover:bg-[#091E30]">
           {localize("Đối soát & trả phòng", "Settle & check out")}
+        </button>
+      )}
+      {reservation.status === "CHECKED_IN"
+        && (reservation.roomTypes?.reduce((sum, line) => sum + line.quantity, 0) || 0) > 1 && (
+        <button type="button" onClick={() => setDepartureTarget(reservation)} className="min-h-10 rounded-lg border border-[#0F2A43]/25 bg-white px-3 text-xs font-bold text-[#0F2A43]">
+          {(reservation.rooms?.filter(slot => slot.status === "CHECKED_IN").length ?? 2) > 0
+            ? localize("Trả từng căn", "Individual room checkout") : localize("Xem phiếu từng căn", "View room folios")}
         </button>
       )}
       {reservation.status === "CHECKED_OUT" && (
@@ -2917,7 +2983,7 @@ export default function ReservationsManagement() {
                       <p className="mt-1 text-xs font-semibold text-emerald-700">{localize("Đã trả", "Paid")}: {formatVND(Number(reservation.paidAmount || 0))}</p>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${reservation.cancellationRefundPending ? "border-amber-200 bg-amber-50 text-amber-800" : getStatusClass(reservation.status)}`}>{reservation.cancellationRefundPending ? reservation.refundRoute === "CASH_AT_COUNTER" ? localize("Chờ giao tiền mặt", "Cash handover pending") : localize("Chờ hoàn QR", "QR refund pending") : getStatusLabel(reservation.status)}</span>
+                      <span className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${reservation.cancellationRefundPending ? "border-amber-200 bg-amber-50 text-amber-800" : getStatusClass(reservation.status)}`}>{rowStatus(reservation)}</span>
                     </td>
                     <td className="px-5 py-4">{renderReservationActions(reservation)}</td>
                   </tr>
@@ -2939,7 +3005,7 @@ export default function ReservationsManagement() {
               <article key={reservation.id} className={`p-4 ${reservation.reservationCode === linkedReservationCode ? "bg-amber-50/80 shadow-[inset_4px_0_0_#B8944F]" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div><p className="font-bold text-[#0F2A43]">{reservation.customerName || localize("Chưa có tên khách", "Unnamed customer")}</p><p className="mt-1 font-mono text-xs font-bold text-[#0F2A43]">{reservation.reservationCode || `#${reservation.id}`}</p></div>
-                  <span className={`inline-flex shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-bold ${reservation.cancellationRefundPending ? "border-amber-200 bg-amber-50 text-amber-800" : getStatusClass(reservation.status)}`}>{reservation.cancellationRefundPending ? reservation.refundRoute === "CASH_AT_COUNTER" ? localize("Chờ giao tiền mặt", "Cash handover pending") : localize("Chờ hoàn QR", "QR refund pending") : getStatusLabel(reservation.status)}</span>
+                  <span className={`inline-flex shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-bold ${reservation.cancellationRefundPending ? "border-amber-200 bg-amber-50 text-amber-800" : getStatusClass(reservation.status)}`}>{rowStatus(reservation)}</span>
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
                   <div className="col-span-2"><dt className="text-[#66727C]">{localize("Thời gian dự kiến", "Planned stay")}</dt><dd className="mt-1 font-semibold text-[#0F2A43]">{formatDate(reservation.checkIn)} → {formatDate(reservation.checkOut)}</dd></div>
@@ -3301,14 +3367,18 @@ export default function ReservationsManagement() {
                 <span className={`rounded-full px-3 py-1 text-xs font-bold ${checkInEnteredGuestCount <= checkInGuestCapacity ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"}`}>{localize(`${checkInEnteredGuestCount}/${checkInGuestCapacity} khách thực tế`, `${checkInEnteredGuestCount}/${checkInGuestCapacity} actual guests`)}</span>
                 <span className="rounded-full bg-[#F3E9D7] px-3 py-1 text-xs font-bold text-[#80632F]">{localize(`Đã khai báo ${selectedReservation.guestCount}`, `Declared ${selectedReservation.guestCount}`)}</span>
               </div>
-              <p className="text-sm font-semibold text-[#66727C]">{localize("Chọn phòng thực tế; hệ thống sẽ đối chiếu đúng loại phòng trong đơn.", "Select a physical room; the system maps it to the correct reserved room type.")}</p>
+              <button type="button" disabled={isActionLoading} onClick={() => void refreshCheckInChoices()} className="mt-2 rounded-lg border border-[#0F2A43]/25 px-3 py-2 text-sm font-bold text-[#0F2A43] disabled:opacity-50">
+                {localize("Tìm phòng trống sạch cùng hạng", "Find clean rooms of the booked type")}
+              </button>
               {checkInEnteredGuestCount > selectedReservation.guestCount && (
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-900">{localize("Có khách phát sinh so với lúc đặt. Hệ thống sẽ tính lại phụ thu theo đúng hạng phòng đã chọn và đưa khoản chênh lệch vào đối soát trả phòng.", "There are additional guests compared with the booking. The system recalculates the surcharge for the selected room type and includes the difference in checkout reconciliation.")}</p>
               )}
             </div>
             <div className={`grid gap-4 ${checkInGridColumns}`}>
               {checkInDrafts.map((draft) => {
-                const roomsForType = availableRooms.filter((room) => room.roomTypeId === draft.roomTypeId);
+                const roomsForType = availableRooms.filter((room) => room.roomTypeId === draft.roomTypeId
+                  && room.status === "AVAILABLE" && room.cleaningStatus === "CLEAN"
+                  && !checkInDrafts.some(other => other.key !== draft.key && other.roomId === String(room.id)));
                 return (
                   <div key={draft.key} className="rounded-[1.25rem] border border-[#0F2A43]/10 bg-[#F1F0EA] p-4">
                     <div className="mb-3 flex items-center justify-between gap-3"><p className="text-xs font-bold uppercase tracking-wider text-[#80632F]">{localize(draft.roomTypeName, draft.roomTypeNameEn)}</p><span className="text-xs font-semibold text-[#66727C]">{draft.guests.length}/{draft.maxGuestsPerRoom} {localize("khách", "guests")}</span></div>
@@ -3318,7 +3388,9 @@ export default function ReservationsManagement() {
                     )}</p>
                     <div className="grid gap-3 md:grid-cols-2">
                       <select value={draft.roomId} onChange={(e) => updateDraft(draft.key, { roomId: e.target.value })} className="rounded-xl border border-[#0F2A43]/10 px-3 py-2.5 text-sm outline-none focus:border-[#B8944F] md:col-span-2">
-                        <option value="">{localize("Chọn phòng còn trống", "Select available room")}</option>
+                        <option value="">{roomsForType.length
+                          ? localize("Chọn phòng còn trống", "Select available room")
+                          : localize("Chưa có căn trống sạch cùng hạng", "No clean room of this type is available yet")}</option>
                         {roomsForType.map((room) => (
                           <option key={room.id} value={room.id}>#{room.roomName} - {{ CLEAN: localize("Sạch", "Clean"), DIRTY: localize("Bẩn", "Dirty"), IN_PROGRESS: localize("Đang dọn", "Cleaning") }[room.cleaningStatus] || room.cleaningStatus}</option>
                         ))}
@@ -3342,7 +3414,7 @@ export default function ReservationsManagement() {
               })}
             </div>
             <div className="mt-5 flex justify-end">
-              <button disabled={isActionLoading} onClick={handleSubmitCheckIn} className="rounded-xl bg-[#0F2A43] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm hover:bg-[#091E30] hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+              <button disabled={isActionLoading || checkInDrafts.some(draft => !draft.roomId)} onClick={handleSubmitCheckIn} className="rounded-xl bg-[#0F2A43] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-sm hover:bg-[#091E30] hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
                 {localize("Xác nhận nhận phòng", "Submit check-in")}
               </button>
             </div>
@@ -3350,7 +3422,7 @@ export default function ReservationsManagement() {
         </ViewportModal>
       )}
 
-      {selectedReservation && finalPayment && (
+      {selectedReservation && finalPayment && !departureTarget && (
         <ViewportModal open onClose={closeReservationModal} labelledBy="checkout-reconciliation-title" busy={isActionLoading} panelClassName="max-w-3xl" testId="checkout-modal">
           <section className="lux-scrollbar relative min-h-0 flex-1 overflow-y-auto">
             <button
@@ -3436,7 +3508,14 @@ export default function ReservationsManagement() {
                   {(finalPayment.paymentPending || finalPayment.refundPending) && <button type="button" disabled={isActionLoading} onClick={() => void openFinalPayment(selectedReservation)} className="min-h-10 rounded-lg border border-[#0F2A43]/20 bg-white px-4 text-xs font-bold text-[#0F2A43] hover:border-[#B8944F] disabled:opacity-50">{localize("Kiểm tra lại trạng thái", "Refresh status")}</button>}
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {finalPayment.remainingAmount > 0 && (
+                  {finalPayment.roomFolioInProgress && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
+                    <p className="text-sm font-bold">{localize("Đang thu tiền trên phiếu từng căn", "Room folio payment in progress")}</p>
+                    <button type="button" className="mt-2 min-h-10 rounded-lg border border-[#0F2A43] bg-white px-4 text-xs font-bold"
+                      onClick={() => { setDepartureTarget(selectedReservation); setSelectedReservation(null); setFinalPayment(null); }}>
+                      {localize("Mở phiếu đang xử lý", "Open active room folio")}
+                    </button>
+                  </div>}
+                  {finalPayment.remainingAmount > 0 && !finalPayment.roomFolioInProgress && (
                     <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
                       <p className="text-sm font-bold text-rose-800">{localize("Còn thiếu tiền", "Outstanding balance")}: {formatVND(finalPayment.remainingAmount)}</p>
                       <p className="mt-1 text-xs leading-5 text-rose-700">{localize("Thu đúng số còn thiếu bằng tiền mặt hoặc tạo QR thanh toán cuối.", "Collect the exact balance in cash or create a final-payment QR.")}</p>
@@ -3454,10 +3533,7 @@ export default function ReservationsManagement() {
                           </div>
                         </div>
                       ) : (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button type="button" disabled={isActionLoading} onClick={handleCashPayment} className="min-h-10 rounded-lg bg-[#B8944F] px-4 text-xs font-bold text-[#0F2A43] disabled:opacity-60">{localize("Thu tiền mặt", "Collect cash")}</button>
-                          <button type="button" disabled={isActionLoading} onClick={handleOnlinePayment} className="min-h-10 rounded-lg border border-[#0F2A43] bg-white px-4 text-xs font-bold text-[#0F2A43] hover:bg-[#0F2A43] hover:text-white disabled:opacity-60">{localize("Tạo QR", "Create QR")}</button>
-                        </div>
+                        <CheckoutTenderActions disabled={isActionLoading} onCash={handleCashPayment} onQr={handleOnlinePayment}/>
                       )}
                     </div>
                   )}
@@ -3587,7 +3663,7 @@ export default function ReservationsManagement() {
       )}
 
       {isRefundFeeOpen && selectedReservation && finalPayment && (
-        <ViewportModal open onClose={() => setIsRefundFeeOpen(false)} labelledBy="refund-fee-title" busy={isActionLoading} panelClassName="max-w-lg" testId="refund-fee-modal">
+        <ViewportModal open onClose={closeCheckoutFee} labelledBy="refund-fee-title" busy={isActionLoading} panelClassName="max-w-lg" testId="refund-fee-modal">
           <section className="flex min-h-0 flex-1 flex-col">
             <header className="border-b border-[#0F2A43]/10 px-6 py-5">
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-700">{localize("Đối soát trước trả phòng", "Pre-checkout reconciliation")}</p>
@@ -3643,7 +3719,7 @@ export default function ReservationsManagement() {
             </div>
 
             <footer className="flex flex-col-reverse gap-3 border-t border-[#0F2A43]/10 px-6 py-4 sm:flex-row sm:justify-end">
-              <button type="button" disabled={isActionLoading} onClick={() => setIsRefundFeeOpen(false)} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43] hover:bg-[#F1F0EA] disabled:opacity-50">{localize("Hủy", "Cancel")}</button>
+              <button type="button" disabled={isActionLoading} onClick={closeCheckoutFee} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-5 text-sm font-bold text-[#0F2A43] hover:bg-[#F1F0EA] disabled:opacity-50">{localize("Hủy", "Cancel")}</button>
               <button type="button" disabled={isActionLoading} onClick={handleCheckoutAdditionalFee} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white hover:bg-[#091E30] disabled:opacity-50">{isActionLoading ? localize("Đang lưu...", "Saving...") : localize("Lưu và đối soát lại", "Save and reconcile")}</button>
             </footer>
           </section>
@@ -3950,6 +4026,9 @@ export default function ReservationsManagement() {
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {invoice && <ReservationInvoiceModal invoice={invoice} onClose={() => setInvoice(null)} />}
+      {departureTarget && <RoomDepartureModal key={departureTarget.id} id={departureTarget.id} code={departureTarget.reservationCode}
+        onEditFee={() => void openFinalPayment(departureTarget, true)} feeEditorOpen={isRefundFeeOpen}
+        onClose={() => setDepartureTarget(null)} onSaved={() => void loadReservations()} />}
     </div>
   );
 }

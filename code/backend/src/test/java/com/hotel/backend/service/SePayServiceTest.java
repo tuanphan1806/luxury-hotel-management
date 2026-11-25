@@ -277,6 +277,7 @@ class SePayServiceTest {
         when(reservationRepository.findByIdForUpdate(501L))
                 .thenReturn(Optional.of(reservation));
         when(paymentRefundService.getNetPaidAmount(501L)).thenReturn(0L);
+        when(reservationService.getProjectedCheckoutTotal(501L)).thenReturn(300_000L);
         SePayEventMatchRequest request = new SePayEventMatchRequest();
         request.setPaymentTransactionId("payment-review-match");
         request.setNote("Đối chiếu sao kê thủ công");
@@ -357,6 +358,7 @@ class SePayServiceTest {
         when(reservationRepository.findByIdForUpdate(501L))
                 .thenReturn(Optional.of(reservation));
         when(paymentRefundService.getNetPaidAmount(501L)).thenReturn(0L);
+        when(reservationService.getProjectedCheckoutTotal(501L)).thenReturn(300_000L);
 
         var response = sePayService.manuallyReconcileReviewEvent(
                 "manual-review-event", manualRequest("payment-manual-reconcile"), adminReviewer());
@@ -746,6 +748,23 @@ class SePayServiceTest {
                 eq(transaction), eq(50_000L), eq(RefundSourceType.UNACCEPTED_PAYMENT),
                 any(String.class), any(PaymentProviderEvent.class),
                 any(String.class), eq("sepay_webhook"));
+    }
+
+    @Test
+    void exactFolioQrAfterLateDepartureUsesTheSameLiveBalanceAsItsQuote() {
+        var payment = payment(PaymentStatus.PENDING, ReservationStatus.CHECKED_IN, 150_000L);
+        payment.setPurpose(PaymentPurpose.FINAL_PAYMENT);
+        payment.setRoomFolioCollectionId(4L);
+        payment.getReservation().setTotalAmount(BigDecimal.valueOf(200_000));
+        stubSingleEvent(payment, "9032");
+        when(paymentRefundService.getNetPaidAmount(77L)).thenReturn(100_000L);
+        when(reservationService.getProjectedCheckoutTotal(77L)).thenReturn(250_000L);
+
+        var result = sePayService.handleWebhook(webhookPayload(9032L, 150_000L));
+
+        assertEquals("payment_success", result.get("message"));
+        assertEquals(150_000L, payment.getAcceptedAmount());
+        assertEquals(0L, payment.getRefundRequiredAmount());
     }
 
     @Test

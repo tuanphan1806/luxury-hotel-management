@@ -111,6 +111,10 @@ public class PricingV2LifecycleService {
             List<ReservationRateSnapshot> preloadedSnapshots,
             boolean allowExtraGuestCorrection) {
         requireV2(reservation);
+        // A multi-room stay may have physically ended while a shared balance is being settled.
+        if (reservation.getStatus() == ReservationStatus.CHECKED_IN && reservation.getActualCheckOut() != null) {
+            requestedCheckout = reservation.getActualCheckOut();
+        }
         if (requestedCheckout == null) {
             throw new AppException(
                     ErrorCode.RESERVATION_INVALID_DATE);
@@ -197,8 +201,9 @@ public class PricingV2LifecycleService {
             PricingBreakdown recalculated;
             Integer overriddenGuestCount =
                     lineGuestCountOverrides.get(reservationLine.getId());
+            DepartedRoomCharges departed = DepartedRoomCharges.from(reservationLine);
             int effectiveLineGuestCount = overriddenGuestCount != null
-                    ? overriddenGuestCount
+                    ? overriddenGuestCount + departed.guests()
                     : latest.getLineGuestCount();
             int maximumLineGuests = Math.multiplyExact(
                     latest.getMaxGuestsSnapshot(),
@@ -231,6 +236,8 @@ public class PricingV2LifecycleService {
                                 effectiveLineGuestCount),
                         definitionFactory.roomRate(rate),
                         definitionFactory.stayPolicy(policy));
+                recalculated = departed.usage(recalculated, effectiveLineGuestCount,
+                        latest.getIncludedGuests(), rate.getExtraGuestPrice());
             } catch (IllegalArgumentException exception) {
                 throw new AppException(
                         ErrorCode.INVALID_REQUEST, exception.getMessage());
@@ -240,36 +247,36 @@ public class PricingV2LifecycleService {
                     && commitment.getInitialPackage() == StayPackage.OVERNIGHT
                     && overnightRefundFloorApplies(
                             commitment, policy, pricingCheckout);
+            BigDecimal usageRoom = recalculated.roomCharge();
+            BigDecimal usageExtra = recalculated.extraGuestCharge();
+            BigDecimal roomFloor = departed.withActiveRooms(commitment.getMinimumCommittedRoomCharge());
             BigDecimal finalRoomCharge;
             BigDecimal finalExtraGuestCharge;
             if (earlyCheckout && !overnightFloorApplies) {
                 // Hourly, rolling-day and pre-23:00 overnight departures are
                 // authoritative actual-usage reprices and may create a refund.
-                finalRoomCharge = money(recalculated.roomCharge());
-                finalExtraGuestCharge = money(
-                        recalculated.extraGuestCharge());
+                finalRoomCharge = money(usageRoom);
+                finalExtraGuestCharge = money(usageExtra);
             } else if (overnightFloorApplies) {
                 // Once the operational night reaches the lock boundary, only
                 // the overnight package itself is non-refundable. Unused
                 // future extension units are not retained as a second floor.
                 finalRoomCharge = maxMoney(
-                        commitment.getMinimumCommittedRoomCharge(),
-                        recalculated.roomCharge());
+                        roomFloor, usageRoom);
                 finalExtraGuestCharge = maxMoney(
-                        commitment.getExtraGuestCharge(),
-                        recalculated.extraGuestCharge());
+                        departed.withActiveExtras(commitment.getExtraGuestCharge(), commitment.getExtraGuestCount()),
+                        usageExtra);
             } else {
                 // Check-in and non-early/late transitions must never lower the
                 // currently committed obligation.
                 finalRoomCharge = maxMoney(
                         latest.getFinalRoomCharge(),
-                        commitment.getMinimumCommittedRoomCharge(),
-                        recalculated.roomCharge());
+                        roomFloor, usageRoom);
                 finalExtraGuestCharge = allowExtraGuestCorrection
-                        ? money(recalculated.extraGuestCharge())
+                        ? money(usageExtra)
                         : maxMoney(
                                 latest.getExtraGuestCharge(),
-                                recalculated.extraGuestCharge());
+                                usageExtra);
             }
             BigDecimal latestBase = money(latest.getFinalRoomCharge())
                     .add(money(latest.getExtraGuestCharge()));

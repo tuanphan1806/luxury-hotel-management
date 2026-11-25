@@ -13,7 +13,7 @@ import lombok.*;
 @Builder
 public class AssignRoomRequest {
  
-    // private Long reservationRoomId;
+    private Long reservationRoomId;
  
     @NotNull(message = "roomId không được để trống")
     private Long roomId;
