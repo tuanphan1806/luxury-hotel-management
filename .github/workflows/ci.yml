@@ -108,7 +108,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Build production container
-        run: docker build --tag luxury-hotel-backend:ci .
+        run: |
+          ./mvnw -B -ntp -Pprod -DskipTests clean package
+          docker build --target verified-runtime --tag luxury-hotel-backend:ci .
       - name: Scan production container for fixable High/Critical CVEs
         # v0.36.0 pinned by commit; versions before 0.35.0 are intentionally avoided.
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8

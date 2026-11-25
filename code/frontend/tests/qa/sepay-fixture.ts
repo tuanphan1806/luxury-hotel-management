@@ -73,11 +73,12 @@ export async function settleThroughSignedWebhook(
   payment: {expectedAmount: number; transferContent: string; transactionReference: string},
   eventOffset: number,
   transferAmount = Number(payment.expectedAmount),
+  transactionDate = sePayTransactionDate(),
 ) {
   await deliverSignedWebhook(request, {
     id: Date.now() + eventOffset,
     gateway: "TPBank",
-    transactionDate: sePayTransactionDate(),
+    transactionDate,
     accountNumber: MERCHANT_ACCOUNT,
     code: null,
     content: payment.transferContent || payment.transactionReference,

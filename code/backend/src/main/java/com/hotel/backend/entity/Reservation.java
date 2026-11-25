@@ -128,6 +128,24 @@ public class Reservation extends AbstractEntity<Long> implements Serializable {
     @Column(name = "guest_count")
     private Integer guestCount;
 
+    public static int departedGuests(java.util.Collection<ReservationRoomType> lines) {
+        return lines.stream().flatMap(line -> line.getRooms().stream()).map(ReservationRoom::getDeparture)
+                .filter(java.util.Objects::nonNull).mapToInt(RoomDeparture::getGuestCount).sum();
+    }
+
+    public int inHouseGuestCount(java.util.Collection<ReservationRoomType> lines) {
+        if (status == ReservationStatus.CHECKED_OUT || actualCheckOut != null) return 0;
+        int departed = departedGuests(lines);
+        int total = guestCount == null ? 0 : guestCount;
+        // Earlier guest corrections wrote the active headcount on the booking. The V2 lines
+        // retain the full corrected distribution, including guests on issued room folios.
+        if (departed > 0 && pricingVersion == PricingAlgorithmVersion.MOTEL_PACKAGE_V2
+                && lines.stream().allMatch(line -> line.getLineGuestCount() != null)) {
+            total = lines.stream().mapToInt(ReservationRoomType::getLineGuestCount).sum();
+        }
+        return Math.max(0, total - departed);
+    }
+
     @Builder.Default
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<PaymentTransaction> transactions = new HashSet<>();

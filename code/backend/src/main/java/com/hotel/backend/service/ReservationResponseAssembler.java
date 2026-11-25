@@ -31,9 +31,11 @@ public class ReservationResponseAssembler {
     private final ReservationReadBatchLoader batchLoader;
 
     public ReservationResponse withRoomTypeDetails(Reservation reservation) {
+        var lines = reservationRoomTypeRepository.findDetailsByReservationId(reservation.getId());
         ReservationResponse response = reservationAddOnService.enrich(
                 ReservationResponse.fromWithDetails(
-                        reservation, roomTypeDetails(reservation)));
+                        reservation, roomTypeDetails(lines)));
+        response.setInHouseGuestCount(reservation.inHouseGuestCount(lines));
         return pricingReadService.enrich(reservation, response);
     }
 
@@ -69,6 +71,7 @@ public class ReservationResponseAssembler {
                 batch.roomTypesFor(reservationId);
         ReservationResponse response = ReservationResponse.fromWithDetails(
                 reservation, roomTypeDetails(roomTypes));
+        response.setInHouseGuestCount(reservation.inHouseGuestCount(roomTypes));
         reservationAddOnService.enrich(
                 response, batch.servicesFor(reservationId));
         pricingReadService.enrich(
@@ -101,11 +104,6 @@ public class ReservationResponseAssembler {
                         ReservationRoomResponse::getRoomName,
                         Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                 .toList();
-    }
-
-    private List<ReservationRoomTypeResponse> roomTypeDetails(Reservation reservation) {
-        return roomTypeDetails(reservationRoomTypeRepository
-                .findDetailsByReservationId(reservation.getId()));
     }
 
     private List<ReservationRoomTypeResponse> roomTypeDetails(

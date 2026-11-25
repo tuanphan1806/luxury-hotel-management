@@ -11,6 +11,7 @@ export interface ReservationInvoice {
   roomFolios?: RoomFolio[];
   groupRoomNames?: string[];
   separatelySettledAmount?: number;
+  netSeparatelySettledAmount?: number;
   reservationId: number;
   reservationCode: string;
   issuedAt: string;
@@ -92,7 +93,10 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
   const [document, setDocument] = useState("ALL");
   const separate = (invoice.roomFolios || []).filter(f => f.billingMode === "SEPARATE");
   const selectedFolio = invoice.roomFolios?.find(f => String(f.slotId) === document);
-  const groupTotal = invoice.totalAmount - (invoice.separatelySettledAmount || 0);
+  const issuedSeparately = invoice.separatelySettledAmount || 0;
+  const netSeparate = invoice.netSeparatelySettledAmount ?? Math.min(issuedSeparately, invoice.totalAmount);
+  const creditAfterIssue = issuedSeparately - netSeparate;
+  const groupTotal = invoice.totalAmount - netSeparate;
   const money = (value?: number) =>
     Number(value || 0).toLocaleString(localeTag, {
       style: "currency",
@@ -186,7 +190,7 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
         <div className="invoice-no-print sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[#0F2A43]/10 bg-white px-5 py-3">
           {invoice.roomFolios?.length ? <select aria-label={localize("Chứng từ cần in", "Document to print")} value={document} onChange={e => setDocument(e.target.value)} className="min-h-10 min-w-0 rounded-lg border px-2 text-sm font-bold">
             <option value="ALL">{localize("Tổng hợp cả đơn", "Full reservation invoice")}</option>
-            {(groupTotal > 0 || Boolean(invoice.groupRoomNames?.length)) && <option value="GROUP">{localize("Phần thanh toán chung", "Shared bill")}</option>}
+            {(groupTotal > 0 || creditAfterIssue > 0 || Boolean(invoice.groupRoomNames?.length)) && <option value="GROUP">{localize("Phần thanh toán chung", "Shared bill")}</option>}
             {invoice.roomFolios.map(f => <option key={f.slotId} value={f.slotId}>{localize("Phiếu căn", "Room folio")} {f.roomName}</option>)}
           </select> : <p className="text-sm font-bold text-[#0F2A43]">{localize("Xem trước hóa đơn", "Invoice preview")}</p>}
           <div className="flex gap-2">
@@ -215,8 +219,9 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
               [localize("Thuế", "Tax"), invoice.taxAmount || 0],
             ].filter(([, amount]) => Number(amount) !== 0).map(([label, amount], i) =>
               <p key={i} className="flex justify-between gap-4"><span>{label}</span><span>{money(Number(amount))}</span></p>)}
+            {creditAfterIssue > 0 && <p className="flex justify-between gap-4"><span>{localize("Phần giảm trừ áp dụng cho các phiếu đã lập", "Credit applied to previously issued folios")}</span><span>+ {money(creditAfterIssue)}</span></p>}
             <p className="flex justify-between border-t pt-2 text-base font-bold"><span>{localize("Tổng thanh toán chung", "Shared total")}</span><span>{money(groupTotal)}</span></p>
-            <p className="flex justify-between"><span>{localize("Đã thanh toán", "Paid")}</span><span>{money(invoice.netPaidAmount - (invoice.separatelySettledAmount || 0))}</span></p>
+            <p className="flex justify-between"><span>{localize("Đã thanh toán", "Paid")}</span><span>{money(invoice.netPaidAmount - netSeparate)}</span></p>
           </div>
         </article> : <article className="p-7 sm:p-10">
           <header className="flex flex-col gap-6 border-b-2 border-[#0F2A43] pb-6 sm:flex-row sm:items-start sm:justify-between">
@@ -348,6 +353,7 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
               <div className="flex justify-between"><span>{localize("Đã thu", "Gross paid")}</span><span>{money(invoice.grossPaidAmount)}</span></div>
               {Boolean(invoice.roomFolios?.length) && <div className="space-y-1 border-l-2 pl-2 text-sm">
                 {separate.map(f => <div key={f.slotId}>{f.roomName} · {f.number} · {localize("Đã thanh toán riêng", "Settled separately")} · {money(f.allocatedPayment)}</div>)}
+                {creditAfterIssue > 0 && <div>{localize("Giảm trừ sau khi lập phiếu", "Credit after folio issue")} · − {money(creditAfterIssue)}</div>}
                 <div>{localize("Phần thanh toán chung", "Shared bill")} · {money(groupTotal)}</div>
               </div>}
               {(invoice.refundedAmount || 0) > 0 && <div className="flex justify-between text-rose-700"><span>{localize("Đã hoàn", "Refunded")}</span><span>− {money(invoice.refundedAmount)}</span></div>}

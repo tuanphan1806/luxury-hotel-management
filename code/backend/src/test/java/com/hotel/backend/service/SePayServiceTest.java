@@ -78,6 +78,7 @@ class SePayServiceTest {
     @Mock PaymentRefundService paymentRefundService;
     @Mock ReservationAuditService reservationAuditService;
     @Mock FinancialJournalService financialJournalService;
+    @Mock com.hotel.backend.repository.RoomFolioCollectionRepository folioCollections;
 
     private SePayConfig config;
     private SePayService sePayService;
@@ -134,7 +135,7 @@ class SePayServiceTest {
                  org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class),
                  new SePayWebhookAuthenticator(config),
                  new SePayEventIdentity(config),
-                 financialJournalService);
+                 financialJournalService, folioCollections);
     }
 
     @Test
@@ -748,6 +749,25 @@ class SePayServiceTest {
                 eq(transaction), eq(50_000L), eq(RefundSourceType.UNACCEPTED_PAYMENT),
                 any(String.class), any(PaymentProviderEvent.class),
                 any(String.class), eq("sepay_webhook"));
+    }
+
+    @Test
+    void onTimeTransferCanSettleTheStillOpenRoomFolioAfterQrTimeout() {
+        var payment = payment(PaymentStatus.CANCELLED, ReservationStatus.CHECKED_IN, 150_000L);
+        payment.setPurpose(PaymentPurpose.FINAL_PAYMENT);
+        payment.setRoomFolioCollectionId(4L);
+        payment.setMessage(PaymentSessionExpiryService.TIMEOUT_MESSAGE);
+        payment.setCreatedAt(LocalDateTime.of(2026,7,15,10,25));
+        payment.setExpiresAt(LocalDateTime.of(2026,7,15,10,35));
+        var open = new com.hotel.backend.entity.RoomFolioCollection();
+        open.setId(4L);
+        when(folioCollections.findByReservationIdAndClosedAtIsNull(77L)).thenReturn(Optional.of(open));
+        when(reservationService.getProjectedCheckoutTotal(77L)).thenReturn(150_000L);
+        stubSingleEvent(payment, "9034");
+        var result = sePayService.handleWebhook(webhookPayload(9034L, 150_000L, "2026-07-15 10:30:00"));
+        assertEquals("payment_success", result.get("message"));
+        assertEquals(150_000L, payment.getAcceptedAmount());
+        assertEquals(0L, payment.getRefundRequiredAmount());
     }
 
     @Test
