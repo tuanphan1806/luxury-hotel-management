@@ -1,0 +1,26 @@
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <localRepository>/opt/maven-repository</localRepository>
+  <profiles>
+    <profile>
+      <id>render-central-cache</id>
+      <!-- Try the public Asia Pacific Maven Central mirror before Maven's default Central repository. -->
+      <repositories>
+        <repository>
+          <id>central-asia</id>
+          <url>https://maven-central-asia.storage-download.googleapis.com/maven2/</url>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>central-asia</id>
+          <url>https://maven-central-asia.storage-download.googleapis.com/maven2/</url>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+  <activeProfiles>
+    <activeProfile>render-central-cache</activeProfile>
+  </activeProfiles>
+</settings>

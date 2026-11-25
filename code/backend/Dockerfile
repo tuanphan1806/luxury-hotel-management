@@ -4,16 +4,15 @@ FROM maven:3.9.12-eclipse-temurin-17 AS build
 WORKDIR /workspace
 ARG MAVEN_HTTP_RETRIES=5
 
-# Cache dependencies separately from source changes.
+# Keep dependencies in a build layer that Render can restore on a different builder.
+COPY .mvn/render-settings.xml ./render-settings.xml
 COPY pom.xml ./
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -ntp -Pprod \
+RUN mvn -s render-settings.xml -B -ntp -C -Pprod \
     -Dmaven.wagon.http.retryHandler.count=${MAVEN_HTTP_RETRIES} \
     dependency:go-offline
 
 COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -ntp -Pprod -DskipTests \
+RUN mvn -s render-settings.xml -B -ntp -C -Pprod -DskipTests \
     -Dmaven.wagon.http.retryHandler.count=${MAVEN_HTTP_RETRIES} \
     package \
     && cp target/backend-*.jar /workspace/backend.jar
