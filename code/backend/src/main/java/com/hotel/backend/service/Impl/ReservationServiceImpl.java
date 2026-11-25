@@ -54,6 +54,7 @@ import com.hotel.backend.service.ReservationRateSnapshotService;
 import com.hotel.backend.service.WalkInPricingService;
 import com.hotel.backend.service.AvailabilityPricingService;
 import com.hotel.backend.service.RoomInventoryService;
+import com.hotel.backend.service.LegacyRoomDeparturePricing;
 import com.hotel.backend.service.CustomerProfileClaimService;
 import com.hotel.backend.service.PaymentRefundService;
 import com.hotel.backend.service.RefundRecipientService;
@@ -108,6 +109,7 @@ public class ReservationServiceImpl implements ReservationService {
     private final RefundRecipientService         refundRecipientService;
     private final ReservationResponseAssembler   responseAssembler;
     private final ReservationInvoiceSnapshotService invoiceSnapshotService;
+    private final LegacyRoomDeparturePricing legacyDeparturePricing;
     private final ReservationCustomerProfileService customerProfileService;
     private final ReservationAddOnService reservationAddOnService;
     private final PricingQuoteCommitmentService pricingQuoteCommitmentService;
@@ -2166,19 +2168,15 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             List<ReservationRoom> reservationRooms,
             Set<Long> usedReservationRoomIds,
             Room room) {
-        // bỏ đoạn code cũ vì không còn dùng reservationRoomId nữa
-        // if (request.getReservationRoomId() != null) {
-        //     ReservationRoom rr = reservationRooms.stream()
-        //             .filter(r -> r.getId().equals(request.getReservationRoomId()))
-        //             .findFirst()
-        //             .orElseThrow(() -> new AppException(ErrorCode.RESERVATION_ROOM_NOT_FOUND));
-
-        //     if (!usedReservationRoomIds.add(rr.getId())) {
-        //         throw new AppException(ErrorCode.RESERVATION_ROOM_NOT_FOUND,
-        //                 "reservationRoomId bị gửi trùng trong yêu cầu check-in");
-        //     }
-        //     return rr;
-        // }
+        if (request.getReservationRoomId() != null) {
+            ReservationRoom slot = reservationRooms.stream()
+                    .filter(r -> r.getId().equals(request.getReservationRoomId()))
+                    .findFirst().orElseThrow(() -> new AppException(ErrorCode.RESERVATION_ROOM_NOT_FOUND));
+            if (!usedReservationRoomIds.add(slot.getId())) {
+                throw new AppException(ErrorCode.INVALID_REQUEST, "Căn trong đơn được chọn hai lần.");
+            }
+            return slot;
+        }
 
         Long roomTypeId = room.getRoomType().getId();
 
@@ -2217,7 +2215,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     "Còn dịch vụ chưa hoàn tất hoặc chưa hủy trước khi checkout");
         }
         ensureNoPendingSettlementPayment(reservationId);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = reservation.getActualCheckOut() != null ? reservation.getActualCheckOut() : LocalDateTime.now();
         applyCheckoutPricing(reservation, now, true);
         // Bắt buộc đã thanh toán đủ tổng tiền sau khi đã cộng phụ phí trả muộn.
         long totalAmount = reservation.getTotalAmount().longValue();
@@ -2260,6 +2258,8 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 reservationRoomRepository.findAllByReservationId(reservationId);
 
         rooms.forEach(rr -> {
+            // This slot may already be occupied by a new stay in the physical room.
+            if (rr.getStatus() == AssignStatus.CHECKED_OUT) return;
             rr.setStatus(AssignStatus.CHECKED_OUT);
             reservationRoomRepository.save(rr);
             Room room = rr.getRoom();
@@ -2273,6 +2273,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             // trong thời gian retention. Trạng thái phòng vật lý đã được giải phóng ở trên.
             List<Guest> guests = guestRepository.findByReservationRoomId(rr.getId());
             guests.forEach(guest -> {
+                if (guest.getCheckedOutAt() != null) return;
                 guest.setCheckedOutAt(now);
                 guestRepository.save(guest);
             });
@@ -2337,6 +2338,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     "Đơn dùng bảng giá cũ chưa hỗ trợ gia hạn tự động");
         }
         LocalDateTime oldCheckOut = reservation.getCheckOut();
+        if (reservation.getActualCheckOut() != null) {
+            throw new AppException(ErrorCode.INVALID_REQUEST, "Tất cả các căn đã trả. Hãy đối soát phần còn lại của đoàn.");
+        }
         LocalDateTime newCheckOut = request.getNewCheckOut();
         if (!newCheckOut.isAfter(oldCheckOut)
                 || !newCheckOut.isAfter(LocalDateTime.now())) {
@@ -2368,10 +2372,13 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                                 .orElseThrow(() -> new AppException(
                                         ErrorCode.ROOM_TYPE_NOT_FOUND))));
         for (ReservationRoomType line : roomTypeLines) {
+            int remainingRooms = line.getQuantity() - (int) line.getRooms().stream()
+                    .filter(slot -> slot.getDeparture() != null).count();
+            if (remainingRooms == 0) continue;
             checkAvailabilityOrThrow(
                     lockedRoomTypes.get(line.getRoomType().getId()),
-                    line.getQuantity(),
-                    reservation.getCheckIn(),
+                    remainingRooms,
+                    remainingRooms == line.getQuantity() ? reservation.getCheckIn() : oldCheckOut,
                     preview.inventoryProtectedUntil(),
                     reservationId);
         }
@@ -2530,6 +2537,12 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         applyCheckoutPricing(
                 reservation, LocalDateTime.now(), false);
         long additionalFee = request.getAdditionalFee();
+        long allocatedFee = reservationRoomRepository.findAllByReservationId(reservationId).stream()
+                .map(ReservationRoom::getDeparture).filter(Objects::nonNull).mapToLong(RoomDeparture::getAdditionalFee).sum();
+        if (additionalFee < allocatedFee) {
+            throw new AppException(ErrorCode.INVALID_REQUEST,
+                    "Phụ phí của đơn phải đủ phần đã ghi trên các phiếu trả căn: " + allocatedFee + " VND");
+        }
         BigDecimal currentAdditionalFee = reservation.getCheckoutAdditionalFee() != null
                 ? reservation.getCheckoutAdditionalFee() : BigDecimal.ZERO;
         BigDecimal oldTotal = reservation.getTotalAmount();
@@ -2790,6 +2803,10 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
     }
 
     private void ensureNoPendingSettlementPayment(Long reservationId) {
+        if (reservationRepository.hasOpenRoomFolioCollection(reservationId)) {
+            throw new AppException(ErrorCode.INVALID_REQUEST,
+                    "Đơn đang thu tiền trên phiếu từng căn. Hãy hoàn tất hoặc đóng phiếu trước khi quyết toán chung.");
+        }
         boolean pendingFinalPayment = paymentTransactionRepository
                 .existsByReservationIdAndPurposeAndStatus(
                         reservationId, PaymentPurpose.FINAL_PAYMENT, PaymentStatus.PENDING);
@@ -2982,8 +2999,21 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
             reservationRepository.save(reservation);
             return;
         }
+        if (hasRoomDepartures(reservation)) {
+            var projection = legacyDeparturePricing.project(reservation, now);
+            reservation.setTotalAmount(projection.total());
+            reservation.setEarlyCheckoutAdjustment(projection.early());
+            reservation.setLateCheckoutFee(projection.late());
+            reservationRepository.save(reservation);
+            return;
+        }
         applyEarlyCheckoutAdjustment(reservation, now);
         applyLateCheckoutFee(reservation, now);
+    }
+
+    private boolean hasRoomDepartures(Reservation reservation) {
+        return reservation.getRoomTypes().stream().flatMap(line -> line.getRooms().stream())
+                .anyMatch(slot -> slot.getDeparture() != null);
     }
 
     private void applyEarlyCheckoutAdjustment(Reservation reservation, LocalDateTime now) {
@@ -3100,6 +3130,12 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                     PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
         }
 
+        if (reservation.getStatus() == ReservationStatus.CHECKED_IN && hasRoomDepartures(reservation)) {
+            var mixed = legacyDeparturePricing.project(reservation, now);
+            return new ProjectedCheckout(mixed.total().longValueExact(), mixed.early().longValueExact(), mixed.late().longValueExact(),
+                    additionalFee.longValueExact(), addOnServiceAmount.longValueExact(), mixed.planned().longValueExact(),
+                    mixed.actualBase().longValueExact(), List.of(), 0, List.of(), mixed.late().longValueExact(), PricingAlgorithmVersion.LEGACY_V1);
+        }
         if (reservation.getStatus() == ReservationStatus.CHECKED_IN) {
             if (!now.isBefore(reservation.getCheckOut()) || reservation.getActualCheckIn() == null) {
                 if (projectedEarly.signum() > 0) {
@@ -3279,6 +3315,9 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
         if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
             blockers.add("Reservation không ở trạng thái CHECKED_IN");
         }
+        boolean roomFolioInProgress = reservation.getStatus() == ReservationStatus.CHECKED_IN
+                && reservationRepository.hasOpenRoomFolioCollection(reservation.getId());
+        if (roomFolioInProgress) blockers.add("Một phiếu từng căn đang thu tiền. Hãy xử lý phiếu trước khi quyết toán đoàn.");
         if (reservationAddOnService.hasCheckoutBlockers(reservation.getId())) {
             blockers.add("Còn dịch vụ đang REQUESTED hoặc CONFIRMED");
         }
@@ -3315,6 +3354,7 @@ public List<AvailabilityResponse> checkAvailability(LocalDateTime checkIn, Local
                 .checkoutAdditionalFee(projected.checkoutAdditionalFee())
                 .addOnServiceAmount(projected.addOnServiceAmount())
                 .paymentPending(paymentPending)
+                .roomFolioInProgress(roomFolioInProgress)
                 .refundPending(reservedRefundAmount > 0L || uncoveredRefundAmount > 0L)
                 .status(matched
                         ? com.hotel.backend.constant.CheckoutReconciliationStatus.MATCHED

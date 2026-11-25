@@ -7,6 +7,7 @@ import com.hotel.backend.constant.PricingAlgorithmVersion;
 import com.hotel.backend.constant.RateSnapshotStage;
 import com.hotel.backend.constant.ReservationServiceStatus;
 import com.hotel.backend.dto.response.ReservationInvoiceResponse;
+import com.hotel.backend.dto.response.RoomFolio;
 import com.hotel.backend.dto.response.ReservationServiceResponse;
 import com.hotel.backend.entity.CustomerProfile;
 import com.hotel.backend.entity.PaymentTransaction;
@@ -49,6 +50,7 @@ public class ReservationInvoiceSnapshotService {
     private final ReservationRateSnapshotRepository rateSnapshotRepository;
     private final ObjectMapper objectMapper;
     private final FinancialJournalService financialJournalService;
+    private final LegacyRoomDeparturePricing legacyDeparturePricing;
 
     @Value("${app.hotel-name:Luxury Hotel}")
     private String hotelName;
@@ -79,6 +81,7 @@ public class ReservationInvoiceSnapshotService {
         BigDecimal total = amountOrZero(reservation.getTotalAmount());
         List<ReservationServiceResponse> services =
                 reservationAddOnService.listInternal(reservation.getId());
+        List<RoomFolio> folios = RoomFolio.issued(reservation.getRoomTypes().stream().flatMap(line -> line.getRooms().stream()).toList());
         BigDecimal addOnServiceAmount = services.stream()
                 .filter(item -> item.getStatus() == ReservationServiceStatus.CONFIRMED
                         || item.getStatus() == ReservationServiceStatus.FULFILLED)
@@ -121,9 +124,11 @@ public class ReservationInvoiceSnapshotService {
                 .anyMatch(transaction -> transaction.getStatus() == PaymentStatus.REFUND_PENDING);
 
         CustomerProfile customer = reservation.getCustomerProfile();
-        LocalDateTime issuedAt = reservation.getActualCheckOut() != null
-                ? reservation.getActualCheckOut() : LocalDateTime.now();
-        Instant issuedAtUtc = issuedAt.atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))
+        var hotelZone = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
+        // A party can pay its shared charges on a later business day than its last room departure.
+        LocalDateTime issuedAt = folios.isEmpty() && reservation.getActualCheckOut() != null
+                ? reservation.getActualCheckOut() : LocalDateTime.now(hotelZone);
+        Instant issuedAtUtc = issuedAt.atZone(hotelZone)
                 .toInstant();
         ReservationInvoiceResponse response = ReservationInvoiceResponse.builder()
                 .invoiceNumber("INV-" + reservation.getReservationCode())
@@ -157,6 +162,7 @@ public class ReservationInvoiceSnapshotService {
                                 .purpose(transaction.getPurpose() != null ? transaction.getPurpose().name() : null)
                                 .status(transaction.getStatus().name())
                                 .amount(transaction.getAmount())
+                                .receivedAmount(transaction.getReceivedAmount())
                                 .refundAmount(transaction.getRefundAmount())
                                 .refundProvider(transaction.getRefundProvider() != null
                                         ? transaction.getRefundProvider().name() : null)
@@ -179,6 +185,15 @@ public class ReservationInvoiceSnapshotService {
                 .discountAmount(discount)
                 .taxAmount(tax)
                 .totalAmount(total)
+                .roomFolios(folios)
+                .groupRoomNames(folios.isEmpty() ? List.of() : reservation.getRoomTypes().stream()
+                        .flatMap(line -> line.getRooms().stream())
+                        .filter(slot -> slot.getDeparture() == null || slot.getDeparture().getBillingMode()
+                                == com.hotel.backend.constant.RoomBillingMode.GROUP)
+                        .filter(slot -> slot.getRoom() != null)
+                        .map(slot -> slot.getDeparture() == null ? slot.getRoom().getRoomName() : slot.getDeparture().getRoomName())
+                        .sorted().toList())
+                .separatelySettledAmount(folios.stream().map(RoomFolio::allocatedPayment).reduce(BigDecimal.ZERO, BigDecimal::add))
                 .grossPaidAmount(grossPaid)
                 .refundedAmount(refunded)
                 .completedRefundAmount(refunded)
@@ -263,13 +278,21 @@ public class ReservationInvoiceSnapshotService {
             BigDecimal lateFee =
                     amountOrZero(reservation.getLateCheckoutFee());
             BigDecimal roomCharge = total
+                    .add(amountOrZero(reservation.getDiscountAmount()))
+                    .subtract(amountOrZero(reservation.getTaxAmount()))
                     .subtract(lateFee)
                     .subtract(additionalFee)
                     .subtract(addOnServiceAmount)
                     .max(BigDecimal.ZERO);
+            boolean hasPartialDeparture = reservation.getRoomTypes().stream().flatMap(line -> line.getRooms().stream())
+                    .anyMatch(slot -> slot.getDeparture() != null);
             List<ReservationInvoiceResponse.RoomTypeLine> lines =
                     reservation.getRoomTypes().stream()
-                            .map(item -> ReservationInvoiceResponse
+                            .map(item -> {
+                                BigDecimal actual = hasPartialDeparture
+                                        ? legacyDeparturePricing.lineTotal(reservation, item, reservation.getActualCheckOut()).base()
+                                        : item.getSubtotal();
+                                return ReservationInvoiceResponse
                                     .RoomTypeLine.builder()
                                     .roomTypeCode(
                                             item.getRoomType().getCode())
@@ -282,7 +305,7 @@ public class ReservationInvoiceSnapshotService {
                                     .plannedRoomCharge(
                                             item.getSubtotal())
                                     .actualRoomCharge(
-                                            item.getSubtotal())
+                                            actual)
                                     .plannedExtraGuestCharge(
                                             BigDecimal.ZERO)
                                     .extraGuestCharge(
@@ -290,8 +313,9 @@ public class ReservationInvoiceSnapshotService {
                                     .plannedSubtotal(
                                             item.getSubtotal())
                                     .actualSubtotal(
-                                            item.getSubtotal())
-                                    .build())
+                                            actual)
+                                    .build();
+                            })
                             .toList();
             return new InvoicePricing(
                     roomCharge.add(earlyAdjustment),

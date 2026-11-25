@@ -24,6 +24,7 @@ import com.hotel.backend.dto.response.PaymentResponse;
 import com.hotel.backend.entity.PaymentTransaction;
 import com.hotel.backend.entity.PaymentProviderEvent;
 import com.hotel.backend.entity.PaymentRefund;
+import com.hotel.backend.entity.Reservation;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
 import com.hotel.backend.exception.AppException;
@@ -79,7 +80,7 @@ public class SePayService {
     private final PaymentRefundRepository refundRepository;
     private final PaymentProviderEventService providerEventService;
     private final ReservationRepository reservationRepository;
-    private final RoomHoldLifecyclePort reservationService;
+    private final PaymentReservationPort reservationService;
     private final PaymentRefundService paymentRefundService;
     private final ReservationAuditService reservationAuditService;
     private final ApplicationEventPublisher eventPublisher;
@@ -937,7 +938,11 @@ public class SePayService {
         }
 
         long paidBefore = paymentRefundService.getNetPaidAmount(transaction.getReservation().getId());
-        long reservationTotal = transaction.getReservation().getTotalAmount().longValue();
+        Reservation reservation = transaction.getReservation();
+        long reservationTotal = reservation.getStatus() == ReservationStatus.CHECKED_IN
+                && transaction.getPurpose() == PaymentPurpose.FINAL_PAYMENT
+                ? reservationService.getProjectedCheckoutTotal(reservation.getId())
+                : reservation.getTotalAmount().longValue();
         long acceptedCapacity = Math.max(0L, reservationTotal - paidBefore);
         long acceptedAmount = Math.min(expected, acceptedCapacity);
 

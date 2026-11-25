@@ -303,8 +303,7 @@ public class PaymentController {
     public ResponseEntity<PaymentResponse> getTransaction(
             @PathVariable String transactionId,
             @AuthenticationPrincipal User currentUser) {
-        return ResponseEntity.ok(PaymentResponse.from(
-                paymentService.getTransaction(transactionId, currentUser)));
+        return ResponseEntity.ok(paymentService.getTransaction(transactionId, currentUser));
     }
 
     /**

@@ -3,9 +3,14 @@
 import { useLanguage } from "@/components/i18n/LanguageProvider";
 import ViewportModal from "@/components/UI/ViewportModal";
 import type { ReservationServiceItem } from "@/lib/add-on-services";
+import { useState } from "react";
+import { RoomFolioDetails, type RoomFolio } from "./RoomFolioDetails";
 
 export interface ReservationInvoice {
   invoiceNumber: string;
+  roomFolios?: RoomFolio[];
+  groupRoomNames?: string[];
+  separatelySettledAmount?: number;
   reservationId: number;
   reservationCode: string;
   issuedAt: string;
@@ -47,6 +52,7 @@ export interface ReservationInvoice {
     purpose?: string;
     status: string;
     amount: number;
+    receivedAmount?: number | null;
     refundAmount?: number;
     refundProvider?: string;
     refundChannel?: string;
@@ -83,6 +89,10 @@ interface Props {
 
 export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
   const { locale, localeTag, localize } = useLanguage();
+  const [document, setDocument] = useState("ALL");
+  const separate = (invoice.roomFolios || []).filter(f => f.billingMode === "SEPARATE");
+  const selectedFolio = invoice.roomFolios?.find(f => String(f.slotId) === document);
+  const groupTotal = invoice.totalAmount - (invoice.separatelySettledAmount || 0);
   const money = (value?: number) =>
     Number(value || 0).toLocaleString(localeTag, {
       style: "currency",
@@ -161,6 +171,7 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
   );
   const settled = invoice.settlementStatus === "PAID" && invoice.balanceAmount === 0;
   const isPricingV2 = invoice.pricingVersion === "MOTEL_PACKAGE_V2";
+  const showActualRoomLines = isPricingV2 || Boolean(invoice.roomFolios?.length);
 
   return (
     <ViewportModal
@@ -173,14 +184,41 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
     >
       <div className="invoice-print-root min-h-0 w-full overflow-y-auto bg-white text-[#0F2A43] print:overflow-visible">
         <div className="invoice-no-print sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[#0F2A43]/10 bg-white px-5 py-3">
-          <p className="text-sm font-bold text-[#0F2A43]">{localize("Xem trước hóa đơn", "Invoice preview")}</p>
+          {invoice.roomFolios?.length ? <select aria-label={localize("Chứng từ cần in", "Document to print")} value={document} onChange={e => setDocument(e.target.value)} className="min-h-10 min-w-0 rounded-lg border px-2 text-sm font-bold">
+            <option value="ALL">{localize("Tổng hợp cả đơn", "Full reservation invoice")}</option>
+            {(groupTotal > 0 || Boolean(invoice.groupRoomNames?.length)) && <option value="GROUP">{localize("Phần thanh toán chung", "Shared bill")}</option>}
+            {invoice.roomFolios.map(f => <option key={f.slotId} value={f.slotId}>{localize("Phiếu căn", "Room folio")} {f.roomName}</option>)}
+          </select> : <p className="text-sm font-bold text-[#0F2A43]">{localize("Xem trước hóa đơn", "Invoice preview")}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="min-h-11 rounded-lg border border-[#0F2A43]/20 px-4 text-sm font-bold text-[#0F2A43]">{localize("Đóng", "Close")}</button>
             <button type="button" onClick={() => window.print()} className="min-h-11 rounded-lg bg-[#0F2A43] px-5 text-sm font-bold text-white hover:bg-[#091E30]">{localize("In hóa đơn", "Print invoice")}</button>
           </div>
         </div>
 
-        <article className="p-7 sm:p-10">
+        {selectedFolio ? <article className="space-y-4 p-7 sm:p-10">
+          <h2 id="invoice-title" className="text-xl font-bold">{invoice.hotelName} · {localize("Phiếu trả phòng", "Room folio")}</h2>
+          <RoomFolioDetails folio={selectedFolio}/>
+        </article> : document === "GROUP" ? <article className="space-y-4 p-7 sm:p-10">
+          <header><h2 id="invoice-title" className="text-xl font-bold">{localize("Phần thanh toán chung", "Shared bill")}</h2>
+            <p>{invoice.hotelName} · {invoice.invoiceNumber}</p>
+            <p className="text-sm text-[#596873]">{dateTime(invoice.issuedAt)} · {invoice.groupRoomNames?.join(", ")}</p></header>
+          <div className="space-y-2 text-sm tabular-nums">
+            {[
+              [localize("Tiền phòng", "Room charge"), (invoice.actualRoomCharge ?? invoice.roomCharge) + (isPricingV2 ? 0 : invoice.lateCheckoutFee || 0) - separate.reduce((n, f) => n + f.roomCharge, 0)],
+              [localize("Phụ thu khách", "Extra guests"), (invoice.extraGuestCharge || 0) - separate.reduce((n, f) => n + f.extraCharge, 0)],
+              ...billableServices.map(s => {
+                const used = separate.flatMap(f => f.services).filter(x => x.id === s.id);
+                return [s.serviceName + " × " + (s.billableQuantity - used.reduce((n, x) => n + x.quantity, 0)), s.totalPrice - used.reduce((n, x) => n + x.amount, 0)];
+              }),
+              [localize("Phụ phí khác", "Additional fee"), (invoice.checkoutAdditionalFee || 0) - separate.reduce((n, f) => n + f.additionalFee, 0)],
+              [localize("Giảm giá", "Discount"), -(invoice.discountAmount || 0)],
+              [localize("Thuế", "Tax"), invoice.taxAmount || 0],
+            ].filter(([, amount]) => Number(amount) !== 0).map(([label, amount], i) =>
+              <p key={i} className="flex justify-between gap-4"><span>{label}</span><span>{money(Number(amount))}</span></p>)}
+            <p className="flex justify-between border-t pt-2 text-base font-bold"><span>{localize("Tổng thanh toán chung", "Shared total")}</span><span>{money(groupTotal)}</span></p>
+            <p className="flex justify-between"><span>{localize("Đã thanh toán", "Paid")}</span><span>{money(invoice.netPaidAmount - (invoice.separatelySettledAmount || 0))}</span></p>
+          </div>
+        </article> : <article className="p-7 sm:p-10">
           <header className="flex flex-col gap-6 border-b-2 border-[#0F2A43] pb-6 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xl font-extrabold tracking-tight text-[#0F2A43]">{invoice.hotelName || "Luxury Hotel"}</p>
@@ -218,7 +256,7 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
             <div className="overflow-hidden rounded-lg border border-[#0F2A43]/15">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-[#E5E9ED] text-left text-xs text-[#66727C]">
-                  <tr><th className="px-4 py-3">{localize("Loại phòng", "Room type")}</th><th className="px-4 py-3 text-center">{localize("Số lượng", "Quantity")}</th><th className="px-4 py-3 text-right">{localize("Giá 1 phòng / kỳ lưu trú", "Price per room / stay")}</th><th className="px-4 py-3 text-right">{isPricingV2 ? localize("Thành tiền thực tế", "Actual line total") : localize("Tạm tính dự kiến", "Planned subtotal")}</th></tr>
+                  <tr><th className="px-4 py-3">{localize("Loại phòng", "Room type")}</th><th className="px-4 py-3 text-center">{localize("Số lượng", "Quantity")}</th><th className="px-4 py-3 text-right">{showActualRoomLines ? localize("Tiền phòng bình quân / căn", "Average room charge") : localize("Giá 1 phòng / kỳ lưu trú", "Price per room / stay")}</th><th className="px-4 py-3 text-right">{showActualRoomLines ? localize("Thành tiền thực tế", "Actual line total") : localize("Tạm tính dự kiến", "Planned subtotal")}</th></tr>
                 </thead>
                 <tbody className="divide-y divide-[#0F2A43]/10">
                   {invoice.roomTypes.map((item) => (
@@ -237,8 +275,8 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center tabular-nums">{item.quantity}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{money(item.pricePerRoomForStay)}</td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(isPricingV2 ? item.actualSubtotal ?? item.plannedSubtotal : item.plannedSubtotal)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{money(showActualRoomLines && item.actualRoomCharge != null && item.quantity > 0 ? item.actualRoomCharge / item.quantity : item.pricePerRoomForStay)}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{money(showActualRoomLines ? item.actualSubtotal ?? item.plannedSubtotal : item.plannedSubtotal)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -287,7 +325,7 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
               <div className="space-y-3">
                 {invoice.payments.length === 0 ? <p className="text-sm text-[#6B7280]">{localize("Không có giao dịch thanh toán hợp lệ.", "No valid payment transactions.")}</p> : invoice.payments.map((payment) => (
                   <div key={payment.transactionId} className="border-b border-[#0F2A43]/10 pb-3 text-sm last:border-0">
-                    <div className="flex justify-between gap-3"><span className="font-semibold">{paymentProviderLabel(payment.provider)} · {purposeLabel(payment.purpose)}</span><span className="font-bold tabular-nums">{money(payment.amount)}</span></div>
+                    <div className="flex justify-between gap-3"><span className="font-semibold">{paymentProviderLabel(payment.provider)} · {purposeLabel(payment.purpose)}</span><span className="font-bold tabular-nums">{money(payment.receivedAmount ?? payment.amount)}</span></div>
                     <div className="mt-1 flex justify-between gap-3 text-xs text-[#6B7280]"><span>{payment.transactionReference} · {statusLabel(payment.status)}</span><span>{dateTime(payment.paidAt || payment.createdAt)}</span></div>
                     {(payment.refundAmount || 0) > 0 && <p className={`mt-1 text-xs font-bold ${refundTone(payment.status)}`}>{refundLabel(payment.status)}: {money(payment.refundAmount)}{refundChannelLabel(payment.refundChannel, payment.refundProvider) ? ` · ${localize("qua", "via")} ${refundChannelLabel(payment.refundChannel, payment.refundProvider)}` : ""}</p>}
                   </div>
@@ -308,6 +346,10 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
               {(invoice.taxAmount || 0) > 0 && <div className="flex justify-between"><span>{localize("Thuế", "Tax")}</span><span>+ {money(invoice.taxAmount)}</span></div>}
               <div className="mt-3 flex justify-between border-t-2 border-[#0F2A43] pt-3 text-lg font-extrabold text-[#0F2A43]"><span>{localize("Tổng cộng", "Total")}</span><span>{money(invoice.totalAmount)}</span></div>
               <div className="flex justify-between"><span>{localize("Đã thu", "Gross paid")}</span><span>{money(invoice.grossPaidAmount)}</span></div>
+              {Boolean(invoice.roomFolios?.length) && <div className="space-y-1 border-l-2 pl-2 text-sm">
+                {separate.map(f => <div key={f.slotId}>{f.roomName} · {f.number} · {localize("Đã thanh toán riêng", "Settled separately")} · {money(f.allocatedPayment)}</div>)}
+                <div>{localize("Phần thanh toán chung", "Shared bill")} · {money(groupTotal)}</div>
+              </div>}
               {(invoice.refundedAmount || 0) > 0 && <div className="flex justify-between text-rose-700"><span>{localize("Đã hoàn", "Refunded")}</span><span>− {money(invoice.refundedAmount)}</span></div>}
               <div className="flex justify-between font-bold"><span>{localize("Thanh toán ròng", "Net paid")}</span><span>{money(invoice.netPaidAmount)}</span></div>
             </div>
@@ -317,7 +359,7 @@ export default function ReservationInvoiceModal({ invoice, onClose }: Props) {
             <p className={`inline-flex rounded-full px-4 py-2 text-sm font-extrabold ${settled ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{settled ? localize("Đã thanh toán đủ", "Paid in full") : `${localize("Cần kiểm tra đối soát", "Reconciliation required")}: ${money(invoice.balanceAmount)}`}</p>
             <p className="mt-4 text-xs text-[#6B7280]">{localize(`Cảm ơn quý khách đã sử dụng dịch vụ tại ${invoice.hotelName || "Luxury Hotel"}.`, `Thank you for staying at ${invoice.hotelName || "Luxury Hotel"}.`)}</p>
           </footer>
-        </article>
+        </article>}
       </div>
     </ViewportModal>
   );
