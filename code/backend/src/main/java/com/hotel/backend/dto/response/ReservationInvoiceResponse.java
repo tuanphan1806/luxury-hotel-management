@@ -61,6 +61,7 @@ public class ReservationInvoiceResponse {
     private List<RoomFolio> roomFolios;
     private List<String> groupRoomNames;
     private BigDecimal separatelySettledAmount;
+    private BigDecimal netSeparatelySettledAmount;
     private Long grossPaidAmount;
     private Long refundedAmount;
     private Long completedRefundAmount;

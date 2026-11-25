@@ -126,6 +126,7 @@ interface ReservationItem {
   earlyCheckoutAdjustment?: number;
   checkoutAdditionalFee?: number;
   guestCount: number;
+  inHouseGuestCount?: number;
   noShowEligible?: boolean;
   noShowEligibleAt?: string;
   refundRoute?: RefundRoute;
@@ -4012,7 +4013,7 @@ export default function ReservationsManagement() {
               reservationId={serviceReservationTarget.id}
               reservationCode={serviceReservationTarget.reservationCode}
               reservationStatus={serviceReservationTarget.status}
-              guestCount={serviceReservationTarget.guestCount}
+              guestCount={serviceReservationTarget.inHouseGuestCount ?? serviceReservationTarget.guestCount}
               checkIn={serviceReservationTarget.checkIn}
               checkOut={serviceReservationTarget.checkOut}
               actualCheckIn={serviceReservationTarget.actualCheckIn}

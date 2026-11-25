@@ -48,6 +48,7 @@ interface Booking {
   taxAmount: number;
   status: "DRAFT" | "CONFIRMED" | "CANCELLATION_PENDING" | "CANCELLED" | "CHECKED_IN" | "CHECKED_OUT" | "NO_SHOW";
   guestCount: string;
+  inHouseGuestCount: number;
   createdAt: string;
   cancellationReason?: string;
   cancellationRefundPending?: boolean;
@@ -132,6 +133,7 @@ interface ApiReservation {
   taxAmount?: number;
   status: Booking["status"];
   guestCount?: number;
+  inHouseGuestCount?: number;
   createdAt: string;
   cancellationReason?: string;
   cancellationRefundPending?: boolean;
@@ -274,6 +276,7 @@ export default function MyBookingsPage() {
             taxAmount: Number(r.taxAmount || 0),
             status: r.status,
             guestCount: r.guestCount ? localize(`${r.guestCount} khách`, `${r.guestCount} guests`) : "-",
+            inHouseGuestCount: r.inHouseGuestCount ?? r.guestCount ?? 1,
             createdAt: r.createdAt,
             cancellationReason: r.cancellationReason,
             cancellationRefundPending: Boolean(r.cancellationRefundPending),
@@ -902,7 +905,7 @@ export default function MyBookingsPage() {
                             reservationId={booking.id}
                             reservationCode={booking.bookingId}
                             reservationStatus={booking.status}
-                            guestCount={Number(booking.guestCount) || 1}
+                            guestCount={booking.inHouseGuestCount}
                             checkIn={booking.checkInDate}
                             checkOut={booking.checkOutDate}
                             initialServices={booking.services}

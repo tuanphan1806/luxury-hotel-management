@@ -11,7 +11,10 @@ import com.hotel.backend.dto.request.ReservationServiceStatusRequest;
 import com.hotel.backend.dto.request.ServiceOrderRequest;
 import com.hotel.backend.entity.AddOnService;
 import com.hotel.backend.entity.Reservation;
+import com.hotel.backend.entity.ReservationRoom;
+import com.hotel.backend.entity.ReservationRoomType;
 import com.hotel.backend.entity.ReservationServiceOrder;
+import com.hotel.backend.entity.RoomDeparture;
 import com.hotel.backend.entity.User;
 import com.hotel.backend.event.CheckoutReconciliationChangedEvent;
 import com.hotel.backend.exception.AppException;
@@ -192,6 +195,25 @@ class ReservationAddOnServiceTest {
 
         assertThat(quote.totalAmount()).isEqualByComparingTo("150000.00");
         assertThat(quote.lines().get(0).quantity()).isEqualTo(3);
+    }
+
+    @Test
+    void olderCorrectedStayBillsOnlyPeopleStillPresentAcrossRoomTypes() {
+        reservation.setPricingVersion(PricingAlgorithmVersion.MOTEL_PACKAGE_V2);
+        reservation.setGuestCount(3); // Older corrections stored the active headcount here.
+        var released = ReservationRoomType.builder().quantity(1).lineGuestCount(3).build();
+        released.getRooms().add(ReservationRoom.builder()
+                .departure(RoomDeparture.builder().guestCount(3).build()).build());
+        var occupied = ReservationRoomType.builder().quantity(1).lineGuestCount(3).build();
+        reservation.getRoomTypes().addAll(List.of(released, occupied));
+        when(reservationRepository.findByIdForUpdate(41L)).thenReturn(Optional.of(reservation));
+        when(catalogRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(
+                catalog(1L, "IN_ROOM_BREAKFAST", AddOnPricingUnit.PER_GUEST, "50000.00")));
+        when(orderRepository.save(any(ReservationServiceOrder.class))).thenAnswer(call -> call.getArgument(0));
+
+        var response = service.requestInStay(41L, ServiceOrderRequest.builder().serviceId(1L).build(), staff, null);
+        assertThat(response.getQuantity()).isEqualTo(3);
+        assertThat(response.getTotalPrice()).isEqualByComparingTo("150000");
     }
 
     @Test

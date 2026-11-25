@@ -21,15 +21,35 @@ import static org.mockito.Mockito.*;
 
 class SplitReservationInvoiceTest {
     @Test
+    void legacyEarlyDepartureCannotTurnADiscountIntoAnUnfundedRefund() {
+        var start = LocalDateTime.of(2026, 11, 1, 9, 0);
+        var line = ReservationRoomType.builder().roomPrice(amount(330000)).quantity(2).build();
+        line.getRooms().add(ReservationRoom.builder().departure(RoomDeparture.builder()
+                .departedAt(start.plusMinutes(15)).roomCharge(amount(100000)).includedLateFee(amount(0)).build()).build());
+        var stay = Reservation.builder().checkIn(start).actualCheckIn(start).checkOut(start.plusHours(24))
+                .roomTypes(Set.of(line)).totalAmount(amount(410000)).discountAmount(amount(250000)).build();
+        var prices = new LegacyRoomDeparturePricing(new PricingService(amount(10000), amount(10000)));
+        var first = prices.project(stay, start.plusMinutes(30));
+        assertEquals(0, first.actualBase().compareTo(amount(200000)));
+        assertEquals(0, first.total().signum());
+        stay.setTotalAmount(first.total());
+        stay.setEarlyCheckoutAdjustment(first.early());
+        assertEquals(first.total(), prices.project(stay, start.plusMinutes(31)).total());
+        assertEquals(0, prices.project(stay, start.plusHours(24)).total().compareTo(amount(180000)));
+    }
+
+    @Test
     void sharedBillAndRoomFolioReconcileWithDiscountTaxAndActualBankReceiptOnSettlementDay() {
         var invoices = mock(ReservationInvoiceRepository.class);
         var transactions = mock(PaymentTransactionRepository.class);
         var refunds = mock(PaymentRefundService.class);
         var services = mock(ReservationAddOnService.class);
         var journal = mock(FinancialJournalService.class);
+        var funding = mock(RoomFolioPayments.class);
+        when(funding.funding(7L, 165000L)).thenReturn(new RoomFolioPayments.Funding(385000,165000,List.of(),java.util.Map.of()));
         var snapshots = new ReservationInvoiceSnapshotService(invoices, transactions, refunds, services,
                 mock(ReservationRateSnapshotRepository.class), new ObjectMapper().findAndRegisterModules(), journal,
-                new LegacyRoomDeparturePricing(mock(PricingService.class)));
+                new LegacyRoomDeparturePricing(mock(PricingService.class)), funding);
         var left = LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")).minusDays(2);
         var line = ReservationRoomType.builder().roomType(RoomType.builder().code("TEST").typeName("Standard").build())
                 .roomPrice(amount(100000)).quantity(2).subtotal(amount(200000)).build();

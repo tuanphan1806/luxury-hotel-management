@@ -134,6 +134,32 @@ class PricingV2LifecycleServiceTest {
     }
 
     @Test
+    void leavingDuringTheThirdCycleOnlyChangesTheAllowanceForLaterCycles() {
+        var rate = commitment.getRateProfile();
+        rate.setIncludedGuests(2);
+        rate.getRoomType().setMaxGuests(3);
+        reservationLine.setQuantity(2);
+        commitment = snapshot(1, RateSnapshotStage.COMMITMENT, PricingTransitionReason.INITIAL_QUOTE,
+                rate, commitment.getStayPolicyVersion(), reservation.getCheckOut(), money("340000"),
+                money("0"), money("0"), 2, 4, StayPackage.OVERNIGHT, money("340000"));
+        when(snapshotRepository.findByReservationRoomTypeIdOrderBySnapshotSequenceAsc(reservationLine.getId()))
+                .thenReturn(List.of(commitment));
+        var at = reservation.getCheckIn().plusHours(50);
+        var together = service.project(reservation, at).lines().get(0);
+        assertEquals(3, together.breakdown().packageCycles());
+        assertEquals(money("0"), together.finalExtraGuestCharge());
+        for (int firstToLeave : List.of(1, 3)) {
+            reservationLine.getRooms().clear();
+            reservationLine.getRooms().add(ReservationRoom.builder().status(AssignStatus.CHECKED_OUT)
+                    .departure(RoomDeparture.builder().departedAt(at).guestCount(firstToLeave).billedExtraGuests(0)
+                            .roomCharge(money("100000")).extraCharge(money("0")).build()).build());
+            assertEquals(together.finalExtraGuestCharge(), service.project(reservation, at.plusSeconds(1)).extraGuestCharge());
+            assertEquals(money(firstToLeave == 1 ? "50000" : "0"),
+                    service.project(reservation, at.plusHours(24)).extraGuestCharge());
+        }
+    }
+
+    @Test
     void releasedRoomCannotLendItsIncludedGuestAllowanceToARemainingRoom() {
         var rate = commitment.getRateProfile();
         rate.setIncludedGuests(2);

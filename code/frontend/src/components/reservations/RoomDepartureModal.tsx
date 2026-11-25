@@ -12,7 +12,7 @@ import CheckoutTenderActions from "./CheckoutTenderActions";
 type Units = { orderId: number; quantity: number };
 type Mode = "GROUP" | "SEPARATE";
 type Selection = { services: Units[]; additionalFee: number; useCredit: number | null };
-type Collection = { id: number; pick: {slotIds: number[]; selection: Selection}; pendingTransactionId: string | null; cash: number; qr: number };
+type Collection = { id: number; pick: {slotIds: number[]; selection: Selection}; pendingTransactionId: string | null; pendingAmount?: number | null; cash: number; qr: number };
 type Options = { occupied: { id: number; name: string }[]; services: RoomServiceLine[]; folios: RoomFolio[]; remainingFee: number; groupTax: number; groupDiscount: number; collection: Collection | null };
 type Quote = { roomCharge: number; extraCharge: number; serviceCharge: number; additionalFee: number; total: number; availableCredit: number; minimumCredit: number; maximumCredit: number; cashDue: number; cashCollected: number; qrCollected: number };
 type Props = { id: number; code: string; onClose: () => void; onSaved: () => void; onEditFee: () => void; feeEditorOpen: boolean };
@@ -212,7 +212,8 @@ export default function RoomDepartureModal({ id, code, onClose, onSaved, onEditF
               {!collection && quote.maximumCredit > quote.minimumCredit && <label className="mb-2 flex min-h-8 items-center gap-2 text-xs"><input type="checkbox" checked={useCredit !== null}
                 onChange={e => { resetQuote(); setUseCredit(e.target.checked ? quote.minimumCredit : null); }}/>
                 {t("Giữ lại tối đa tiền đã thu cho phần chung", "Reserve available credit for the shared bill")}</label>}
-              <p className="flex justify-between gap-3 font-bold"><span>{pendingQr ? t("Chờ xác nhận QR", "Awaiting QR confirmation") : quote.cashDue > 0 ? t("Khách cần thanh toán thêm", "Amount to collect") : t("Đã thanh toán đủ", "Paid in full")}</span><span>{vnd(quote.cashDue)}</span></p>
+              <p className="flex justify-between gap-3 font-bold"><span>{pendingQr ? t("Chờ xác nhận QR", "Awaiting QR confirmation") : quote.cashDue > 0 ? t("Khách cần thanh toán thêm", "Amount to collect") : t("Đã thanh toán đủ", "Paid in full")}</span><span>{pendingQr ? (collection?.pendingAmount != null ? vnd(collection.pendingAmount) : t("Xem trên mã QR", "See QR amount")) : vnd(quote.cashDue)}</span></p>
+              {pendingQr && collection?.pendingAmount != null && collection.pendingAmount !== quote.cashDue && <p role="status" className="mt-2">{t("Số tiền còn phải thu theo báo giá hiện tại", "Current amount due")} · <b>{vnd(quote.cashDue)}</b>. {t("Nếu khách đã chuyển, kiểm tra giao dịch trước khi thu phần chênh lệch.", "If the guest has paid, check that transfer before collecting any difference.")}</p>}
               {pendingQr ? <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" className={button + " bg-white"} onClick={() => openQr(pendingQr)}>{t("Mở lại QR", "Reopen QR")}</button>
                 <button type="button" className={button} onClick={reload}>{t("Kiểm tra trạng thái", "Check status")}</button>
